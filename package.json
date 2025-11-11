@@ -4,7 +4,9 @@
   "description": "React Flow example with MiniMap, Controls, Background, and Panels",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "next dev",
+    "dev:backend": "cd backend && npm run dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -13,7 +15,8 @@
     "next": "^15.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "reactflow": "^11.11.4"
+    "reactflow": "^11.11.4",
+    "replicate": "^1.3.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -22,6 +25,7 @@
     "autoprefixer": "^10.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "concurrently": "^9.2.1",
     "lucide-react": "^0.553.0",
     "postcss": "^8.4.0",
     "tailwind-merge": "^3.4.0",

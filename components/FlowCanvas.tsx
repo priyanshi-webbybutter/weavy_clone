@@ -134,25 +134,61 @@ function FlowCanvasInner() {
           return node;
         });
 
-        // Simulate image generation with timeout
-        setTimeout(() => {
-          setNodes((currentNodes) =>
-            currentNodes.map((node) => {
-              if (node.id === nodeId) {
-                return {
-                  ...node,
-                  data: {
-                    ...node.data,
-                    isGenerating: false,
-                    // Placeholder image URL - replace with actual API call
-                    imageUrl: `https://picsum.photos/400/400?random=${Date.now()}`,
-                  },
-                };
-              }
-              return node;
-            })
-          );
-        }, 2000); // 2 second delay to simulate generation
+        // Call backend API to generate image
+        fetch('http://localhost:3001/api/generate-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ prompt: promptText }),
+        })
+          .then(async (response) => {
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || 'Failed to generate image');
+            }
+
+            // Update node with generated image
+            setNodes((currentNodes) =>
+              currentNodes.map((node) => {
+                if (node.id === nodeId) {
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      isGenerating: false,
+                      imageUrl: data.imageUrl,
+                    },
+                  };
+                }
+                return node;
+              })
+            );
+
+            console.log('✅ Image generated successfully:', data.imageUrl);
+          })
+          .catch((error) => {
+            console.error('❌ Error generating image:', error);
+
+            // Update node to show error state
+            setNodes((currentNodes) =>
+              currentNodes.map((node) => {
+                if (node.id === nodeId) {
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      isGenerating: false,
+                    },
+                  };
+                }
+                return node;
+              })
+            );
+
+            alert(`Failed to generate image: ${error.message}`);
+          });
 
         return updatedNodes;
       });
