@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import ReactFlow, {
   MiniMap,
   Background,
@@ -20,6 +20,15 @@ import BottomToolbar from './BottomToolbar';
 import Sidebar from './Sidebar';
 import SidePanel from './SidePanel';
 
+// LocalStorage keys
+const STORAGE_KEYS = {
+  NODES: 'weavy-canvas-nodes',
+  EDGES: 'weavy-canvas-edges',
+};
+
+// Global lock to prevent duplicate API calls across all component instances
+const GLOBAL_GENERATING_NODES = new Set<string>();
+
 // Import custom node types
 import { CustomNode } from './CustomNode';
 import { PromptInputNode } from './PromptInputNode';
@@ -32,33 +41,11 @@ const nodeTypes = {
   imageGenerator: ImageGeneratorNode,
 };
 
-// Initial nodes with different types
-const initialNodes: Node[] = [
-  {
-    id: '1',
-    type: 'custom',
-    position: { x: 250, y: 100 },
-    data: { label: 'Prompt Node', description: 'AI-powered prompt generation' },
-  },
-  {
-    id: '2',
-    type: 'custom',
-    position: { x: 100, y: 300 },
-    data: { label: 'Image Generator', description: 'Generate images from prompts' },
-  },
-  {
-    id: '3',
-    type: 'default',
-    position: { x: 400, y: 300 },
-    data: { label: 'Output' },
-  },
-];
+// Initial nodes - Start with empty canvas
+const initialNodes: Node[] = [];
 
-// Initial edges
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true, style: { stroke: '#8b5cf6' } },
-  { id: 'e1-3', source: '1', target: '3', style: { stroke: '#8b5cf6' } },
-];
+// Initial edges - Start with no connections
+const initialEdges: Edge[] = [];
 
 function FlowCanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -70,6 +57,10 @@ function FlowCanvasInner() {
   // Panel state management
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [panelType, setPanelType] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Track ongoing image generations to prevent duplicates
+  const generatingNodes = useRef<Set<string>>(new Set());
 
   // Handle connection between nodes
   const onConnect = useCallback(
@@ -89,12 +80,33 @@ function FlowCanvasInner() {
 
   // Handle Run Model for image generator nodes
   const handleRunModel = useCallback((nodeId: string) => {
+    console.log(`🎯 handleRunModel called for node: ${nodeId}`);
+
+    // GLOBAL CHECK: First line of defense - check global lock
+    if (GLOBAL_GENERATING_NODES.has(nodeId)) {
+      console.log('🚫 GLOBAL lock active - generation already in progress');
+      return;
+    }
+
+    // Second check: Is this node already in the component ref?
+    if (generatingNodes.current.has(nodeId)) {
+      console.log('⏸️ Generation already in progress (ref check), skipping duplicate call');
+      return;
+    }
+
+    // Lock at BOTH global and component level immediately
+    GLOBAL_GENERATING_NODES.add(nodeId);
+    generatingNodes.current.add(nodeId);
+    console.log(`🔒 Locked node ${nodeId} for generation (GLOBAL + REF)`);
+
     // Access current edges state
     setEdges((currentEdges) => {
       // Find connected prompt nodes via edges
       const connectedEdge = currentEdges.find((edge) => edge.target === nodeId);
 
       if (!connectedEdge) {
+        GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
+        generatingNodes.current.delete(nodeId); // Remove from ref tracking
         alert('Please connect a Prompt node to the input before running the model.');
         return currentEdges;
       }
@@ -102,11 +114,25 @@ function FlowCanvasInner() {
       // Now update nodes with the found edge
       setNodes((nds) => {
         const imageNode = nds.find((node) => node.id === nodeId);
-        if (!imageNode) return nds;
+        if (!imageNode) {
+          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
+          generatingNodes.current.delete(nodeId); // Remove from ref tracking
+          return nds;
+        }
+
+        // Additional check: Is this node already generating in current state?
+        if (imageNode.data?.isGenerating) {
+          console.log('⏸️ Node already generating (state check inside setNodes), aborting');
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          return nds;
+        }
 
         const sourceNode = nds.find((node) => node.id === connectedEdge.source);
 
         if (!sourceNode) {
+          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
+          generatingNodes.current.delete(nodeId); // Remove from ref tracking
           alert('Connected prompt node not found.');
           return nds;
         }
@@ -114,6 +140,8 @@ function FlowCanvasInner() {
         const promptText = sourceNode.data.value || '';
 
         if (!promptText.trim()) {
+          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
+          generatingNodes.current.delete(nodeId); // Remove from ref tracking
           alert('The connected prompt is empty. Please enter some text first.');
           return nds;
         }
@@ -167,6 +195,10 @@ function FlowCanvasInner() {
             );
 
             console.log('✅ Image generated successfully:', data.imageUrl);
+
+            // Remove from tracking after successful generation
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
           })
           .catch((error) => {
             console.error('❌ Error generating image:', error);
@@ -188,6 +220,10 @@ function FlowCanvasInner() {
             );
 
             alert(`Failed to generate image: ${error.message}`);
+
+            // Remove from tracking after error
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
           });
 
         return updatedNodes;
@@ -361,6 +397,100 @@ function FlowCanvasInner() {
     setIsPanelOpen(false);
     setPanelType(null);
   }, []);
+
+  // Load saved canvas state from localStorage on mount
+  useEffect(() => {
+    if (isInitialized) return; // Prevent multiple loads
+
+    try {
+      const savedNodes = localStorage.getItem(STORAGE_KEYS.NODES);
+      const savedEdges = localStorage.getItem(STORAGE_KEYS.EDGES);
+
+      if (savedNodes) {
+        const parsedNodes = JSON.parse(savedNodes);
+        // Restore handlers for each node
+        const nodesWithHandlers = parsedNodes.map((node: Node) => {
+          if (node.type === 'promptInput') {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                onChange: (nodeId: string, newValue: string) => {
+                  setNodes((nds) =>
+                    nds.map((n) => {
+                      if (n.id === nodeId) {
+                        return {
+                          ...n,
+                          data: {
+                            ...n.data,
+                            value: newValue,
+                          },
+                        };
+                      }
+                      return n;
+                    })
+                  );
+                },
+                onDelete: handleDeleteNode,
+                onDuplicate: handleDuplicateNode,
+              },
+            };
+          } else if (node.type === 'imageGenerator') {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: false, // Always reset generating state on page load
+                onRunModel: handleRunModel,
+                onDelete: handleDeleteNode,
+                onDuplicate: handleDuplicateNode,
+              },
+            };
+          }
+          return node;
+        });
+        setNodes(nodesWithHandlers);
+        console.log(`✅ Loaded ${nodesWithHandlers.length} nodes from localStorage`);
+      }
+
+      if (savedEdges) {
+        const parsedEdges = JSON.parse(savedEdges);
+        setEdges(parsedEdges);
+        console.log(`✅ Loaded ${parsedEdges.length} edges from localStorage`);
+      }
+
+      setIsInitialized(true);
+    } catch (error) {
+      console.error('❌ Error loading canvas state:', error);
+      setIsInitialized(true);
+    }
+  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, setNodes, setEdges]);
+
+  // Save canvas state to localStorage whenever nodes or edges change
+  useEffect(() => {
+    if (!isInitialized) return; // Don't save during initial load
+
+    try {
+      // Remove function handlers and temporary state before saving (can't be serialized)
+      const nodesToSave = nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          onChange: undefined,
+          onRunModel: undefined,
+          onDelete: undefined,
+          onDuplicate: undefined,
+          isGenerating: undefined, // Don't save loading state
+        },
+      }));
+
+      localStorage.setItem(STORAGE_KEYS.NODES, JSON.stringify(nodesToSave));
+      localStorage.setItem(STORAGE_KEYS.EDGES, JSON.stringify(edges));
+      console.log(`💾 Saved ${nodes.length} nodes and ${edges.length} edges to localStorage`);
+    } catch (error) {
+      console.error('❌ Error saving canvas state:', error);
+    }
+  }, [nodes, edges, isInitialized]);
 
   return (
     <>

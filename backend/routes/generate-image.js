@@ -34,14 +34,15 @@ router.post('/generate-image', async (req, res) => {
 
     // Run the Flux 1.1 Pro Ultra model
     const output = await replicate.run(
-      'black-forest-labs/flux-1.1-pro-ultra',
+      'black-forest-labs/flux-kontext-max',
       {
         input: {
           prompt: prompt,
           aspect_ratio: '1:1',
-          output_format: 'webp',
+          output_format: 'jpg',
           output_quality: 80,
           safety_tolerance: 2,
+          prompt_upsampling: false
         },
       }
     );

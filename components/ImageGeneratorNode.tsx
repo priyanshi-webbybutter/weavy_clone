@@ -16,6 +16,7 @@ interface ImageGeneratorNodeData {
 
 export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageGeneratorNodeData>) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isClicking, setIsClicking] = useState(false);
 
   const handleMenuToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -50,11 +51,30 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
     }
   }, [id, data]);
 
-  const handleRunModel = useCallback(() => {
+  const handleRunModel = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Don't trigger if already generating
+    if (data.isGenerating) {
+      console.log('⏸️ Already generating, ignoring click');
+      return;
+    }
+
+    // Debounce rapid clicks (300ms cooldown)
+    if (isClicking) {
+      console.log('⏸️ Debounce active, ignoring rapid click');
+      return;
+    }
+
+    // Set debounce flag
+    setIsClicking(true);
+    setTimeout(() => setIsClicking(false), 300);
+
     if (data.onRunModel) {
       data.onRunModel(id);
     }
-  }, [id, data]);
+  }, [id, data, isClicking]);
 
   return (
     <div
@@ -269,8 +289,8 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           width: '100%',
           height: '400px',
           borderRadius: '8px',
-          background: data.imageUrl
-            ? `url(${data.imageUrl}) center/cover`
+          backgroundImage: data.imageUrl
+            ? `url(${data.imageUrl})`
             : 'linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a), linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a)',
           backgroundSize: data.imageUrl ? 'cover' : '20px 20px',
           backgroundPosition: data.imageUrl ? 'center' : '0 0, 10px 10px',
