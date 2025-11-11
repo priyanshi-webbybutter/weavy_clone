@@ -205,43 +205,82 @@ function FlowCanvasInner() {
       return;
     }
 
-    // Get settings for this node (with defaults) - use REF to avoid stale closure
-    const settings = nodeSettingsRef.current[nodeId] || {
-      background: 'opaque',
-      numberOfImages: 1,
-      outputFormat: 'jpg',
-      quality: 'high',
-      size: '1024x1024',
-    };
+        // Get model ID from node data
+        const modelId = imageNode.data?.modelId || 'openai/gpt-image-1';
+        
+        console.log(`🔍 [${callId}] Node data:`, {
+          nodeId,
+          modelId: imageNode.data?.modelId,
+          modelName: imageNode.data?.modelName,
+          fullData: imageNode.data,
+        });
 
-    console.log(`🎨 [${callId}] Generating image with prompt: "${promptText}"`);
-    console.log(`📊 [${callId}] Using settings:`, settings);
+        // Get settings for this node (with defaults) - use REF to avoid stale closure
+        const defaultSettings = modelId === 'black-forest-labs/flux-1.1-pro-ultra' 
+          ? {
+              aspectRatio: '1:1',
+              promptUpsampling: true,
+              seed: undefined,
+              safetyTolerance: 2,
+              outputFormat: 'png',
+              raw: false,
+            }
+          : {
+              background: 'opaque',
+              numberOfImages: 1,
+              outputFormat: 'jpg',
+              quality: 'high',
+              size: '1024x1024',
+            };
 
-    // Set generating state FIRST (before API call)
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              isGenerating: true,
-            },
-          };
+        const settings = nodeSettingsRef.current[nodeId] || defaultSettings;
+
+        console.log(`🎨 [${callId}] Generating image with prompt: "${promptText}"`);
+        console.log(`📊 [${callId}] Using model: ${modelId}`);
+        console.log(`📊 [${callId}] Node modelId from data: ${imageNode.data?.modelId}`);
+        console.log(`📊 [${callId}] Using settings:`, settings);
+
+        // Set generating state FIRST (before API call)
+        setNodes((nds) =>
+          nds.map((node) => {
+            if (node.id === nodeId) {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  isGenerating: true,
+                },
+              };
+            }
+            return node;
+          })
+        );
+
+        // Prepare API request body with model ID and filtered settings
+        // Only include parameters relevant to the selected model
+        const requestBody: any = {
+          modelId: modelId,
+          prompt: promptText,
+        };
+
+        if (modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
+          // Flux-specific parameters only
+          requestBody.aspectRatio = settings.aspectRatio;
+          requestBody.promptUpsampling = settings.promptUpsampling;
+          requestBody.safetyTolerance = settings.safetyTolerance;
+          requestBody.outputFormat = settings.outputFormat;
+          requestBody.raw = settings.raw;
+          if (settings.seed !== undefined) {
+            requestBody.seed = settings.seed;
+          }
+        } else {
+          // GPT Image 1 parameters only
+          requestBody.background = settings.background;
+          requestBody.numberOfImages = settings.numberOfImages;
+          requestBody.outputFormat = settings.outputFormat;
+          requestBody.quality = settings.quality;
+          requestBody.size = settings.size;
         }
-        return node;
-      })
-    );
-
-    // Prepare API request body with all settings
-    const requestBody = {
-      prompt: promptText,
-      background: settings.background,
-      numberOfImages: settings.numberOfImages,
-      outputFormat: settings.outputFormat,
-      quality: settings.quality,
-      size: settings.size,
-    };
 
     console.log(`📤 [${callId}] Sending API request with body:`, requestBody);
 
@@ -257,7 +296,16 @@ function FlowCanvasInner() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to generate image');
+          // Extract detailed error message from backend
+          const errorMsg = data.message || data.error || 'Failed to generate image';
+          const errorDetails = data.details ? `\n\nDetails: ${data.details}` : '';
+          throw new Error(`${errorMsg}${errorDetails}`);
+        }
+
+        // Validate response has imageUrl
+        if (!data.imageUrl) {
+          console.warn(`⚠️ [${callId}] Response missing imageUrl:`, data);
+          throw new Error('Server response missing image URL');
         }
 
         // Update node with generated image
@@ -287,6 +335,7 @@ function FlowCanvasInner() {
       })
       .catch((error) => {
         console.error(`❌ [${callId}] Error generating image:`, error);
+        console.error(`❌ [${callId}] Error stack:`, error.stack);
 
         // Update node to show error state
         setNodes((currentNodes) =>
@@ -304,7 +353,9 @@ function FlowCanvasInner() {
           })
         );
 
-        alert(`Failed to generate image: ${error.message}`);
+        // Show detailed error message
+        const errorMessage = error.message || 'Failed to generate image. Please check the console for details.';
+        alert(`Failed to generate image:\n\n${errorMessage}`);
 
         // Remove ALL locks after error
         EXECUTION_IN_PROGRESS.delete(nodeId);
@@ -420,11 +471,28 @@ function FlowCanvasInner() {
       } else if (type === 'imageGenerator') {
         newNode = {
           id: newNodeId,
-          type,
+          type: 'imageGenerator',
           position,
           data: {
             label: 'Image Generator',
             modelName: 'GPT Image 1',
+            modelId: 'openai/gpt-image-1',
+            imageUrl: undefined,
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+          },
+        };
+      } else if (type === 'fluxGenerator') {
+        newNode = {
+          id: newNodeId,
+          type: 'imageGenerator', // Use same node component
+          position,
+          data: {
+            label: 'Image Generator',
+            modelName: 'FLUX 1.1 Pro Ultra',
+            modelId: 'black-forest-labs/flux-1.1-pro-ultra',
             imageUrl: undefined,
             isGenerating: false,
             onRunModel: handleRunModel,
@@ -571,6 +639,8 @@ function FlowCanvasInner() {
               data: {
                 ...node.data,
                 isGenerating: false, // Always reset generating state on page load
+                modelId: node.data?.modelId || 'openai/gpt-image-1', // Restore modelId
+                modelName: node.data?.modelName || 'GPT Image 1', // Restore modelName
                 onRunModel: handleRunModel,
                 onDelete: handleDeleteNode,
                 onDuplicate: handleDuplicateNode,
@@ -639,6 +709,7 @@ function FlowCanvasInner() {
         isOpen={isSettingsPanelOpen}
         nodeId={selectedNode?.id || ''}
         nodeName={selectedNode?.data?.modelName || 'GPT Image 1'}
+        modelId={selectedNode?.data?.modelId || 'openai/gpt-image-1'}
         creditCost={23}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
         onClose={handleCloseSettingsPanel}

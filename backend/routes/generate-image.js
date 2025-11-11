@@ -7,12 +7,20 @@ const router = express.Router();
 router.post('/generate-image', async (req, res) => {
   try {
     const {
+      modelId = 'openai/gpt-image-1',
       prompt,
+      // GPT Image 1 parameters
       background = 'opaque',
       numberOfImages = 1,
       outputFormat = 'jpg',
       quality = 'high',
       size = '1024x1024',
+      // Flux parameters
+      aspectRatio = '1:1',
+      promptUpsampling = true,
+      seed,
+      safetyTolerance = 2,
+      raw = false,
     } = req.body;
 
     // Validate prompt
@@ -22,13 +30,13 @@ router.post('/generate-image', async (req, res) => {
       });
     }
 
-    console.log('🎨 Received image generation request with settings:', {
+    console.log('🎨 Received image generation request:', {
+      modelId,
       prompt,
-      background,
-      numberOfImages,
-      outputFormat,
-      quality,
-      size,
+      ...(modelId === 'black-forest-labs/flux-1.1-pro-ultra' 
+        ? { aspectRatio, promptUpsampling, seed, safetyTolerance, outputFormat, raw }
+        : { background, numberOfImages, outputFormat, quality, size }
+      ),
     });
 
     // Check for API token
@@ -48,50 +56,126 @@ router.post('/generate-image', async (req, res) => {
     console.log('🎨 Starting image generation with prompt:', prompt);
     console.log('⏳ This may take 10-30 seconds...');
 
-    // Map quality to output_quality value (0-100)
-    const qualityMap = {
-      high: 90,
-      medium: 80,
-      low: 60,
-    };
+    let inputParams;
+    let modelToRun;
 
-    // Map size to aspect_ratio
-    const aspectRatioMap = {
-      '1024x1024': '1:1',
-      '1536x1024': '3:2',
-      '1024x1536': '2:3',
-    };
+    if (modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
+      // Flux 1.1 Pro Ultra parameters
+      const formatMap = {
+        'jpg': 'jpeg',
+        'jpeg': 'jpeg',
+        'png': 'png',
+      };
+      const mappedFormat = formatMap[outputFormat?.toLowerCase()] || 'png';
 
-    // Run the Flux model with settings
-    const output = await replicate.run(
-      'bytedance/seedream-4',
-      {
-        input: {
-          prompt: prompt,
-          aspect_ratio: aspectRatioMap[size] || '1:1',
-          output_format: outputFormat,
-          output_quality: qualityMap[quality] || 80,
-          max_images: 1,
-          num_outputs: numberOfImages,
-          enhance_prompt: true,
-          sequential_image_generation: "disabled",
-          // Note: Replicate may not support background transparency directly
-          // This parameter might need adjustment based on model capabilities
-        },
+      inputParams = {
+        prompt: prompt,
+        aspect_ratio: aspectRatio || '1:1',
+        prompt_upsampling: promptUpsampling !== false,
+        output_format: mappedFormat,
+        safety_tolerance: safetyTolerance || 2,
+        raw: raw === true,
+      };
+
+      // Only include seed if provided
+      if (seed !== undefined && seed !== null) {
+        inputParams.seed = seed;
       }
-    );
+
+      modelToRun = 'black-forest-labs/flux-1.1-pro-ultra';
+    } else {
+      // GPT Image 1 parameters
+      // Quality must be one of: "low", "medium", "high", "auto" (not numeric)
+      // Ensure quality is a valid string value
+      let mappedQuality = 'high';
+      if (quality === 'high' || quality === 'medium' || quality === 'low' || quality === 'auto') {
+        mappedQuality = quality;
+      } else if (typeof quality === 'string') {
+        // Try to normalize if it's a string but not exactly matching
+        const qualityLower = quality.toLowerCase();
+        if (qualityLower === 'high' || qualityLower === 'medium' || qualityLower === 'low' || qualityLower === 'auto') {
+          mappedQuality = qualityLower;
+        }
+      }
+
+      const aspectRatioMap = {
+        '1024x1024': '1:1',
+        '1536x1024': '3:2',
+        '1024x1536': '2:3',
+      };
+
+      const formatMap = {
+        'jpg': 'jpeg',
+        'jpeg': 'jpeg',
+        'png': 'png',
+        'webp': 'webp',
+      };
+      const mappedFormat = formatMap[outputFormat?.toLowerCase()] || 'jpeg';
+
+      inputParams = {
+        prompt: prompt,
+        quality: mappedQuality, // Must be "low", "medium", "high", or "auto"
+        background: background,
+        moderation: "auto",
+        aspect_ratio: aspectRatioMap[size] || '1:1',
+        output_format: mappedFormat,
+        input_fidelity: "low",
+        number_of_images: numberOfImages,
+        output_compression: 90,
+      };
+
+      // Only include openai_api_key if it's provided in environment
+      if (process.env.OPENAI_API_KEY) {
+        inputParams.openai_api_key = process.env.OPENAI_API_KEY;
+      }
+
+      modelToRun = 'openai/gpt-image-1';
+    }
+
+    console.log('📤 Calling Replicate API:', modelToRun);
+    console.log('📤 With params:', JSON.stringify(inputParams, null, 2));
+
+    const output = await replicate.run(modelToRun, {
+      input: inputParams,
+    });
 
     console.log('✅ Image generation completed');
+    console.log('📦 Raw output from Replicate:', JSON.stringify(output, null, 2));
+    console.log('📦 Output type:', typeof output);
+    console.log('📦 Is array?', Array.isArray(output));
 
     // Extract image URL(s) from output
     let imageUrls;
     if (Array.isArray(output)) {
-      imageUrls = output;
+      imageUrls = output.filter(url => url && typeof url === 'string');
     } else if (typeof output === 'string') {
       imageUrls = [output];
+    } else if (output && typeof output === 'object') {
+      // Handle object output - check common properties
+      if (output.url) {
+        imageUrls = [output.url];
+      } else if (output.image) {
+        imageUrls = [output.image];
+      } else if (output.imageUrl) {
+        imageUrls = [output.imageUrl];
+      } else {
+        // Try to find any string value in the object
+        const stringValues = Object.values(output).filter(v => typeof v === 'string');
+        if (stringValues.length > 0) {
+          imageUrls = stringValues;
+        } else {
+          throw new Error(`Unexpected output format from Replicate API: ${JSON.stringify(output)}`);
+        }
+      }
     } else {
-      throw new Error('Unexpected output format from Replicate API');
+      throw new Error(`Unexpected output format from Replicate API. Type: ${typeof output}, Value: ${JSON.stringify(output)}`);
     }
+
+    if (!imageUrls || imageUrls.length === 0) {
+      throw new Error('No image URLs found in Replicate API response');
+    }
+
+    console.log('🖼️ Extracted image URLs:', imageUrls);
 
     // Return success response with all settings used
     res.json({
@@ -99,23 +183,46 @@ router.post('/generate-image', async (req, res) => {
       imageUrl: imageUrls[0], // First image for backward compatibility
       imageUrls: imageUrls, // All images if multiple were requested
       prompt: prompt,
-      model: 'flux-kontext-max',
-      settings: {
-        background,
-        numberOfImages,
-        outputFormat,
-        quality,
-        size,
-      },
+      model: modelId,
+      settings: modelId === 'black-forest-labs/flux-1.1-pro-ultra'
+        ? {
+            aspectRatio,
+            promptUpsampling,
+            seed,
+            safetyTolerance,
+            outputFormat,
+            raw,
+          }
+        : {
+            background,
+            numberOfImages,
+            outputFormat,
+            quality,
+            size,
+          },
     });
 
   } catch (error) {
     console.error('❌ Error generating image:', error);
+    console.error('❌ Error stack:', error.stack);
+    console.error('❌ Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+
+    // Extract more detailed error information
+    let errorMessage = error.message || 'Unknown error occurred';
+    let errorDetails = error.toString();
+
+    // Check for specific Replicate API errors
+    if (error.response) {
+      errorMessage = error.response.data?.detail || errorMessage;
+      errorDetails = JSON.stringify(error.response.data || error.response);
+      console.error('❌ Replicate API response:', error.response.data);
+    }
 
     res.status(500).json({
       error: 'Failed to generate image',
-      message: error.message || 'Unknown error occurred',
-      details: error.toString(),
+      message: errorMessage,
+      details: errorDetails,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });

@@ -4,17 +4,25 @@ import React, { useState } from 'react';
 import { X, Info, ChevronDown } from 'lucide-react';
 
 interface NodeSettings {
-  background: 'opaque' | 'transparent';
-  numberOfImages: number;
-  outputFormat: 'jpg' | 'png';
-  quality: 'high' | 'medium' | 'low';
-  size: '1024x1024' | '1536x1024' | '1024x1536';
+  // GPT Image 1 settings
+  background?: 'opaque' | 'transparent';
+  numberOfImages?: number;
+  outputFormat?: 'jpg' | 'png' | 'jpeg' | 'webp';
+  quality?: 'high' | 'medium' | 'low';
+  size?: '1024x1024' | '1536x1024' | '1024x1536';
+  // Flux settings
+  aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9' | '9:21';
+  promptUpsampling?: boolean;
+  seed?: number;
+  safetyTolerance?: number;
+  raw?: boolean;
 }
 
 interface NodeSettingsPanelProps {
   isOpen: boolean;
   nodeId: string;
   nodeName: string;
+  modelId?: string;
   creditCost: number;
   initialSettings?: NodeSettings;
   onClose: () => void;
@@ -26,20 +34,32 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   isOpen,
   nodeId,
   nodeName,
+  modelId = 'openai/gpt-image-1',
   creditCost,
   initialSettings,
   onClose,
   onSettingsChange,
   onRunModel,
 }) => {
+  const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
+  
   const [settings, setSettings] = useState<NodeSettings>(
-    initialSettings || {
-      background: 'opaque',
-      numberOfImages: 1,
-      outputFormat: 'jpg',
-      quality: 'high',
-      size: '1024x1024',
-    }
+    initialSettings || (isFluxModel
+      ? {
+          aspectRatio: '1:1',
+          promptUpsampling: true,
+          seed: undefined,
+          safetyTolerance: 2,
+          outputFormat: 'png',
+          raw: false,
+        }
+      : {
+          background: 'opaque',
+          numberOfImages: 1,
+          outputFormat: 'jpg',
+          quality: 'high',
+          size: '1024x1024',
+        })
   );
 
   const [runs, setRuns] = useState(1);
@@ -109,133 +129,287 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {/* Background */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-sm text-gray-300 font-medium">Background</label>
-              <Info size={14} className="text-gray-500 cursor-help" />
-            </div>
-            <div className="relative">
-              <select
-                value={settings.background}
-                onChange={(e) =>
-                  handleSettingChange('background', e.target.value as 'opaque' | 'transparent')
-                }
-                className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-              >
-                <option value="opaque">opaque</option>
-                <option value="transparent">transparent</option>
-              </select>
-              <ChevronDown
-                size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-            </div>
-          </div>
-
-          {/* Number of Images */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-300 font-medium">Number of Images</label>
-                <Info size={14} className="text-gray-500 cursor-help" />
+          {isFluxModel ? (
+            <>
+              {/* Aspect Ratio - Flux */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Aspect Ratio</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.aspectRatio || '1:1'}
+                    onChange={(e) =>
+                      handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="16:9">16:9 (Landscape)</option>
+                    <option value="9:16">9:16 (Portrait)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait Standard)</option>
+                    <option value="21:9">21:9 (Ultra Wide)</option>
+                    <option value="9:21">9:21 (Ultra Tall)</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
               </div>
-              <span className="text-white font-medium text-sm">{settings.numberOfImages}</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="3"
-              value={settings.numberOfImages}
-              onChange={handleSliderChange}
-              className="w-full h-1.5 bg-[#2a2a2a] rounded-lg appearance-none cursor-pointer slider"
-              style={{
-                background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((settings.numberOfImages - 1) / 2) * 100}%, #2a2a2a ${((settings.numberOfImages - 1) / 2) * 100}%, #2a2a2a 100%)`,
-              }}
-            />
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>1</span>
-              <span>2</span>
-              <span>3</span>
-            </div>
-          </div>
 
-          {/* Output Format */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-sm text-gray-300 font-medium">Output Format</label>
-              <Info size={14} className="text-gray-500 cursor-help" />
-            </div>
-            <div className="relative">
-              <select
-                value={settings.outputFormat}
-                onChange={(e) =>
-                  handleSettingChange('outputFormat', e.target.value as 'jpg' | 'png')
-                }
-                className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-              >
-                <option value="jpg">jpg</option>
-                <option value="png">png</option>
-              </select>
-              <ChevronDown
-                size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-            </div>
-          </div>
+              {/* Output Format - Flux */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Output Format</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.outputFormat || 'png'}
+                    onChange={(e) =>
+                      handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="png">png</option>
+                    <option value="jpeg">jpeg</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
 
-          {/* Quality */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-sm text-gray-300 font-medium">Quality</label>
-              <Info size={14} className="text-gray-500 cursor-help" />
-            </div>
-            <div className="relative">
-              <select
-                value={settings.quality}
-                onChange={(e) =>
-                  handleSettingChange('quality', e.target.value as 'high' | 'medium' | 'low')
-                }
-                className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-              >
-                <option value="high">high</option>
-                <option value="medium">medium</option>
-                <option value="low">low</option>
-              </select>
-              <ChevronDown
-                size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-            </div>
-          </div>
+              {/* Prompt Upsampling - Flux */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Prompt Upsampling</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.promptUpsampling ? 'true' : 'false'}
+                    onChange={(e) =>
+                      handleSettingChange('promptUpsampling', e.target.value === 'true')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="true">Enabled</option>
+                    <option value="false">Disabled</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
 
-          {/* Size */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-sm text-gray-300 font-medium">Size</label>
-              <Info size={14} className="text-gray-500 cursor-help" />
-            </div>
-            <div className="relative">
-              <select
-                value={settings.size}
-                onChange={(e) =>
-                  handleSettingChange(
-                    'size',
-                    e.target.value as '1024x1024' | '1536x1024' | '1024x1536'
-                  )
-                }
-                className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-              >
-                <option value="1024x1024">1024 x 1024</option>
-                <option value="1536x1024">1536 x 1024</option>
-                <option value="1024x1536">1024 x 1536</option>
-              </select>
-              <ChevronDown
-                size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-            </div>
-          </div>
+              {/* Safety Tolerance - Flux */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-300 font-medium">Safety Tolerance</label>
+                    <Info size={14} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white font-medium text-sm">{settings.safetyTolerance || 2}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="6"
+                  value={settings.safetyTolerance || 2}
+                  onChange={(e) =>
+                    handleSettingChange('safetyTolerance', parseInt(e.target.value))
+                  }
+                  className="w-full h-1.5 bg-[#2a2a2a] rounded-lg appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((settings.safetyTolerance || 2) / 6) * 100}%, #2a2a2a ${((settings.safetyTolerance || 2) / 6) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Strict (0)</span>
+                  <span>Permissive (6)</span>
+                </div>
+              </div>
+
+              {/* Raw Mode - Flux */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Raw Mode</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.raw ? 'true' : 'false'}
+                    onChange={(e) =>
+                      handleSettingChange('raw', e.target.value === 'true')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="false">Disabled</option>
+                    <option value="true">Enabled</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Seed - Flux (Optional) */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Seed (Optional)</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <input
+                  type="number"
+                  value={settings.seed || ''}
+                  onChange={(e) =>
+                    handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined)
+                  }
+                  placeholder="Leave empty for random"
+                  className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 focus:outline-none focus:border-[#3a3a3a]"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Background - GPT Image 1 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Background</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.background || 'opaque'}
+                    onChange={(e) =>
+                      handleSettingChange('background', e.target.value as 'opaque' | 'transparent')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="opaque">opaque</option>
+                    <option value="transparent">transparent</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Number of Images - GPT Image 1 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-300 font-medium">Number of Images</label>
+                    <Info size={14} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white font-medium text-sm">{settings.numberOfImages || 1}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  value={settings.numberOfImages || 1}
+                  onChange={(e) =>
+                    handleSettingChange('numberOfImages', parseInt(e.target.value))
+                  }
+                  className="w-full h-1.5 bg-[#2a2a2a] rounded-lg appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.numberOfImages || 1) - 1) / 2) * 100}%, #2a2a2a ${(((settings.numberOfImages || 1) - 1) / 2) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                </div>
+              </div>
+
+              {/* Output Format - GPT Image 1 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Output Format</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.outputFormat || 'jpg'}
+                    onChange={(e) =>
+                      handleSettingChange('outputFormat', e.target.value as 'jpg' | 'png')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="jpg">jpg</option>
+                    <option value="png">png</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Quality - GPT Image 1 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Quality</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.quality || 'high'}
+                    onChange={(e) =>
+                      handleSettingChange('quality', e.target.value as 'high' | 'medium' | 'low')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="high">high</option>
+                    <option value="medium">medium</option>
+                    <option value="low">low</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Size - GPT Image 1 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Size</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.size || '1024x1024'}
+                    onChange={(e) =>
+                      handleSettingChange(
+                        'size',
+                        e.target.value as '1024x1024' | '1536x1024' | '1024x1536'
+                      )
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="1024x1024">1024 x 1024</option>
+                    <option value="1536x1024">1536 x 1024</option>
+                    <option value="1024x1536">1024 x 1536</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Run selected nodes button */}
           <button

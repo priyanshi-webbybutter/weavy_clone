@@ -98,6 +98,17 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
           </div>
           <span className="text-xs text-gray-300">GPT Image 1</span>
         </button>
+        <button
+          draggable
+          onDragStart={(event) => onDragStart(event, 'fluxGenerator')}
+          onDragEnd={onDragEnd}
+          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+        >
+          <div className="w-8 h-8 mb-2 flex items-center justify-center">
+            <div className="text-lg text-purple-400">F</div>
+          </div>
+          <span className="text-xs text-gray-300">FLUX 1.1 Pro Ultra</span>
+        </button>
         <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
           <div className="w-8 h-8 mb-2 flex items-center justify-center">
             <div className="text-lg">🔵</div>
