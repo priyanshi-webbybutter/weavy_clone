@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import Sidebar from '@/components/Sidebar';
 
 export const metadata: Metadata = {
   title: 'Weavy - AI Design Canvas',
@@ -14,11 +13,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-[#0a0a0a] text-white">
-        <Sidebar />
-        <main className="ml-[68px] h-screen overflow-hidden">
-          {children}
-        </main>
+      <body className="bg-[#0a0a0a] text-white m-0 p-0 overflow-hidden">
+        {children}
       </body>
     </html>
   );
