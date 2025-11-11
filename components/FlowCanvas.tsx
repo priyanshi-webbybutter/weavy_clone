@@ -19,6 +19,7 @@ import 'reactflow/dist/style.css';
 import BottomToolbar from './BottomToolbar';
 import Sidebar from './Sidebar';
 import SidePanel from './SidePanel';
+import NodeSettingsPanel from './NodeSettingsPanel';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -28,6 +29,12 @@ const STORAGE_KEYS = {
 
 // Global lock to prevent duplicate API calls across all component instances
 const GLOBAL_GENERATING_NODES = new Set<string>();
+
+// Timestamp tracker to detect rapid duplicate calls (within 100ms)
+const LAST_CALL_TIMESTAMPS = new Map<string, number>();
+
+// Execution lock to prevent ANY duplicate execution
+const EXECUTION_IN_PROGRESS = new Set<string>();
 
 // Import custom node types
 import { CustomNode } from './CustomNode';
@@ -59,6 +66,19 @@ function FlowCanvasInner() {
   const [panelType, setPanelType] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  // Node settings panel state
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
+  // Store settings for each node - use BOTH state and ref
+  const [nodeSettings, setNodeSettings] = useState<Record<string, any>>({});
+  const nodeSettingsRef = useRef<Record<string, any>>({});
+
+  // Sync ref with state whenever settings change
+  useEffect(() => {
+    nodeSettingsRef.current = nodeSettings;
+  }, [nodeSettings]);
+
   // Track ongoing image generations to prevent duplicates
   const generatingNodes = useRef<Set<string>>(new Set());
 
@@ -78,160 +98,221 @@ function FlowCanvasInner() {
     setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
   }, [setNodes, setEdges]);
 
+  // Store refs to current nodes and edges for synchronous access
+  const nodesRef = useRef<Node[]>(nodes);
+  const edgesRef = useRef<Edge[]>(edges);
+
+  // Sync refs with state
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
   // Handle Run Model for image generator nodes
   const handleRunModel = useCallback((nodeId: string) => {
-    console.log(`🎯 handleRunModel called for node: ${nodeId}`);
+    const callId = `${nodeId}-${Date.now()}-${Math.random()}`;
+    console.log(`🎯 [${callId}] handleRunModel called for node: ${nodeId}`);
 
-    // GLOBAL CHECK: First line of defense - check global lock
+    // ABSOLUTE FIRST CHECK: SYNCHRONOUS execution lock
+    if (EXECUTION_IN_PROGRESS.has(nodeId)) {
+      console.log(`🛑 [${callId}] EXECUTION ALREADY IN PROGRESS - HARD ABORT`);
+      return;
+    }
+
+    // SET EXECUTION LOCK IMMEDIATELY (synchronously, before ANY async operations)
+    EXECUTION_IN_PROGRESS.add(nodeId);
+    console.log(`🔐 [${callId}] EXECUTION LOCK SET`);
+
+    // SECOND CHECK: Is this already generating?
     if (GLOBAL_GENERATING_NODES.has(nodeId)) {
-      console.log('🚫 GLOBAL lock active - generation already in progress');
+      console.log(`🚫 [${callId}] GLOBAL lock ALREADY ACTIVE, ABORTING`);
+      EXECUTION_IN_PROGRESS.delete(nodeId);
       return;
     }
 
-    // Second check: Is this node already in the component ref?
-    if (generatingNodes.current.has(nodeId)) {
-      console.log('⏸️ Generation already in progress (ref check), skipping duplicate call');
+    // THIRD CHECK: Timestamp-based throttle
+    const now = Date.now();
+    const lastCall = LAST_CALL_TIMESTAMPS.get(nodeId);
+    if (lastCall && now - lastCall < 500) {
+      console.log(`⚡ [${callId}] THROTTLED: Call within ${now - lastCall}ms, ABORTING`);
+      EXECUTION_IN_PROGRESS.delete(nodeId);
       return;
     }
 
-    // Lock at BOTH global and component level immediately
+    // IMMEDIATELY set ALL locks before any other code runs
+    console.log(`🔒 [${callId}] Setting all locks NOW`);
     GLOBAL_GENERATING_NODES.add(nodeId);
     generatingNodes.current.add(nodeId);
-    console.log(`🔒 Locked node ${nodeId} for generation (GLOBAL + REF)`);
+    LAST_CALL_TIMESTAMPS.set(nodeId, now);
 
-    // Access current edges state
-    setEdges((currentEdges) => {
-      // Find connected prompt nodes via edges
-      const connectedEdge = currentEdges.find((edge) => edge.target === nodeId);
+    // Use refs to get current state synchronously (avoid nested state setters)
+    const currentEdges = edgesRef.current;
+    const currentNodes = nodesRef.current;
 
-      if (!connectedEdge) {
-        GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
-        generatingNodes.current.delete(nodeId); // Remove from ref tracking
-        alert('Please connect a Prompt node to the input before running the model.');
-        return currentEdges;
-      }
+    // Find connected prompt nodes via edges
+    const connectedEdge = currentEdges.find((edge) => edge.target === nodeId);
 
-      // Now update nodes with the found edge
-      setNodes((nds) => {
-        const imageNode = nds.find((node) => node.id === nodeId);
-        if (!imageNode) {
-          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
-          generatingNodes.current.delete(nodeId); // Remove from ref tracking
-          return nds;
+    if (!connectedEdge) {
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      alert('Please connect a Prompt node to the input before running the model.');
+      return;
+    }
+
+    const imageNode = currentNodes.find((node) => node.id === nodeId);
+    if (!imageNode) {
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      return;
+    }
+
+    // Additional check: Is this node already generating in current state?
+    if (imageNode.data?.isGenerating) {
+      console.log(`⏸️ [${callId}] Node already generating (state check), aborting`);
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      return;
+    }
+
+    const sourceNode = currentNodes.find((node) => node.id === connectedEdge.source);
+
+    if (!sourceNode) {
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      alert('Connected prompt node not found.');
+      return;
+    }
+
+    const promptText = sourceNode.data.value || '';
+
+    if (!promptText.trim()) {
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      alert('The connected prompt is empty. Please enter some text first.');
+      return;
+    }
+
+    // Get settings for this node (with defaults) - use REF to avoid stale closure
+    const settings = nodeSettingsRef.current[nodeId] || {
+      background: 'opaque',
+      numberOfImages: 1,
+      outputFormat: 'jpg',
+      quality: 'high',
+      size: '1024x1024',
+    };
+
+    console.log(`🎨 [${callId}] Generating image with prompt: "${promptText}"`);
+    console.log(`📊 [${callId}] Using settings:`, settings);
+
+    // Set generating state FIRST (before API call)
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              isGenerating: true,
+            },
+          };
+        }
+        return node;
+      })
+    );
+
+    // Prepare API request body with all settings
+    const requestBody = {
+      prompt: promptText,
+      background: settings.background,
+      numberOfImages: settings.numberOfImages,
+      outputFormat: settings.outputFormat,
+      quality: settings.quality,
+      size: settings.size,
+    };
+
+    console.log(`📤 [${callId}] Sending API request with body:`, requestBody);
+
+    // Call backend API to generate image (OUTSIDE of state setters to prevent multiple calls)
+    fetch('http://localhost:3001/api/generate-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    })
+      .then(async (response) => {
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to generate image');
         }
 
-        // Additional check: Is this node already generating in current state?
-        if (imageNode.data?.isGenerating) {
-          console.log('⏸️ Node already generating (state check inside setNodes), aborting');
-          GLOBAL_GENERATING_NODES.delete(nodeId);
-          generatingNodes.current.delete(nodeId);
-          return nds;
-        }
-
-        const sourceNode = nds.find((node) => node.id === connectedEdge.source);
-
-        if (!sourceNode) {
-          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
-          generatingNodes.current.delete(nodeId); // Remove from ref tracking
-          alert('Connected prompt node not found.');
-          return nds;
-        }
-
-        const promptText = sourceNode.data.value || '';
-
-        if (!promptText.trim()) {
-          GLOBAL_GENERATING_NODES.delete(nodeId); // Remove from global tracking
-          generatingNodes.current.delete(nodeId); // Remove from ref tracking
-          alert('The connected prompt is empty. Please enter some text first.');
-          return nds;
-        }
-
-        console.log(`🎨 Generating image with prompt: "${promptText}"`);
-
-        // Set generating state
-        const updatedNodes = nds.map((node) => {
-          if (node.id === nodeId) {
-            return {
-              ...node,
-              data: {
-                ...node.data,
-                isGenerating: true,
-              },
-            };
-          }
-          return node;
-        });
-
-        // Call backend API to generate image
-        fetch('http://localhost:3001/api/generate-image', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ prompt: promptText }),
-        })
-          .then(async (response) => {
-            const data = await response.json();
-
-            if (!response.ok) {
-              throw new Error(data.error || 'Failed to generate image');
+        // Update node with generated image
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.id === nodeId) {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  isGenerating: false,
+                  imageUrl: data.imageUrl,
+                },
+              };
             }
-
-            // Update node with generated image
-            setNodes((currentNodes) =>
-              currentNodes.map((node) => {
-                if (node.id === nodeId) {
-                  return {
-                    ...node,
-                    data: {
-                      ...node.data,
-                      isGenerating: false,
-                      imageUrl: data.imageUrl,
-                    },
-                  };
-                }
-                return node;
-              })
-            );
-
-            console.log('✅ Image generated successfully:', data.imageUrl);
-
-            // Remove from tracking after successful generation
-            GLOBAL_GENERATING_NODES.delete(nodeId);
-            generatingNodes.current.delete(nodeId);
+            return node;
           })
-          .catch((error) => {
-            console.error('❌ Error generating image:', error);
+        );
 
-            // Update node to show error state
-            setNodes((currentNodes) =>
-              currentNodes.map((node) => {
-                if (node.id === nodeId) {
-                  return {
-                    ...node,
-                    data: {
-                      ...node.data,
-                      isGenerating: false,
-                    },
-                  };
-                }
-                return node;
-              })
-            );
+        console.log(`✅ [${callId}] Image generated successfully:`, data.imageUrl);
 
-            alert(`Failed to generate image: ${error.message}`);
+        // Remove ALL locks after successful generation
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+      })
+      .catch((error) => {
+        console.error(`❌ [${callId}] Error generating image:`, error);
 
-            // Remove from tracking after error
-            GLOBAL_GENERATING_NODES.delete(nodeId);
-            generatingNodes.current.delete(nodeId);
-          });
+        // Update node to show error state
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.id === nodeId) {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  isGenerating: false,
+                },
+              };
+            }
+            return node;
+          })
+        );
 
-        return updatedNodes;
+        alert(`Failed to generate image: ${error.message}`);
+
+        // Remove ALL locks after error
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
       });
-
-      return currentEdges;
-    });
-  }, [setNodes, setEdges]);
+  }, [setNodes]);
 
   // Handle node duplication
   const handleDuplicateNode = useCallback((nodeId: string) => {
@@ -398,6 +479,55 @@ function FlowCanvasInner() {
     setPanelType(null);
   }, []);
 
+  // Handle node selection change
+  const handleSelectionChange = useCallback(
+    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
+      if (selectedNodes.length === 1 && selectedNodes[0].type === 'imageGenerator') {
+        setSelectedNode(selectedNodes[0]);
+        setIsSettingsPanelOpen(true);
+      } else {
+        setSelectedNode(null);
+        setIsSettingsPanelOpen(false);
+      }
+    },
+    []
+  );
+
+  // Handle settings panel close
+  const handleCloseSettingsPanel = useCallback(() => {
+    setIsSettingsPanelOpen(false);
+    setSelectedNode(null);
+  }, []);
+
+  // Handle settings change from panel
+  const handleSettingsChange = useCallback((nodeId: string, settings: any) => {
+    console.log(`⚙️ Settings changed for node ${nodeId}:`, settings);
+    setNodeSettings((prev) => {
+      const newSettings = {
+        ...prev,
+        [nodeId]: settings,
+      };
+      // Ref is automatically synced via useEffect
+      console.log(`✅ Settings updated, ref will sync automatically`);
+      return newSettings;
+    });
+  }, []);
+
+  // Handle run from settings panel
+  const handleRunFromPanel = useCallback((nodeId: string) => {
+    console.log(`📋 handleRunFromPanel called for nodeId: ${nodeId}`);
+    if (nodeId) {
+      handleRunModel(nodeId);
+    } else {
+      console.log(`⚠️ handleRunFromPanel: nodeId is empty/null`);
+    }
+  }, [handleRunModel]);
+
+  // Log when handleRunModel is recreated (should only happen once now!)
+  useEffect(() => {
+    console.log(`🔄 handleRunModel callback was recreated/updated (this should only happen ONCE)`);
+  }, [handleRunModel]);
+
   // Load saved canvas state from localStorage on mount
   useEffect(() => {
     if (isInitialized) return; // Prevent multiple loads
@@ -504,6 +634,26 @@ function FlowCanvasInner() {
         onClose={handleClosePanel}
       />
 
+      {/* Node Settings Panel - Right Side */}
+      <NodeSettingsPanel
+        isOpen={isSettingsPanelOpen}
+        nodeId={selectedNode?.id || ''}
+        nodeName={selectedNode?.data?.modelName || 'GPT Image 1'}
+        creditCost={23}
+        initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
+        onClose={handleCloseSettingsPanel}
+        onSettingsChange={(settings) => {
+          if (selectedNode?.id) {
+            handleSettingsChange(selectedNode.id, settings);
+          }
+        }}
+        onRunModel={() => {
+          if (selectedNode?.id) {
+            handleRunFromPanel(selectedNode.id);
+          }
+        }}
+      />
+
       {/* Main Content Area with Margin for Sidebar */}
       <div className="ml-[68px] w-[calc(100vw-68px)] h-screen relative">
         {/* Top Bar */}
@@ -539,6 +689,7 @@ function FlowCanvasInner() {
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
+          onSelectionChange={handleSelectionChange}
           nodeTypes={nodeTypes}
           fitView
           className="bg-[#0a0a0a]"

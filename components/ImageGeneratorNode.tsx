@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, useCallback, useState, useRef } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { MoreVertical, ArrowRight, Loader2 } from 'lucide-react';
 
@@ -16,7 +16,8 @@ interface ImageGeneratorNodeData {
 
 export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageGeneratorNodeData>) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isClicking, setIsClicking] = useState(false);
+  const isClickingRef = useRef(false);
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleMenuToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -52,29 +53,44 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
   }, [id, data]);
 
   const handleRunModel = useCallback((e: React.MouseEvent) => {
+    const clickId = `click-${Date.now()}-${Math.random()}`;
+    console.log(`🖱️ [${clickId}] ImageGeneratorNode button clicked for node: ${id}`);
+
     e.preventDefault();
     e.stopPropagation();
 
     // Don't trigger if already generating
     if (data.isGenerating) {
-      console.log('⏸️ Already generating, ignoring click');
+      console.log(`⏸️ [${clickId}] Already generating, ignoring click`);
       return;
     }
 
-    // Debounce rapid clicks (300ms cooldown)
-    if (isClicking) {
-      console.log('⏸️ Debounce active, ignoring rapid click');
+    // Debounce rapid clicks (500ms cooldown) using ref for synchronous check
+    if (isClickingRef.current) {
+      console.log(`⏸️ [${clickId}] Debounce active, ignoring rapid click`);
       return;
     }
 
-    // Set debounce flag
-    setIsClicking(true);
-    setTimeout(() => setIsClicking(false), 300);
+    // Set debounce flag immediately
+    isClickingRef.current = true;
+    
+    // Clear any existing timeout
+    if (clickTimeoutRef.current) {
+      clearTimeout(clickTimeoutRef.current);
+    }
+    
+    // Reset debounce flag after 500ms
+    clickTimeoutRef.current = setTimeout(() => {
+      isClickingRef.current = false;
+      clickTimeoutRef.current = null;
+    }, 500);
 
+    console.log(`✅ [${clickId}] Calling data.onRunModel(${id})`);
     if (data.onRunModel) {
       data.onRunModel(id);
     }
-  }, [id, data, isClicking]);
+    console.log(`✅ [${clickId}] data.onRunModel call completed`);
+  }, [id, data]);
 
   return (
     <div
