@@ -71,22 +71,6 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
       <h2 className="text-base font-semibold text-white mb-1">Image Models</h2>
       <p className="text-xs text-gray-400 mb-4">Generate from text</p>
       <div className="grid grid-cols-2 gap-3">
-        <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg">🎨</div>
-          </div>
-          <span className="text-xs text-gray-300">Reve</span>
-        </button>
-        <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group relative">
-          <div className="absolute top-1.5 right-1.5 bg-yellow-400 text-black text-[10px] px-1.5 py-0.5 rounded font-semibold">
-            ⚡
-          </div>
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg">🎭</div>
-          </div>
-          <span className="text-xs text-gray-300">Higgsfield</span>
-          <span className="text-[10px] text-gray-400">Image</span>
-        </button>
         <button
           draggable
           onDragStart={(event) => onDragStart(event, 'imageGenerator')}
@@ -94,9 +78,9 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
           className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
         >
           <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg text-blue-400">G</div>
+            <div className="text-lg text-blue-400">S</div>
           </div>
-          <span className="text-xs text-gray-300">GPT Image 1</span>
+          <span className="text-xs text-gray-300">Seedream-4</span>
         </button>
         <button
           draggable
@@ -108,24 +92,6 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
             <div className="text-lg text-purple-400">F</div>
           </div>
           <span className="text-xs text-gray-300">FLUX 1.1 Pro Ultra</span>
-        </button>
-        <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg">🔵</div>
-          </div>
-          <span className="text-xs text-gray-300">Imagen 4</span>
-        </button>
-        <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg">🔴</div>
-          </div>
-          <span className="text-xs text-gray-300">Imagen 3</span>
-        </button>
-        <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg">⚡</div>
-          </div>
-          <span className="text-xs text-gray-300">Imagen 3 Fast</span>
         </button>
       </div>
     </div>

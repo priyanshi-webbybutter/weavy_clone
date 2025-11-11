@@ -206,7 +206,7 @@ function FlowCanvasInner() {
     }
 
         // Get model ID from node data
-        const modelId = imageNode.data?.modelId || 'openai/gpt-image-1';
+        const modelId = imageNode.data?.modelId || 'bytedance/seedream-4';
         
         console.log(`🔍 [${callId}] Node data:`, {
           nodeId,
@@ -226,11 +226,14 @@ function FlowCanvasInner() {
               raw: false,
             }
           : {
-              background: 'opaque',
-              numberOfImages: 1,
-              outputFormat: 'jpg',
-              quality: 'high',
-              size: '1024x1024',
+              // Seedream-4 default settings
+              size: '2K',
+              width: 2048,
+              height: 2048,
+              aspectRatio: '4:3',
+              maxImages: 1,
+              enhancePrompt: true,
+              sequentialImageGeneration: 'disabled',
             };
 
         const settings = nodeSettingsRef.current[nodeId] || defaultSettings;
@@ -274,12 +277,14 @@ function FlowCanvasInner() {
             requestBody.seed = settings.seed;
           }
         } else {
-          // GPT Image 1 parameters only
-          requestBody.background = settings.background;
-          requestBody.numberOfImages = settings.numberOfImages;
-          requestBody.outputFormat = settings.outputFormat;
-          requestBody.quality = settings.quality;
-          requestBody.size = settings.size;
+          // Seedream-4 parameters only
+          requestBody.size = settings.size || '2K';
+          requestBody.width = settings.width || 2048;
+          requestBody.height = settings.height || 2048;
+          requestBody.aspectRatio = settings.aspectRatio || '4:3';
+          requestBody.maxImages = settings.maxImages || 1;
+          requestBody.enhancePrompt = settings.enhancePrompt !== false;
+          requestBody.sequentialImageGeneration = settings.sequentialImageGeneration || 'disabled';
         }
 
     console.log(`📤 [${callId}] Sending API request with body:`, requestBody);
@@ -475,8 +480,8 @@ function FlowCanvasInner() {
           position,
           data: {
             label: 'Image Generator',
-            modelName: 'GPT Image 1',
-            modelId: 'openai/gpt-image-1',
+            modelName: 'Seedream-4',
+            modelId: 'bytedance/seedream-4',
             imageUrl: undefined,
             isGenerating: false,
             onRunModel: handleRunModel,
@@ -634,13 +639,23 @@ function FlowCanvasInner() {
               },
             };
           } else if (node.type === 'imageGenerator') {
+            // Migrate old GPT Image 1 nodes to Seedream-4
+            let modelId = node.data?.modelId || 'bytedance/seedream-4';
+            let modelName = node.data?.modelName || 'Seedream-4';
+            
+            if (modelId === 'openai/gpt-image-1' || !modelId) {
+              console.log(`🔄 Migrating old GPT Image 1 node to Seedream-4: ${node.id}`);
+              modelId = 'bytedance/seedream-4';
+              modelName = 'Seedream-4';
+            }
+            
             return {
               ...node,
               data: {
                 ...node.data,
                 isGenerating: false, // Always reset generating state on page load
-                modelId: node.data?.modelId || 'openai/gpt-image-1', // Restore modelId
-                modelName: node.data?.modelName || 'GPT Image 1', // Restore modelName
+                modelId: modelId,
+                modelName: modelName,
                 onRunModel: handleRunModel,
                 onDelete: handleDeleteNode,
                 onDuplicate: handleDuplicateNode,
@@ -708,8 +723,8 @@ function FlowCanvasInner() {
       <NodeSettingsPanel
         isOpen={isSettingsPanelOpen}
         nodeId={selectedNode?.id || ''}
-        nodeName={selectedNode?.data?.modelName || 'GPT Image 1'}
-        modelId={selectedNode?.data?.modelId || 'openai/gpt-image-1'}
+        nodeName={selectedNode?.data?.modelName || 'Seedream-4'}
+        modelId={selectedNode?.data?.modelId || 'bytedance/seedream-4'}
         creditCost={23}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
         onClose={handleCloseSettingsPanel}

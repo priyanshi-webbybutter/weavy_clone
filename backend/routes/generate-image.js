@@ -7,20 +7,22 @@ const router = express.Router();
 router.post('/generate-image', async (req, res) => {
   try {
     const {
-      modelId = 'openai/gpt-image-1',
+      modelId = 'bytedance/seedream-4',
       prompt,
-      // GPT Image 1 parameters
-      background = 'opaque',
-      numberOfImages = 1,
-      outputFormat = 'jpg',
-      quality = 'high',
-      size = '1024x1024',
+      // Seedream-4 parameters
+      size = '2K',
+      width = 2048,
+      height = 2048,
+      aspectRatio = '4:3',
+      maxImages = 1,
+      enhancePrompt = true,
+      sequentialImageGeneration = 'disabled',
       // Flux parameters
-      aspectRatio = '1:1',
       promptUpsampling = true,
       seed,
       safetyTolerance = 2,
       raw = false,
+      outputFormat = 'png',
     } = req.body;
 
     // Validate prompt
@@ -35,7 +37,7 @@ router.post('/generate-image', async (req, res) => {
       prompt,
       ...(modelId === 'black-forest-labs/flux-1.1-pro-ultra' 
         ? { aspectRatio, promptUpsampling, seed, safetyTolerance, outputFormat, raw }
-        : { background, numberOfImages, outputFormat, quality, size }
+        : { size, width, height, aspectRatio, maxImages, enhancePrompt, sequentialImageGeneration } // Seedream-4
       ),
     });
 
@@ -58,6 +60,12 @@ router.post('/generate-image', async (req, res) => {
 
     let inputParams;
     let modelToRun;
+
+    // Migrate old GPT Image 1 modelId to Seedream-4
+    if (modelId === 'openai/gpt-image-1') {
+      console.log('🔄 Migrating old GPT Image 1 request to Seedream-4');
+      modelId = 'bytedance/seedream-4';
+    }
 
     if (modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
       // Flux 1.1 Pro Ultra parameters
@@ -84,52 +92,20 @@ router.post('/generate-image', async (req, res) => {
 
       modelToRun = 'black-forest-labs/flux-1.1-pro-ultra';
     } else {
-      // GPT Image 1 parameters
-      // Quality must be one of: "low", "medium", "high", "auto" (not numeric)
-      // Ensure quality is a valid string value
-      let mappedQuality = 'high';
-      if (quality === 'high' || quality === 'medium' || quality === 'low' || quality === 'auto') {
-        mappedQuality = quality;
-      } else if (typeof quality === 'string') {
-        // Try to normalize if it's a string but not exactly matching
-        const qualityLower = quality.toLowerCase();
-        if (qualityLower === 'high' || qualityLower === 'medium' || qualityLower === 'low' || qualityLower === 'auto') {
-          mappedQuality = qualityLower;
-        }
-      }
-
-      const aspectRatioMap = {
-        '1024x1024': '1:1',
-        '1536x1024': '3:2',
-        '1024x1536': '2:3',
-      };
-
-      const formatMap = {
-        'jpg': 'jpeg',
-        'jpeg': 'jpeg',
-        'png': 'png',
-        'webp': 'webp',
-      };
-      const mappedFormat = formatMap[outputFormat?.toLowerCase()] || 'jpeg';
-
+      // Seedream-4 parameters
       inputParams = {
         prompt: prompt,
-        quality: mappedQuality, // Must be "low", "medium", "high", or "auto"
-        background: background,
-        moderation: "auto",
-        aspect_ratio: aspectRatioMap[size] || '1:1',
-        output_format: mappedFormat,
-        input_fidelity: "low",
-        number_of_images: numberOfImages,
-        output_compression: 90,
+        size: size || '2K',
+        width: width || 2048,
+        height: height || 2048,
+        aspect_ratio: aspectRatio || '4:3',
+        max_images: maxImages || 1,
+        image_input: [], // Empty array for now, can be extended later
+        enhance_prompt: enhancePrompt !== false,
+        sequential_image_generation: sequentialImageGeneration || 'disabled',
       };
 
-      // Only include openai_api_key if it's provided in environment
-      if (process.env.OPENAI_API_KEY) {
-        inputParams.openai_api_key = process.env.OPENAI_API_KEY;
-      }
-
-      modelToRun = 'openai/gpt-image-1';
+      modelToRun = 'bytedance/seedream-4';
     }
 
     console.log('📤 Calling Replicate API:', modelToRun);
@@ -194,11 +170,14 @@ router.post('/generate-image', async (req, res) => {
             raw,
           }
         : {
-            background,
-            numberOfImages,
-            outputFormat,
-            quality,
+            // Seedream-4
             size,
+            width,
+            height,
+            aspectRatio,
+            maxImages,
+            enhancePrompt,
+            sequentialImageGeneration,
           },
     });
 

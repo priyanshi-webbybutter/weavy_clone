@@ -4,18 +4,20 @@ import React, { useState } from 'react';
 import { X, Info, ChevronDown } from 'lucide-react';
 
 interface NodeSettings {
-  // GPT Image 1 settings
-  background?: 'opaque' | 'transparent';
-  numberOfImages?: number;
-  outputFormat?: 'jpg' | 'png' | 'jpeg' | 'webp';
-  quality?: 'high' | 'medium' | 'low';
-  size?: '1024x1024' | '1536x1024' | '1024x1536';
-  // Flux settings
+  // Seedream-4 settings
+  size?: '1K' | '2K' | '4K';
+  width?: number;
+  height?: number;
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9' | '9:21';
+  maxImages?: number;
+  enhancePrompt?: boolean;
+  sequentialImageGeneration?: 'enabled' | 'disabled';
+  // Flux settings
   promptUpsampling?: boolean;
   seed?: number;
   safetyTolerance?: number;
   raw?: boolean;
+  outputFormat?: 'png' | 'jpeg';
 }
 
 interface NodeSettingsPanelProps {
@@ -34,7 +36,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   isOpen,
   nodeId,
   nodeName,
-  modelId = 'openai/gpt-image-1',
+  modelId = 'bytedance/seedream-4',
   creditCost,
   initialSettings,
   onClose,
@@ -54,11 +56,14 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           raw: false,
         }
       : {
-          background: 'opaque',
-          numberOfImages: 1,
-          outputFormat: 'jpg',
-          quality: 'high',
-          size: '1024x1024',
+          // Seedream-4 default settings
+          size: '2K',
+          width: 2048,
+          height: 2048,
+          aspectRatio: '4:3',
+          maxImages: 1,
+          enhancePrompt: true,
+          sequentialImageGeneration: 'disabled',
         })
   );
 
@@ -279,109 +284,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
             </>
           ) : (
             <>
-              {/* Background - GPT Image 1 */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="text-sm text-gray-300 font-medium">Background</label>
-                  <Info size={14} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
-                    value={settings.background || 'opaque'}
-                    onChange={(e) =>
-                      handleSettingChange('background', e.target.value as 'opaque' | 'transparent')
-                    }
-                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-                  >
-                    <option value="opaque">opaque</option>
-                    <option value="transparent">transparent</option>
-                  </select>
-                  <ChevronDown
-                    size={16}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                  />
-                </div>
-              </div>
-
-              {/* Number of Images - GPT Image 1 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-300 font-medium">Number of Images</label>
-                    <Info size={14} className="text-gray-500 cursor-help" />
-                  </div>
-                  <span className="text-white font-medium text-sm">{settings.numberOfImages || 1}</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="3"
-                  value={settings.numberOfImages || 1}
-                  onChange={(e) =>
-                    handleSettingChange('numberOfImages', parseInt(e.target.value))
-                  }
-                  className="w-full h-1.5 bg-[#2a2a2a] rounded-lg appearance-none cursor-pointer slider"
-                  style={{
-                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.numberOfImages || 1) - 1) / 2) * 100}%, #2a2a2a ${(((settings.numberOfImages || 1) - 1) / 2) * 100}%, #2a2a2a 100%)`,
-                  }}
-                />
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>1</span>
-                  <span>2</span>
-                  <span>3</span>
-                </div>
-              </div>
-
-              {/* Output Format - GPT Image 1 */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="text-sm text-gray-300 font-medium">Output Format</label>
-                  <Info size={14} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
-                    value={settings.outputFormat || 'jpg'}
-                    onChange={(e) =>
-                      handleSettingChange('outputFormat', e.target.value as 'jpg' | 'png')
-                    }
-                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-                  >
-                    <option value="jpg">jpg</option>
-                    <option value="png">png</option>
-                  </select>
-                  <ChevronDown
-                    size={16}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                  />
-                </div>
-              </div>
-
-              {/* Quality - GPT Image 1 */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="text-sm text-gray-300 font-medium">Quality</label>
-                  <Info size={14} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
-                    value={settings.quality || 'high'}
-                    onChange={(e) =>
-                      handleSettingChange('quality', e.target.value as 'high' | 'medium' | 'low')
-                    }
-                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-                  >
-                    <option value="high">high</option>
-                    <option value="medium">medium</option>
-                    <option value="low">low</option>
-                  </select>
-                  <ChevronDown
-                    size={16}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                  />
-                </div>
-              </div>
-
-              {/* Size - GPT Image 1 */}
+              {/* Size - Seedream-4 */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <label className="text-sm text-gray-300 font-medium">Size</label>
@@ -389,18 +292,171 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 </div>
                 <div className="relative">
                   <select
-                    value={settings.size || '1024x1024'}
+                    value={settings.size || '2K'}
+                    onChange={(e) => {
+                      const newSize = e.target.value as '1K' | '2K' | '4K';
+                      handleSettingChange('size', newSize);
+                      // Auto-update width/height based on size
+                      const sizeMap: Record<string, { width: number; height: number }> = {
+                        '1K': { width: 1024, height: 1024 },
+                        '2K': { width: 2048, height: 2048 },
+                        '4K': { width: 4096, height: 4096 },
+                      };
+                      if (sizeMap[newSize]) {
+                        handleSettingChange('width', sizeMap[newSize].width);
+                        handleSettingChange('height', sizeMap[newSize].height);
+                      }
+                    }}
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="1K">1K (1024x1024)</option>
+                    <option value="2K">2K (2048x2048)</option>
+                    <option value="4K">4K (4096x4096)</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Width - Seedream-4 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Width</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <input
+                  type="number"
+                  value={settings.width || 2048}
+                  onChange={(e) =>
+                    handleSettingChange('width', parseInt(e.target.value) || 2048)
+                  }
+                  min="512"
+                  max="8192"
+                  step="256"
+                  className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 focus:outline-none focus:border-[#3a3a3a]"
+                />
+              </div>
+
+              {/* Height - Seedream-4 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Height</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <input
+                  type="number"
+                  value={settings.height || 2048}
+                  onChange={(e) =>
+                    handleSettingChange('height', parseInt(e.target.value) || 2048)
+                  }
+                  min="512"
+                  max="8192"
+                  step="256"
+                  className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 focus:outline-none focus:border-[#3a3a3a]"
+                />
+              </div>
+
+              {/* Aspect Ratio - Seedream-4 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Aspect Ratio</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.aspectRatio || '4:3'}
                     onChange={(e) =>
-                      handleSettingChange(
-                        'size',
-                        e.target.value as '1024x1024' | '1536x1024' | '1024x1536'
-                      )
+                      handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])
                     }
                     className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
                   >
-                    <option value="1024x1024">1024 x 1024</option>
-                    <option value="1536x1024">1536 x 1024</option>
-                    <option value="1024x1536">1024 x 1536</option>
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait Standard)</option>
+                    <option value="16:9">16:9 (Widescreen)</option>
+                    <option value="9:16">9:16 (Portrait Widescreen)</option>
+                    <option value="21:9">21:9 (Ultra Wide)</option>
+                    <option value="9:21">9:21 (Ultra Tall)</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Max Images - Seedream-4 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-300 font-medium">Max Images</label>
+                    <Info size={14} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white font-medium text-sm">{settings.maxImages || 1}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="4"
+                  value={settings.maxImages || 1}
+                  onChange={(e) =>
+                    handleSettingChange('maxImages', parseInt(e.target.value))
+                  }
+                  className="w-full h-1.5 bg-[#2a2a2a] rounded-lg appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.maxImages || 1) - 1) / 3) * 100}%, #2a2a2a ${(((settings.maxImages || 1) - 1) / 3) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                </div>
+              </div>
+
+              {/* Enhance Prompt - Seedream-4 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Enhance Prompt</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.enhancePrompt !== false ? 'true' : 'false'}
+                    onChange={(e) =>
+                      handleSettingChange('enhancePrompt', e.target.value === 'true')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="true">Enabled</option>
+                    <option value="false">Disabled</option>
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Sequential Image Generation - Seedream-4 */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="text-sm text-gray-300 font-medium">Sequential Image Generation</label>
+                  <Info size={14} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.sequentialImageGeneration || 'disabled'}
+                    onChange={(e) =>
+                      handleSettingChange('sequentialImageGeneration', e.target.value as 'enabled' | 'disabled')
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-sm border border-[#2a2a2a] rounded-lg px-4 py-2.5 pr-10 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="enabled">Enabled</option>
                   </select>
                   <ChevronDown
                     size={16}
