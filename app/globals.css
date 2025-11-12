@@ -181,3 +181,46 @@ a {
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }
+
+/* Hide React Flow attribution/watermark */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Cursor Styles for Tools - Pointer Tool (default cursor) */
+.react-flow.cursor-default .react-flow__pane {
+  cursor: default !important;
+}
+
+.react-flow.cursor-default .react-flow__node {
+  cursor: default !important;
+}
+
+.react-flow.cursor-default .react-flow__edge {
+  cursor: default !important;
+}
+
+.react-flow.cursor-default .react-flow__handle {
+  cursor: default !important;
+}
+
+/* Cursor Styles for Tools - Hand Tool (grab cursor) */
+.react-flow.cursor-grab .react-flow__pane {
+  cursor: grab !important;
+}
+
+.react-flow.cursor-grab .react-flow__pane:active {
+  cursor: grabbing !important;
+}
+
+.react-flow.cursor-grab .react-flow__node {
+  cursor: default !important;
+}
+
+.react-flow.cursor-grab .react-flow__edge {
+  cursor: default !important;
+}
+
+.react-flow.cursor-grab .react-flow__handle {
+  cursor: default !important;
+}

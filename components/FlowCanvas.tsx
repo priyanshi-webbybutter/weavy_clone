@@ -2,7 +2,6 @@
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import ReactFlow, {
-  MiniMap,
   Background,
   Panel,
   useNodesState,
@@ -71,6 +70,9 @@ function FlowCanvasInner() {
   // Node settings panel state
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+
+  // Toolbar state
+  const [activeTool, setActiveTool] = useState<'pointer' | 'hand'>('pointer');
 
   // Store settings for each node - use BOTH state and ref
   const [nodeSettings, setNodeSettings] = useState<Record<string, any>>({});
@@ -965,28 +967,13 @@ function FlowCanvasInner() {
           onSelectionChange={handleSelectionChange}
           nodeTypes={nodeTypes}
           fitView
-          className="bg-[#0a0a0a]"
+          panOnDrag={activeTool === 'hand'}
+          selectionOnDrag={activeTool === 'pointer'}
+          minZoom={0.01}
+          maxZoom={20}
+          proOptions={{ hideAttribution: true }}
+          className={`bg-[#0a0a0a] ${activeTool === 'pointer' ? 'cursor-default' : 'cursor-grab'}`}
         >
-          {/* MiniMap */}
-          <MiniMap
-            nodeColor={(node) => {
-              switch (node.type) {
-                case 'custom':
-                  return '#8b5cf6';
-                case 'promptInput':
-                  return '#d946ef';
-                case 'imageGenerator':
-                  return '#06b6d4';
-                default:
-                  return '#4a5568';
-              }
-            }}
-            nodeStrokeWidth={3}
-            zoomable
-            pannable
-            className="bg-[#1a1a1a] border border-[#2a2a2a]"
-          />
-
           {/* Background */}
           <Background
             variant={bgVariant}
@@ -1004,6 +991,7 @@ function FlowCanvasInner() {
           onZoomChange={handleZoomChange}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          onToolChange={setActiveTool}
         />
       </div>
     </>

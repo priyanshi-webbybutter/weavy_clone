@@ -8,6 +8,7 @@ interface BottomToolbarProps {
   onZoomChange?: (zoom: number) => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  onToolChange?: (tool: 'pointer' | 'hand') => void;
 }
 
 const BottomToolbar: React.FC<BottomToolbarProps> = ({
@@ -15,6 +16,7 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
   onZoomChange,
   onUndo,
   onRedo,
+  onToolChange,
 }) => {
   const [activeTool, setActiveTool] = useState<'pointer' | 'hand'>('pointer');
   const [isZoomOpen, setIsZoomOpen] = useState(false);
@@ -23,12 +25,32 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
 
   const handleToolClick = (tool: 'pointer' | 'hand') => {
     setActiveTool(tool);
+    onToolChange?.(tool);
   };
 
   const handleZoomSelect = (level: number) => {
     onZoomChange?.(level);
     setIsZoomOpen(false);
   };
+
+  // Handle keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if user is not typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (e.key === 'v' || e.key === 'V') {
+        handleToolClick('pointer');
+      } else if (e.key === 'h' || e.key === 'H') {
+        handleToolClick('hand');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40">
