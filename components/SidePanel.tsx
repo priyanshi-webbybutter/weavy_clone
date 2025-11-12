@@ -70,7 +70,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
     <div>
       <h2 className="text-base font-semibold text-white mb-1">Image Models</h2>
       <p className="text-xs text-gray-400 mb-4">Generate from text</p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 mb-6">
         <button
           draggable
           onDragStart={(event) => onDragStart(event, 'imageGenerator')}
@@ -92,6 +92,21 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
             <div className="text-lg text-purple-400">F</div>
           </div>
           <span className="text-xs text-gray-300">FLUX 1.1 Pro Ultra</span>
+        </button>
+      </div>
+      <h2 className="text-base font-semibold text-white mb-1">Image Analysis</h2>
+      <p className="text-xs text-gray-400 mb-4">Describe images</p>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          draggable
+          onDragStart={(event) => onDragStart(event, 'imageDescriber')}
+          onDragEnd={onDragEnd}
+          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+        >
+          <div className="w-8 h-8 mb-2 flex items-center justify-center">
+            <div className="text-lg text-green-400">D</div>
+          </div>
+          <span className="text-xs text-gray-300">Image Describer</span>
         </button>
       </div>
     </div>

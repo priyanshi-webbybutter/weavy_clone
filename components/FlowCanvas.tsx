@@ -40,12 +40,14 @@ const EXECUTION_IN_PROGRESS = new Set<string>();
 import { CustomNode } from './CustomNode';
 import { PromptInputNode } from './PromptInputNode';
 import { ImageGeneratorNode } from './ImageGeneratorNode';
+import { ImageDescriberNode } from './ImageDescriberNode';
 
 // Define node types
 const nodeTypes = {
   custom: CustomNode,
   promptInput: PromptInputNode,
   imageGenerator: ImageGeneratorNode,
+  imageDescriber: ImageDescriberNode,
 };
 
 // Initial nodes - Start with empty canvas
@@ -152,7 +154,125 @@ function FlowCanvasInner() {
     const currentEdges = edgesRef.current;
     const currentNodes = nodesRef.current;
 
-    // Find connected edges - support both prompt and image prompt inputs
+    const currentNode = currentNodes.find((node) => node.id === nodeId);
+    if (!currentNode) {
+      EXECUTION_IN_PROGRESS.delete(nodeId);
+      GLOBAL_GENERATING_NODES.delete(nodeId);
+      generatingNodes.current.delete(nodeId);
+      LAST_CALL_TIMESTAMPS.delete(nodeId);
+      return;
+    }
+
+    // Handle Image Describer nodes differently
+    if (currentNode.type === 'imageDescriber') {
+      // Find connected image input
+      const imageEdge = currentEdges.find((edge) => edge.target === nodeId && edge.targetHandle === 'image');
+      
+      if (!imageEdge) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Please connect an Image Generator node to the Image input before running the model.');
+        return;
+      }
+
+      const imageSourceNode = currentNodes.find((node) => node.id === imageEdge.source);
+      if (!imageSourceNode || imageSourceNode.type !== 'imageGenerator') {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Connected image node not found or invalid.');
+        return;
+      }
+
+      const imageUrl = imageSourceNode.data?.imageUrl;
+      if (!imageUrl) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('The connected image node has no generated image. Please generate an image first.');
+        return;
+      }
+
+      // Set generating state
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: true,
+              },
+            };
+          }
+          return node;
+        })
+      );
+
+      // Call backend API to describe image
+      fetch('http://localhost:3001/api/describe-image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageUrl: imageUrl,
+        }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.success && data.description) {
+            setNodes((nds) =>
+              nds.map((node) => {
+                if (node.id === nodeId) {
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      description: data.description,
+                      isGenerating: false,
+                    },
+                  };
+                }
+                return node;
+              })
+            );
+          } else {
+            throw new Error(data.error || 'Failed to describe image');
+          }
+        })
+        .catch((error) => {
+          console.error('Error describing image:', error);
+          alert(`Error: ${error.message}`);
+          setNodes((nds) =>
+            nds.map((node) => {
+              if (node.id === nodeId) {
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    isGenerating: false,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+        })
+        .finally(() => {
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+        });
+
+      return;
+    }
+
+    // Find connected edges - support both prompt and image prompt inputs (for image generator nodes)
     const connectedEdges = currentEdges.filter((edge) => edge.target === nodeId);
     const promptEdge = connectedEdges.find((edge) => !edge.targetHandle || edge.targetHandle === 'prompt');
     const imagePromptEdge = connectedEdges.find((edge) => edge.targetHandle === 'imagePrompt');
@@ -166,7 +286,7 @@ function FlowCanvasInner() {
       return;
     }
 
-    const imageNode = currentNodes.find((node) => node.id === nodeId);
+    const imageNode = currentNode;
     if (!imageNode) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
@@ -186,6 +306,7 @@ function FlowCanvasInner() {
     }
 
     // Get prompt text from connected prompt node
+    // Support both PromptInputNode (data.value) and ImageDescriberNode (data.description)
     const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
     if (!promptSourceNode) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
@@ -196,14 +317,29 @@ function FlowCanvasInner() {
       return;
     }
 
-    const promptText = promptSourceNode.data.value || '';
+    // Get text from different node types
+    let promptText = '';
+    if (promptSourceNode.type === 'imageDescriber') {
+      // Image Describer stores text in data.description
+      promptText = promptSourceNode.data?.description || '';
+    } else if (promptSourceNode.type === 'promptInput') {
+      // Prompt Input stores text in data.value
+      promptText = promptSourceNode.data?.value || '';
+    } else {
+      // Fallback: try both
+      promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
+    }
 
     if (!promptText.trim()) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
       LAST_CALL_TIMESTAMPS.delete(nodeId);
-      alert('The connected prompt is empty. Please enter some text first.');
+      if (promptSourceNode.type === 'imageDescriber') {
+        alert('The connected Image Describer has no description yet. Please run the Image Describer first to generate a description.');
+      } else {
+        alert('The connected prompt is empty. Please enter some text first.');
+      }
       return;
     }
 
@@ -522,6 +658,25 @@ function FlowCanvasInner() {
             onDuplicate: handleDuplicateNode,
           },
         };
+      } else if (type === 'imageDescriber') {
+        newNode = {
+          id: newNodeId,
+          type: 'imageDescriber',
+          position,
+          data: {
+            label: 'Image Describer',
+            description: undefined,
+            imageUrls: [],
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+            onAddImage: (nodeId: string) => {
+              // TODO: Implement add image functionality
+              console.log('Add image clicked for node:', nodeId);
+            },
+          },
+        };
       } else {
         // Default fallback
         newNode = {
@@ -676,6 +831,21 @@ function FlowCanvasInner() {
                 onRunModel: handleRunModel,
                 onDelete: handleDeleteNode,
                 onDuplicate: handleDuplicateNode,
+              },
+            };
+          } else if (node.type === 'imageDescriber') {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: false, // Always reset generating state on page load
+                onRunModel: handleRunModel,
+                onDelete: handleDeleteNode,
+                onDuplicate: handleDuplicateNode,
+                onAddImage: (nodeId: string) => {
+                  // TODO: Implement add image functionality
+                  console.log('Add image clicked for node:', nodeId);
+                },
               },
             };
           }
