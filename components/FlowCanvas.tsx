@@ -261,6 +261,11 @@ function FlowCanvasInner() {
         })
       );
 
+      // Get settings for Image Describer node
+      const imageDescriberSettings = nodeSettingsRef.current[nodeId] || {};
+      const modelName = imageDescriberSettings.modelName || 'gemini-2.5-flash';
+      const modelInstructions = imageDescriberSettings.modelInstructions || 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters';
+
       // Call backend API to describe image
       fetch('http://localhost:3001/api/describe-image', {
         method: 'POST',
@@ -269,6 +274,8 @@ function FlowCanvasInner() {
         },
         body: JSON.stringify({
           imageUrl: imageUrl,
+          modelName: modelName,
+          modelInstructions: modelInstructions,
         }),
       })
         .then((response) => response.json())
@@ -803,21 +810,21 @@ function FlowCanvasInner() {
       return;
     }
     
-    // Check if there are any imageGenerator nodes (these have settings to show)
-    const imageGeneratorNodes = selectedNodesList.filter(node => 
-      node.type === 'imageGenerator'
+    // Check if there are any nodes with settings (imageGenerator or imageDescriber)
+    const nodesWithSettings = selectedNodesList.filter(node => 
+      node.type === 'imageGenerator' || node.type === 'imageDescriber'
     );
     
     // Store ALL selected nodes in panel
     console.log('🔍 Setting selectedNodes to', selectedNodesList.length, 'nodes (all types):', selectedNodesList.map(n => ({ id: n.id, type: n.type })));
     setSelectedNodes(selectedNodesList);
     
-    // Only open panel if there are imageGenerator nodes (they have settings)
-    if (imageGeneratorNodes.length > 0) {
-      if (imageGeneratorNodes.length === 1 && selectedNodesList.length === 1) {
-        // Single imageGenerator selection - show detailed settings panel
-        console.log('🔍 Single imageGenerator selection, showing detailed panel');
-        setSelectedNode(imageGeneratorNodes[0]);
+    // Only open panel if there are nodes with settings (imageGenerator or imageDescriber)
+    if (nodesWithSettings.length > 0) {
+      if (nodesWithSettings.length === 1 && selectedNodesList.length === 1) {
+        // Single node with settings selection - show detailed settings panel
+        console.log('🔍 Single node with settings selection, showing detailed panel');
+        setSelectedNode(nodesWithSettings[0]);
         setIsSettingsPanelOpen(true);
       } else {
         // Multiple selection (or mixed selection) - show multi-selection panel with all nodes
@@ -826,8 +833,8 @@ function FlowCanvasInner() {
         setIsSettingsPanelOpen(true);
       }
     } else {
-      // No imageGenerator nodes selected, close panel
-      console.log('🔍 No imageGenerator nodes selected, closing panel');
+      // No nodes with settings selected, close panel
+      console.log('🔍 No nodes with settings selected, closing panel');
       setSelectedNodes([]);
       setSelectedNode(null);
       setIsSettingsPanelOpen(false);
@@ -943,23 +950,217 @@ function FlowCanvasInner() {
     }
   }, [handleRunModel]);
 
-  // Handle run all selected nodes
+  // Helper function to sort nodes topologically based on flow connections
+  const sortNodesByFlow = useCallback((nodeIds: string[]): string[] => {
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    
+    // Build dependency graph: nodeId -> array of nodeIds that must run before it
+    const dependencies = new Map<string, string[]>();
+    const nodeSet = new Set(nodeIds);
+    
+    // Initialize all nodes with empty dependencies
+    nodeIds.forEach(nodeId => {
+      dependencies.set(nodeId, []);
+    });
+    
+    // Find dependencies: if node A connects to node B, then A must run before B
+    currentEdges.forEach(edge => {
+      if (nodeSet.has(edge.source) && nodeSet.has(edge.target)) {
+        // Source node must run before target node
+        const deps = dependencies.get(edge.target) || [];
+        if (!deps.includes(edge.source)) {
+          deps.push(edge.source);
+        }
+        dependencies.set(edge.target, deps);
+      }
+    });
+    
+    // Topological sort using Kahn's algorithm
+    const sorted: string[] = [];
+    const inDegree = new Map<string, number>();
+    
+    // Calculate in-degree for each node
+    nodeIds.forEach(nodeId => {
+      inDegree.set(nodeId, dependencies.get(nodeId)?.length || 0);
+    });
+    
+    // Find nodes with no dependencies (in-degree = 0)
+    const queue: string[] = [];
+    nodeIds.forEach(nodeId => {
+      if (inDegree.get(nodeId) === 0) {
+        queue.push(nodeId);
+      }
+    });
+    
+    // Process nodes
+    while (queue.length > 0) {
+      const nodeId = queue.shift()!;
+      sorted.push(nodeId);
+      
+      // Find all nodes that depend on this node
+      currentEdges.forEach(edge => {
+        if (edge.source === nodeId && nodeSet.has(edge.target)) {
+          const targetInDegree = inDegree.get(edge.target)! - 1;
+          inDegree.set(edge.target, targetInDegree);
+          if (targetInDegree === 0) {
+            queue.push(edge.target);
+          }
+        }
+      });
+    }
+    
+    // If we couldn't sort all nodes, return original order (might have cycles or disconnected nodes)
+    if (sorted.length !== nodeIds.length) {
+      console.warn('⚠️ Could not fully sort nodes topologically, using original order');
+      return nodeIds;
+    }
+    
+    return sorted;
+  }, []);
+
+  // Store tasks ref for async access
+  const tasksRef = useRef<Task[]>([]);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
+
+  // Promise-based wrapper for handleRunModel that waits for completion
+  const runModelAsync = useCallback((nodeId: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const currentNodes = nodesRef.current;
+      const node = currentNodes.find(n => n.id === nodeId);
+      
+      if (!node) {
+        reject(new Error(`Node ${nodeId} not found`));
+        return;
+      }
+      
+      // Check if node is already generating
+      if (node.data?.isGenerating || GLOBAL_GENERATING_NODES.has(nodeId)) {
+        reject(new Error(`Node ${nodeId} is already running`));
+        return;
+      }
+      
+      let taskCompleted = false;
+      const startTime = Date.now();
+      
+      // Declare interval and timeout variables
+      let pollInterval: NodeJS.Timeout;
+      let timeout: NodeJS.Timeout;
+      
+      // Set up a listener for task completion
+      const checkCompletion = () => {
+        if (taskCompleted) return;
+        
+        const currentTasks = tasksRef.current;
+        const nodeState = nodesRef.current.find(n => n.id === nodeId);
+        
+        // Check for completed task
+        const completedTask = currentTasks.find(
+          t => t.nodeId === nodeId && t.status === 'completed' && Date.now() - t.startTime.getTime() > 1000
+        );
+        
+        if (completedTask) {
+          taskCompleted = true;
+          clearInterval(pollInterval);
+          clearTimeout(timeout);
+          resolve();
+          return;
+        }
+        
+        // Check for failed task
+        const failedTask = currentTasks.find(
+          t => t.nodeId === nodeId && t.status === 'failed'
+        );
+        
+        if (failedTask) {
+          taskCompleted = true;
+          clearInterval(pollInterval);
+          clearTimeout(timeout);
+          reject(new Error(`Node ${nodeId} failed`));
+          return;
+        }
+        
+        // Also check if node is no longer generating (with some delay to ensure task is updated)
+        if (nodeState && !nodeState.data?.isGenerating && !GLOBAL_GENERATING_NODES.has(nodeId)) {
+          // Wait a bit to ensure task status is updated
+          if (Date.now() - startTime > 2000) {
+            taskCompleted = true;
+            clearInterval(pollInterval);
+            clearTimeout(timeout);
+            resolve();
+            return;
+          }
+        }
+      };
+      
+      // Poll for completion every 300ms
+      pollInterval = setInterval(checkCompletion, 300);
+      
+      // Timeout after 5 minutes
+      timeout = setTimeout(() => {
+        if (!taskCompleted) {
+          taskCompleted = true;
+          clearInterval(pollInterval);
+          reject(new Error(`Node ${nodeId} timed out after 5 minutes`));
+        }
+      }, 5 * 60 * 1000);
+      
+      // Start the model
+      try {
+        handleRunModel(nodeId);
+      } catch (error) {
+        clearInterval(pollInterval);
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+  }, [handleRunModel]);
+
+  // Handle run all selected nodes sequentially based on flow
   const handleRunSelectedNodes = useCallback(
-    (nodeIds: string[], runs: number = 1) => {
+    async (nodeIds: string[], runs: number = 1) => {
       console.log(`🎛️ [Panel] handleRunSelectedNodes called for ${nodeIds.length} nodes with ${runs} runs:`, nodeIds);
       
-      // Run each node the specified number of times
-      let runIndex = 0;
+      // Sort nodes based on flow connections (topological order)
+      const sortedNodeIds = sortNodesByFlow(nodeIds);
+      console.log(`📊 [Panel] Nodes sorted by flow:`, sortedNodeIds);
+      
+      // Run each set of runs sequentially
       for (let run = 0; run < runs; run++) {
-        nodeIds.forEach((nodeId, nodeIndex) => {
-          setTimeout(() => {
-            handleRunModel(nodeId);
-          }, runIndex * 100); // Small delay between runs to prevent overwhelming the API
-          runIndex++;
-        });
+        console.log(`🔄 [Panel] Starting run ${run + 1} of ${runs}`);
+        
+        // Run nodes sequentially in topological order
+        for (let i = 0; i < sortedNodeIds.length; i++) {
+          const nodeId = sortedNodeIds[i];
+          console.log(`▶️ [Panel] Running node ${i + 1}/${sortedNodeIds.length}: ${nodeId}`);
+          
+          try {
+            await runModelAsync(nodeId);
+            console.log(`✅ [Panel] Node ${nodeId} completed`);
+          } catch (error) {
+            console.error(`❌ [Panel] Node ${nodeId} failed:`, error);
+            // Continue with next node even if one fails
+          }
+          
+          // Small delay between nodes
+          if (i < sortedNodeIds.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        }
+        
+        console.log(`✅ [Panel] Run ${run + 1} of ${runs} completed`);
+        
+        // Delay between runs
+        if (run < runs - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
       }
+      
+      console.log(`🎉 [Panel] All runs completed`);
     },
-    [handleRunModel]
+    [sortNodesByFlow, runModelAsync]
   );
 
   // Log when handleRunModel is recreated (should only happen once now!)
@@ -1104,7 +1305,9 @@ function FlowCanvasInner() {
       <NodeSettingsPanel
         isOpen={isSettingsPanelOpen}
         nodeId={selectedNode?.id || ''}
-        nodeName={selectedNode?.data?.modelName || 'Seedream-4'}
+        nodeName={selectedNode?.type === 'imageDescriber' 
+          ? 'Image Describer' 
+          : selectedNode?.data?.modelName || 'Seedream-4'}
         modelId={selectedNode?.data?.modelId || 'bytedance/seedream-4'}
         creditCost={selectedNode?.type === 'imageGenerator' 
           ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)

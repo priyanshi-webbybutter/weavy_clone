@@ -18,6 +18,9 @@ interface NodeSettings {
   safetyTolerance?: number;
   raw?: boolean;
   outputFormat?: 'png' | 'jpeg';
+  // Image Describer settings
+  modelName?: string;
+  modelInstructions?: string;
 }
 
 interface Task {
@@ -73,6 +76,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
 }) => {
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
   const isMultiSelection = selectedNodes && selectedNodes.length > 1;
+  const isImageDescriber = nodeName === 'Image Describer' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'imageDescriber');
   
   // Track which node dropdowns are expanded - all closed by default
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
@@ -85,7 +89,13 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   }, [selectedNodes]);
   
   const [settings, setSettings] = useState<NodeSettings>(
-    initialSettings || (isFluxModel
+    initialSettings || (isImageDescriber
+      ? {
+          // Image Describer default settings
+          modelName: 'gemini-2.5-flash',
+          modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
+        }
+      : isFluxModel
       ? {
           aspectRatio: '1:1',
           promptUpsampling: true,
@@ -112,8 +122,35 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   React.useEffect(() => {
     if (initialSettings) {
       setSettings(initialSettings);
+    } else {
+      // Reset to defaults when no initial settings
+      if (isImageDescriber) {
+        setSettings({
+          modelName: 'gemini-2.5-flash',
+          modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
+        });
+      } else if (isFluxModel) {
+        setSettings({
+          aspectRatio: '1:1',
+          promptUpsampling: true,
+          seed: undefined,
+          safetyTolerance: 2,
+          outputFormat: 'png',
+          raw: false,
+        });
+      } else {
+        setSettings({
+          size: '2K',
+          width: 2048,
+          height: 2048,
+          aspectRatio: '4:3',
+          maxImages: 1,
+          enhancePrompt: true,
+          sequentialImageGeneration: 'disabled',
+        });
+      }
     }
-  }, [initialSettings]);
+  }, [initialSettings, isImageDescriber, isFluxModel]);
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
@@ -666,15 +703,53 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                             </div>
                           </div>
                         ) : node.type === 'imageDescriber' ? (
-                          /* Image Describer Node - Show description */
-                          <div className="text-[10px] text-gray-400">
-                            <div className="mb-1.5">
-                              <span className="text-gray-300" style={{ fontWeight: 200 }}>Description:</span>
+                          /* Image Describer Node - Show settings */
+                          <>
+                            {/* Model Name */}
+                            <div className="mb-3">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model Name</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettingsMap[node.id]?.modelName || 'gemini-2.5-flash'}
+                                  onChange={(e) => {
+                                    const nodeSettings = nodeSettingsMap[node.id] || {};
+                                    const newSettings = { ...nodeSettings, modelName: e.target.value };
+                                    onSettingsChange?.(node.id, newSettings);
+                                  }}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                                </select>
+                                <ChevronDown
+                                  size={10}
+                                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                                />
+                              </div>
                             </div>
-                            <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded p-1.5 text-gray-400 max-h-24 overflow-y-auto" style={{ fontWeight: 200 }}>
-                              {node.data?.description || 'No description generated yet'}
+
+                            {/* Model Instructions */}
+                            <div className="mb-3">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model instructions</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <textarea
+                                value={nodeSettingsMap[node.id]?.modelInstructions || 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters'}
+                                onChange={(e) => {
+                                  const nodeSettings = nodeSettingsMap[node.id] || {};
+                                  const newSettings = { ...nodeSettings, modelInstructions: e.target.value };
+                                  onSettingsChange?.(node.id, newSettings);
+                                }}
+                                placeholder="Enter model instructions..."
+                                rows={6}
+                                className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                                style={{ fontWeight: 200 }}
+                              />
                             </div>
-                          </div>
+                          </>
                         ) : (
                           /* Other node types - no settings for now */
                           <div className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>No settings available for this node type</div>
@@ -684,6 +759,50 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   </div>
                 );
               })}
+            </>
+          ) : isImageDescriber ? (
+            <>
+              {/* Model Name - Image Describer */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model Name</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.modelName || 'gemini-2.5-flash'}
+                    onChange={(e) =>
+                      handleSettingChange('modelName', e.target.value)
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                    {/* More models will be added here */}
+                  </select>
+                  <ChevronDown
+                    size={10}
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                  />
+                </div>
+              </div>
+
+              {/* Model Instructions - Image Describer */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model instructions</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <textarea
+                  value={settings.modelInstructions || 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters'}
+                  onChange={(e) =>
+                    handleSettingChange('modelInstructions', e.target.value)
+                  }
+                  placeholder="Enter model instructions..."
+                  rows={6}
+                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                  style={{ fontWeight: 200 }}
+                />
+              </div>
             </>
           ) : isFluxModel ? (
             <>

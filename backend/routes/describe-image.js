@@ -6,7 +6,7 @@ const router = express.Router();
 // POST /api/describe-image
 router.post('/describe-image', async (req, res) => {
   try {
-    const { imageUrl } = req.body;
+    const { imageUrl, modelName, modelInstructions } = req.body;
 
     // Validate image URL
     if (!imageUrl || typeof imageUrl !== 'string') {
@@ -15,7 +15,7 @@ router.post('/describe-image', async (req, res) => {
       });
     }
 
-    console.log('🖼️ Received image description request:', { imageUrl });
+    console.log('🖼️ Received image description request:', { imageUrl, modelName, modelInstructions });
 
     // Check for API token
     const apiToken = process.env.REPLICATE_API_TOKEN;
@@ -34,16 +34,27 @@ router.post('/describe-image', async (req, res) => {
     console.log('🖼️ Starting image description...');
     console.log('⏳ This may take 5-15 seconds...');
 
-    // Use Moondream2 model with specific version
-    const modelWithVersion = process.env.IMAGE_DESCRIPTION_MODEL || 'lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31';
+    // Use selected model or default to Moondream2
+    const selectedModel = modelName || 'gemini-2.5-flash';
+    const instructions = modelInstructions || 'Describe this image in detail. Include all important elements, colors, objects, people, text, and the overall scene.';
     
-    // Moondream2 input parameters
+    // Map model names to Replicate model identifiers
+    // For now, we'll use a default model mapping - this can be expanded later
+    const modelMap = {
+      'gemini-2.5-flash': 'lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31',
+      // Add more model mappings here as needed
+    };
+    
+    const modelWithVersion = modelMap[selectedModel] || process.env.IMAGE_DESCRIPTION_MODEL || 'lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31';
+    
+    // Input parameters
     const inputParams = {
       image: imageUrl,
-      prompt: 'Describe this image in detail. Include all important elements, colors, objects, people, text, and the overall scene.',
+      prompt: instructions,
     };
 
-    console.log('📤 Using model:', modelWithVersion);
+    console.log('📤 Using model:', selectedModel, '->', modelWithVersion);
+    console.log('📤 With instructions:', instructions);
     console.log('📤 With params:', JSON.stringify(inputParams, null, 2));
 
     // Use replicate.run() with model and version
