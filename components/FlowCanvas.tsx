@@ -55,8 +55,21 @@ const initialNodes: Node[] = [];
 // Initial edges - Start with no connections
 const initialEdges: Edge[] = [];
 
+// Task interface
+interface Task {
+  id: string;
+  nodeId: string;
+  nodeName: string;
+  startTime: Date;
+  completed: number;
+  total: number;
+  status: 'running' | 'completed' | 'failed';
+}
+
 function FlowCanvasInner() {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [isTasksDropdownOpen, setIsTasksDropdownOpen] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [bgVariant] = useState<BackgroundVariant>(BackgroundVariant.Dots);
   const [zoom, setZoom] = useState(100);
@@ -120,6 +133,19 @@ function FlowCanvasInner() {
     edgesRef.current = edges;
   }, [edges]);
 
+  // Helper function to format date/time
+  const formatDateTime = (date: Date): string => {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = months[date.getMonth()];
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, '0');
+    return `${month} ${day}, ${displayHours}:${displayMinutes} ${ampm}`;
+  };
+
   // Handle Run Model for image generator nodes
   const handleRunModel = useCallback((nodeId: string) => {
     const callId = `${nodeId}-${Date.now()}-${Math.random()}`;
@@ -160,6 +186,21 @@ function FlowCanvasInner() {
     // Use refs to get current state synchronously (avoid nested state setters)
     const currentEdges = edgesRef.current;
     const currentNodes = nodesRef.current;
+
+    // Create task for tracking
+    const taskNode = currentNodes.find((n) => n.id === nodeId);
+    const nodeName = taskNode?.data?.modelName || taskNode?.type || 'Task';
+    const taskId = `task-${nodeId}-${Date.now()}`;
+    const newTask: Task = {
+      id: taskId,
+      nodeId,
+      nodeName,
+      startTime: new Date(),
+      completed: 0,
+      total: 1,
+      status: 'running',
+    };
+    setTasks((prev) => [...prev, newTask]);
 
     const currentNode = currentNodes.find((node) => node.id === nodeId);
     if (!currentNode) {
@@ -492,6 +533,15 @@ function FlowCanvasInner() {
 
         console.log(`✅ [${callId}] Image generated successfully:`, data.imageUrl);
 
+        // Update task as completed
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.nodeId === nodeId && task.status === 'running'
+              ? { ...task, completed: 1, status: 'completed' }
+              : task
+          )
+        );
+
         // Remove ALL locks after successful generation
         EXECUTION_IN_PROGRESS.delete(nodeId);
         GLOBAL_GENERATING_NODES.delete(nodeId);
@@ -501,6 +551,15 @@ function FlowCanvasInner() {
       .catch((error) => {
         console.error(`❌ [${callId}] Error generating image:`, error);
         console.error(`❌ [${callId}] Error stack:`, error.stack);
+
+        // Update task as failed
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.nodeId === nodeId && task.status === 'running'
+              ? { ...task, status: 'failed' }
+              : task
+          )
+        );
 
         // Update node to show error state
         setNodes((currentNodes) =>
@@ -731,7 +790,7 @@ function FlowCanvasInner() {
     setPanelType(null);
   }, []);
 
-  // Update panel based on selection - show ALL selected nodes
+  // Update panel based on selection - show panel for all selected nodes, but only open if imageGenerator nodes exist
   const updatePanelForSelection = useCallback((selectedNodesList: Node[]) => {
     console.log('🔍 updatePanelForSelection called with', selectedNodesList.length, 'nodes');
     
@@ -745,25 +804,24 @@ function FlowCanvasInner() {
     }
     
     // Check if there are any imageGenerator nodes (these have settings to show)
-    const hasImageGeneratorNodes = selectedNodesList.some(node => 
+    const imageGeneratorNodes = selectedNodesList.filter(node => 
       node.type === 'imageGenerator'
     );
     
-    // Show all selected nodes in panel, but only open if there are imageGenerator nodes
-    console.log('🔍 Setting selectedNodes to', selectedNodesList.length, 'nodes:', selectedNodesList.map(n => ({ id: n.id, type: n.type })));
+    // Store ALL selected nodes in panel
+    console.log('🔍 Setting selectedNodes to', selectedNodesList.length, 'nodes (all types):', selectedNodesList.map(n => ({ id: n.id, type: n.type })));
     setSelectedNodes(selectedNodesList);
     
-    if (hasImageGeneratorNodes) {
-      const imageGeneratorNodes = selectedNodesList.filter(node => node.type === 'imageGenerator');
-      
-      if (imageGeneratorNodes.length === 1) {
+    // Only open panel if there are imageGenerator nodes (they have settings)
+    if (imageGeneratorNodes.length > 0) {
+      if (imageGeneratorNodes.length === 1 && selectedNodesList.length === 1) {
         // Single imageGenerator selection - show detailed settings panel
         console.log('🔍 Single imageGenerator selection, showing detailed panel');
         setSelectedNode(imageGeneratorNodes[0]);
         setIsSettingsPanelOpen(true);
       } else {
-        // Multiple selection - show multi-selection panel with all nodes
-        console.log('🔍 Multiple selection, showing multi-selection panel');
+        // Multiple selection (or mixed selection) - show multi-selection panel with all nodes
+        console.log('🔍 Multiple/mixed selection, showing multi-selection panel with all nodes');
         setSelectedNode(null);
         setIsSettingsPanelOpen(true);
       }
@@ -1054,6 +1112,12 @@ function FlowCanvasInner() {
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
         selectedNodes={selectedNodes}
         nodeSettingsMap={nodeSettings}
+        tasks={tasks}
+        isTasksDropdownOpen={isTasksDropdownOpen}
+        onTasksDropdownToggle={() => setIsTasksDropdownOpen(!isTasksDropdownOpen)}
+        onClearTasks={() => setTasks([])}
+        onRemoveTask={(taskId) => setTasks((prev) => prev.filter((t) => t.id !== taskId))}
+        formatDateTime={formatDateTime}
         onClose={handleCloseSettingsPanel}
         onSettingsChange={(nodeId, settings) => {
           handleSettingsChange(nodeId, settings);
@@ -1068,31 +1132,8 @@ function FlowCanvasInner() {
 
       {/* Main Content Area with Margin for Sidebar */}
       <div className="ml-[68px] w-[calc(100vw-68px)] h-screen relative">
-        {/* Top Bar */}
-        <div className="absolute top-0 left-0 right-0 h-16 bg-[#0a0a0a] border-b border-[#2a2a2a] flex items-center justify-between px-6 z-30">
-        {/* Left: Project Name */}
-        <input
-          type="text"
-          defaultValue="untitled"
-          className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-4 py-2 text-sm text-gray-300 focus:outline-none focus:border-[#3a3a3a] w-64"
-          placeholder="Project name"
-        />
-
-        {/* Right: Credits and Share */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-gray-400">
-            <span className="text-yellow-400">✨</span>
-            <span>131 credits</span>
-          </div>
-          <button className="bg-white text-black px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors flex items-center gap-2">
-            <span>↗</span>
-            Share
-          </button>
-        </div>
-      </div>
-
       {/* ReactFlow Canvas */}
-      <div className="w-full h-full pt-16">
+      <div className="w-full h-full">
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -1119,8 +1160,144 @@ function FlowCanvasInner() {
             color="#2a2a2a"
             className="bg-[#0a0a0a]"
           />
+
         </ReactFlow>
       </div>
+
+      {/* Project Name Input - Positioned at top left */}
+      <div className="fixed top-6 left-[88px] z-40">
+        <input
+          type="text"
+          defaultValue="untitled"
+          className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-gray-300 focus:outline-none focus:border-[#3a3a3a] w-64 shadow-2xl"
+          placeholder="Project name"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        />
+      </div>
+
+      {/* Right Side Panel - Credits, Status, Share, Tasks - Only show when settings panel is closed */}
+      {!isSettingsPanelOpen && (
+        <div className="fixed top-6 right-6 z-40">
+          <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl p-2.5 shadow-2xl min-w-[240px]">
+            {/* Top Section */}
+            <div className="flex items-center justify-between mb-2.5">
+              {/* Left: Credits and Status */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-white text-xs">✨</span>
+                  <span className="text-white text-xs">0.8</span>
+                </div>
+                <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
+                  <span className="text-yellow-400 text-[10px]">Low credits</span>
+                </div>
+              </div>
+              {/* Right: Share Button */}
+              <button className="bg-[#e5e5e5] hover:bg-white text-black px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5">
+                <span className="text-xs">↗</span>
+                <span>Share</span>
+              </button>
+            </div>
+            {/* Bottom Section: Tasks Dropdown */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsTasksDropdownOpen(!isTasksDropdownOpen)}
+                className="text-white text-xs flex items-center gap-1.5 hover:text-gray-300 transition-colors"
+              >
+                <span>Tasks</span>
+                <svg className={`w-3 h-3 transition-transform ${isTasksDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Task Manager Dropdown */}
+              {isTasksDropdownOpen && (
+                <>
+                  {/* Backdrop to close dropdown */}
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setIsTasksDropdownOpen(false)}
+                  />
+                  {/* Dropdown Panel - Positioned to the left, same line */}
+                  <div className="absolute top-1/2 -translate-y-1/2 right-full mr-4 bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl shadow-2xl w-[280px] z-40">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]">
+                      <span className="text-white text-sm">Task manager</span>
+                      <div className="flex items-center gap-3">
+                        {tasks.length > 0 && (
+                          <button
+                            onClick={() => setTasks([])}
+                            className="text-gray-400 hover:text-white transition-colors text-sm"
+                          >
+                            Clear all
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setIsTasksDropdownOpen(false)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    {/* Content */}
+                    <div className="px-4 py-4">
+                      {tasks.length === 0 ? (
+                        <span className="text-white text-sm">No active runs</span>
+                      ) : (
+                        <div className="space-y-3">
+                          {tasks.map((task) => (
+                            <div
+                              key={task.id}
+                              className="flex items-center gap-3 group relative"
+                            >
+                              {/* Icon - Checkmark for completed, Spinner for running */}
+                              {task.status === 'completed' ? (
+                                <div className="w-4 h-4 rounded-full border-2 border-white flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </div>
+                              ) : task.status === 'running' ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border-2 border-red-400 flex items-center justify-center flex-shrink-0">
+                                  <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </div>
+                              )}
+                              {/* Date/Time and Progress */}
+                              <div className="flex-1 flex items-center justify-between min-w-0">
+                                <span className="text-white text-sm truncate">{formatDateTime(task.startTime)}</span>
+                                <span className="text-white text-sm ml-2">{task.completed}/{task.total}</span>
+                              </div>
+                              {/* Clear button - shown on hover */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTasks((prev) => prev.filter((t) => t.id !== task.id));
+                                }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white ml-2 flex-shrink-0"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
         {/* Bottom Toolbar */}
         <BottomToolbar
