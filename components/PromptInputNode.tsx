@@ -267,6 +267,7 @@ export const PromptInputNode = memo(({ data, id, selected }: NodeProps<PromptInp
 
       {/* Output Handle - Right Side */}
       <Handle
+        id="output"
         type="source"
         position={Position.Right}
         style={{

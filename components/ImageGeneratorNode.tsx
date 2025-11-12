@@ -7,6 +7,7 @@ import { MoreVertical, ArrowRight, Loader2 } from 'lucide-react';
 interface ImageGeneratorNodeData {
   label: string;
   modelName: string;
+  modelId?: string;
   imageUrl?: string;
   isGenerating?: boolean;
   onRunModel?: (id: string) => void;
@@ -285,18 +286,17 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         )}
       </div>
 
-      {/* Input and Output Labels */}
+      {/* Output Label - Right Side (Outside) */}
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          marginBottom: '8px',
-          paddingLeft: '8px',
-          paddingRight: '8px',
+          position: 'absolute',
+          right: '-60px',
+          top: '46%',
+          transform: 'translateY(-50%)',
+          zIndex: 10
         }}
       >
-        <span style={{ fontSize: '11px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
-        <span style={{ fontSize: '11px', color: '#06b6d4', fontWeight: '500' }}>Image</span>
+        <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Result</span>
       </div>
 
       {/* Image Preview Area */}
@@ -379,8 +379,9 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         </button>
       </div>
 
-      {/* Input Handle - Left Side */}
+      {/* Input Handle - Prompt (Left Side, Top) */}
       <Handle
+        id="prompt"
         type="target"
         position={Position.Left}
         style={{
@@ -389,15 +390,62 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           height: '12px',
           border: '2px solid #1a1a1a',
           left: '-7px',
+          top: '30%',
         }}
       />
+      
+      {/* Prompt Label - Left of Handle (Outside) */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '-85px',
+          top: '26%',
+          transform: 'translateY(-50%)',
+          zIndex: 10,
+        }}
+      >
+        <span style={{ fontSize: '20px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
+      </div>
 
-      {/* Output Handle - Right Side */}
+      {/* Input Handle - Image Prompt (Left Side, Bottom) - Only for Flux */}
+      {data.modelId === 'black-forest-labs/flux-1.1-pro-ultra' && (
+        <>
+          <Handle
+            id="imagePrompt"
+            type="target"
+            position={Position.Left}
+            style={{
+              background: '#10b981',
+              width: '12px',
+              height: '12px',
+              border: '2px solid #1a1a1a',
+              left: '-7px',
+              top: '70%',
+            }}
+          />
+          
+          {/* Image Prompt Label - Left of Handle (Outside) */}
+          <div
+            style={{
+              position: 'absolute',
+              left: '-145px',
+              top: '66%',
+              transform: 'translateY(-50%)',
+              zIndex: 10,
+            }}
+          >
+            <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Image Prompt</span>
+          </div>
+        </>
+      )}
+
+      {/* Output Handle - Result (Right Side) */}
       <Handle
+        id="result"
         type="source"
         position={Position.Right}
         style={{
-          background: '#06b6d4',
+          background: '#10b981',
           width: '12px',
           height: '12px',
           border: '2px solid #1a1a1a',

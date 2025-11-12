@@ -152,10 +152,12 @@ function FlowCanvasInner() {
     const currentEdges = edgesRef.current;
     const currentNodes = nodesRef.current;
 
-    // Find connected prompt nodes via edges
-    const connectedEdge = currentEdges.find((edge) => edge.target === nodeId);
+    // Find connected edges - support both prompt and image prompt inputs
+    const connectedEdges = currentEdges.filter((edge) => edge.target === nodeId);
+    const promptEdge = connectedEdges.find((edge) => !edge.targetHandle || edge.targetHandle === 'prompt');
+    const imagePromptEdge = connectedEdges.find((edge) => edge.targetHandle === 'imagePrompt');
 
-    if (!connectedEdge) {
+    if (!promptEdge) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
@@ -183,9 +185,9 @@ function FlowCanvasInner() {
       return;
     }
 
-    const sourceNode = currentNodes.find((node) => node.id === connectedEdge.source);
-
-    if (!sourceNode) {
+    // Get prompt text from connected prompt node
+    const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
+    if (!promptSourceNode) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
@@ -194,7 +196,7 @@ function FlowCanvasInner() {
       return;
     }
 
-    const promptText = sourceNode.data.value || '';
+    const promptText = promptSourceNode.data.value || '';
 
     if (!promptText.trim()) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
@@ -203,6 +205,16 @@ function FlowCanvasInner() {
       LAST_CALL_TIMESTAMPS.delete(nodeId);
       alert('The connected prompt is empty. Please enter some text first.');
       return;
+    }
+
+    // Get image prompt URL from connected image generator node (if connected)
+    let imagePromptUrl: string | undefined = undefined;
+    if (imagePromptEdge) {
+      const imagePromptSourceNode = currentNodes.find((node) => node.id === imagePromptEdge.source);
+      if (imagePromptSourceNode && imagePromptSourceNode.type === 'imageGenerator') {
+        imagePromptUrl = imagePromptSourceNode.data?.imageUrl;
+        console.log(`🖼️ [${callId}] Found image prompt from node ${imagePromptSourceNode.id}: ${imagePromptUrl}`);
+      }
     }
 
         // Get model ID from node data
@@ -275,6 +287,11 @@ function FlowCanvasInner() {
           requestBody.raw = settings.raw;
           if (settings.seed !== undefined) {
             requestBody.seed = settings.seed;
+          }
+          // Add image prompt if connected
+          if (imagePromptUrl) {
+            requestBody.imagePrompt = imagePromptUrl;
+            console.log(`🖼️ [${callId}] Adding image prompt to request: ${imagePromptUrl}`);
           }
         } else {
           // Seedream-4 parameters only

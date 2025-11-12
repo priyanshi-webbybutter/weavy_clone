@@ -9,6 +9,7 @@ router.post('/generate-image', async (req, res) => {
     const {
       modelId = 'bytedance/seedream-4',
       prompt,
+      imagePrompt, // Image URL for Flux image-to-image generation
       // Seedream-4 parameters
       size = '2K',
       width = 2048,
@@ -35,6 +36,7 @@ router.post('/generate-image', async (req, res) => {
     console.log('🎨 Received image generation request:', {
       modelId,
       prompt,
+      imagePrompt: imagePrompt || 'none',
       ...(modelId === 'black-forest-labs/flux-1.1-pro-ultra' 
         ? { aspectRatio, promptUpsampling, seed, safetyTolerance, outputFormat, raw }
         : { size, width, height, aspectRatio, maxImages, enhancePrompt, sequentialImageGeneration } // Seedream-4
@@ -84,6 +86,12 @@ router.post('/generate-image', async (req, res) => {
         safety_tolerance: safetyTolerance || 2,
         raw: raw === true,
       };
+
+      // Add image prompt if provided (for image-to-image generation)
+      if (imagePrompt && typeof imagePrompt === 'string' && imagePrompt.trim()) {
+        inputParams.image = imagePrompt;
+        console.log('🖼️ Adding image prompt to Flux request:', imagePrompt);
+      }
 
       // Only include seed if provided
       if (seed !== undefined && seed !== null) {
