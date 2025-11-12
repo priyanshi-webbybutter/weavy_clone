@@ -5,6 +5,7 @@ import {
   Clock,
   Image,
   Wrench,
+  FolderOpen,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType }) => {
 
   const middleNavItems: NavItem[] = [
     { icon: Image, label: 'Image Generation' },
+    { icon: FolderOpen, label: 'Assets' },
     { icon: Wrench, label: 'Tools' },
   ];
 

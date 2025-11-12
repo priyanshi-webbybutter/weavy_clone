@@ -8,17 +8,41 @@ interface ImageGeneratorNodeData {
   label: string;
   modelName: string;
   modelId?: string;
-  imageUrl?: string;
+  imageUrl?: string; // Keep for backward compatibility
+  imageUrls?: string[]; // Array of generated images
+  currentImageIndex?: number; // Current image index being displayed
   isGenerating?: boolean;
   onRunModel?: (id: string) => void;
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
+  onImageIndexChange?: (id: string, index: number) => void; // Callback to update image index
+  onRemoveCurrentGeneration?: (id: string) => void; // Remove current image
+  onRemoveAllOtherGenerations?: (id: string) => void; // Remove all except current
+  onRemoveAllGenerations?: (id: string) => void; // Remove all images
+  onOpenFullscreen?: (nodeId: string) => void; // Open fullscreen modal
 }
 
 export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageGeneratorNodeData>) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const isClickingRef = useRef(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Get images array - support both old (imageUrl) and new (imageUrls) format
+  const imageUrls = data.imageUrls || (data.imageUrl ? [data.imageUrl] : []);
+  const currentIndex = data.currentImageIndex !== undefined ? data.currentImageIndex : (imageUrls.length > 0 ? imageUrls.length - 1 : 0);
+  const currentImageUrl = imageUrls[currentIndex] || data.imageUrl;
+  
+  const handlePreviousImage = useCallback(() => {
+    if (currentIndex > 0 && data.onImageIndexChange) {
+      data.onImageIndexChange(id, currentIndex - 1);
+    }
+  }, [id, currentIndex, data]);
+  
+  const handleNextImage = useCallback(() => {
+    if (currentIndex < imageUrls.length - 1 && data.onImageIndexChange) {
+      data.onImageIndexChange(id, currentIndex + 1);
+    }
+  }, [id, currentIndex, imageUrls.length, data]);
 
   const handleMenuToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -49,6 +73,30 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         break;
       case 'Rename':
         // TODO: Implement rename functionality
+        break;
+      case 'Remove Current Generation':
+        if (data.onRemoveCurrentGeneration) {
+          console.log(`🖱️ Calling onRemoveCurrentGeneration for node ${id}`);
+          data.onRemoveCurrentGeneration(id);
+        } else {
+          console.warn(`⚠️ onRemoveCurrentGeneration not available for node ${id}`);
+        }
+        break;
+      case 'Remove All Other Generations':
+        if (data.onRemoveAllOtherGenerations) {
+          console.log(`🖱️ Calling onRemoveAllOtherGenerations for node ${id}`);
+          data.onRemoveAllOtherGenerations(id);
+        } else {
+          console.warn(`⚠️ onRemoveAllOtherGenerations not available for node ${id}`);
+        }
+        break;
+      case 'Remove All Generations':
+        if (data.onRemoveAllGenerations) {
+          console.log(`🖱️ Calling onRemoveAllGenerations for node ${id}`);
+          data.onRemoveAllGenerations(id);
+        } else {
+          console.warn(`⚠️ onRemoveAllGenerations not available for node ${id}`);
+        }
         break;
     }
   }, [id, data]);
@@ -259,6 +307,93 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
                 <span>Lock</span>
               </button>
               <div style={{ height: '1px', background: '#2a2a2a', margin: '4px 0' }} />
+              {imageUrls.length > 0 && (
+                <>
+                  <button
+                    className="nodrag"
+                    onClick={() => handleMenuAction('Remove Current Generation')}
+                    disabled={imageUrls.length === 0}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: imageUrls.length === 0 ? '#6b7280' : '#ffffff',
+                      fontSize: '13px',
+                      cursor: imageUrls.length === 0 ? 'not-allowed' : 'pointer',
+                      borderRadius: '4px',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (imageUrls.length > 0) {
+                        e.currentTarget.style.background = '#2a2a2a';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <span>Remove current generation</span>
+                  </button>
+                  {imageUrls.length > 1 && (
+                    <button
+                      className="nodrag"
+                      onClick={() => handleMenuAction('Remove All Other Generations')}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = '#2a2a2a')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <span>Remove all other generations</span>
+                    </button>
+                  )}
+                  <button
+                    className="nodrag"
+                    onClick={() => handleMenuAction('Remove All Generations')}
+                    disabled={imageUrls.length === 0}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: 'transparent',
+                      border: 'none',
+                      color: imageUrls.length === 0 ? '#6b7280' : '#ffffff',
+                      fontSize: '13px',
+                      cursor: imageUrls.length === 0 ? 'not-allowed' : 'pointer',
+                      borderRadius: '4px',
+                      transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (imageUrls.length > 0) {
+                        e.currentTarget.style.background = '#2a2a2a';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    <span>Remove all generations</span>
+                  </button>
+                  <div style={{ height: '1px', background: '#2a2a2a', margin: '4px 0' }} />
+                </>
+              )}
               <button
                 className="nodrag"
                 onClick={() => handleMenuAction('Rename')}
@@ -305,11 +440,11 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           width: '100%',
           height: '400px',
           borderRadius: '8px',
-          backgroundImage: data.imageUrl
-            ? `url(${data.imageUrl})`
+          backgroundImage: currentImageUrl
+            ? `url(${currentImageUrl})`
             : 'linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a), linear-gradient(45deg, #2a2a2a 25%, transparent 25%, transparent 75%, #2a2a2a 75%, #2a2a2a)',
-          backgroundSize: data.imageUrl ? 'cover' : '20px 20px',
-          backgroundPosition: data.imageUrl ? 'center' : '0 0, 10px 10px',
+          backgroundSize: currentImageUrl ? 'cover' : '20px 20px',
+          backgroundPosition: currentImageUrl ? 'center' : '0 0, 10px 10px',
           backgroundColor: '#1a1a1a',
           display: 'flex',
           alignItems: 'center',
@@ -319,6 +454,128 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           overflow: 'hidden',
         }}
       >
+        {/* Navigation Controls - Top Bar */}
+        {imageUrls.length > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: '40px',
+              background: 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0 12px',
+              zIndex: 15,
+            }}
+          >
+            {/* Left: Previous, Counter, Next */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              {/* Previous Button */}
+              <button
+                className="nodrag"
+                onClick={handlePreviousImage}
+                disabled={currentIndex === 0}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#ffffff',
+                  cursor: currentIndex === 0 ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: currentIndex === 0 ? 0.4 : 0.8,
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (currentIndex > 0) {
+                    e.currentTarget.style.opacity = '1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentIndex > 0) {
+                    e.currentTarget.style.opacity = '0.8';
+                  }
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              
+              {/* Counter */}
+              <span style={{ color: '#ffffff', fontSize: '13px', opacity: 0.9 }}>
+                {imageUrls.length > 0 ? `${currentIndex + 1} / ${imageUrls.length}` : '0 / 0'}
+              </span>
+              
+              {/* Next Button */}
+              <button
+                className="nodrag"
+                onClick={handleNextImage}
+                disabled={currentIndex >= imageUrls.length - 1}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#ffffff',
+                  cursor: currentIndex >= imageUrls.length - 1 ? 'not-allowed' : 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: currentIndex >= imageUrls.length - 1 ? 0.4 : 0.8,
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (currentIndex < imageUrls.length - 1) {
+                    e.currentTarget.style.opacity = '1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (currentIndex < imageUrls.length - 1) {
+                    e.currentTarget.style.opacity = '0.8';
+                  }
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+            
+            {/* Right: Fullscreen Button */}
+            <button
+              className="nodrag"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (data.onOpenFullscreen) {
+                  data.onOpenFullscreen(id);
+                }
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#ffffff',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0.8,
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.8')}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 2H6M2 2V6M14 2H10M14 2V6M2 14H6M2 14V10M14 14H10M14 14V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
         {data.isGenerating && (
           <div
             style={{
@@ -330,13 +587,14 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               justifyContent: 'center',
               flexDirection: 'column',
               gap: '12px',
+              zIndex: 10,
             }}
           >
             <Loader2 className="animate-spin" size={32} color="#8b5cf6" />
             <span style={{ color: '#ffffff', fontSize: '13px' }}>Generating image...</span>
           </div>
         )}
-        {!data.imageUrl && !data.isGenerating && (
+        {!currentImageUrl && !data.isGenerating && (
           <span style={{ color: '#6b7280', fontSize: '13px' }}>No image generated yet</span>
         )}
       </div>

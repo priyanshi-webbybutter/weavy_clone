@@ -19,6 +19,7 @@ import BottomToolbar from './BottomToolbar';
 import Sidebar from './Sidebar';
 import SidePanel from './SidePanel';
 import NodeSettingsPanel from './NodeSettingsPanel';
+import FullscreenModal from './FullscreenModal';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -84,6 +85,9 @@ function FlowCanvasInner() {
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
+  
+  // Fullscreen modal state
+  const [fullscreenNodeId, setFullscreenNodeId] = useState<string | null>(null);
   
   // Track mouse state to prevent panel opening during selection drag
   const isSelectingRef = useRef(false);
@@ -521,16 +525,20 @@ function FlowCanvasInner() {
           throw new Error('Server response missing image URL');
         }
 
-        // Update node with generated image
+        // Update node with generated image - append to array instead of replacing
         setNodes((currentNodes) =>
           currentNodes.map((node) => {
             if (node.id === nodeId) {
+              const existingImageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
+              const newImageUrls = [...existingImageUrls, data.imageUrl];
               return {
                 ...node,
                 data: {
                   ...node.data,
                   isGenerating: false,
-                  imageUrl: data.imageUrl,
+                  imageUrl: data.imageUrl, // Keep for backward compatibility
+                  imageUrls: newImageUrls, // Array of all generated images
+                  currentImageIndex: newImageUrls.length - 1, // Show the newest image
                 },
               };
             }
@@ -596,6 +604,142 @@ function FlowCanvasInner() {
       });
   }, [setNodes]);
 
+  // Handle image index change for image generator nodes
+  const handleImageIndexChange = useCallback((nodeId: string, index: number) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId && node.type === 'imageGenerator') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              currentImageIndex: index,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  // Handle remove current generation
+  const handleRemoveCurrentGeneration = useCallback((nodeId: string) => {
+    console.log(`🗑️ Removing current generation for node: ${nodeId}`);
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'imageGenerator') {
+          const imageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
+          const currentIndex = node.data?.currentImageIndex !== undefined 
+            ? node.data.currentImageIndex 
+            : (imageUrls.length > 0 ? imageUrls.length - 1 : 0);
+          
+          console.log(`📊 Current state - imageUrls: ${imageUrls.length}, currentIndex: ${currentIndex}`);
+          
+          if (imageUrls.length === 0 || currentIndex < 0 || currentIndex >= imageUrls.length) {
+            console.log(`⚠️ Cannot remove - no images or invalid index`);
+            return node;
+          }
+          
+          // Remove the current image
+          const newImageUrls = imageUrls.filter((_: string, index: number) => index !== currentIndex);
+          
+          // Update current index - if we removed the last image, go to the previous one
+          let newCurrentIndex = currentIndex;
+          if (newImageUrls.length === 0) {
+            newCurrentIndex = 0;
+          } else if (currentIndex >= newImageUrls.length) {
+            newCurrentIndex = newImageUrls.length - 1;
+          }
+          
+          console.log(`✅ Updated - new imageUrls: ${newImageUrls.length}, new currentIndex: ${newCurrentIndex}`);
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              imageUrls: newImageUrls,
+              imageUrl: newImageUrls.length > 0 ? newImageUrls[newCurrentIndex] : undefined,
+              currentImageIndex: newCurrentIndex,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all other generations
+  const handleRemoveAllOtherGenerations = useCallback((nodeId: string) => {
+    console.log(`🗑️ Removing all other generations for node: ${nodeId}`);
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'imageGenerator') {
+          const imageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
+          const currentIndex = node.data?.currentImageIndex !== undefined 
+            ? node.data.currentImageIndex 
+            : (imageUrls.length > 0 ? imageUrls.length - 1 : 0);
+          
+          console.log(`📊 Current state - imageUrls: ${imageUrls.length}, currentIndex: ${currentIndex}`);
+          
+          if (imageUrls.length === 0 || currentIndex < 0 || currentIndex >= imageUrls.length) {
+            console.log(`⚠️ Cannot remove - no images or invalid index`);
+            return node;
+          }
+          
+          // Keep only the current image
+          const currentImageUrl = imageUrls[currentIndex];
+          
+          console.log(`✅ Updated - keeping only current image at index ${currentIndex}`);
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              imageUrls: [currentImageUrl],
+              imageUrl: currentImageUrl,
+              currentImageIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all generations
+  const handleRemoveAllGenerations = useCallback((nodeId: string) => {
+    console.log(`🗑️ Removing all generations for node: ${nodeId}`);
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'imageGenerator') {
+          const imageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
+          console.log(`📊 Current state - imageUrls: ${imageUrls.length}`);
+          
+          if (imageUrls.length === 0) {
+            console.log(`⚠️ No images to remove`);
+            return node;
+          }
+          
+          console.log(`✅ Removed all ${imageUrls.length} images`);
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              imageUrls: [],
+              imageUrl: undefined,
+              currentImageIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
   // Handle node duplication
   const handleDuplicateNode = useCallback((nodeId: string) => {
     setNodes((nds) => {
@@ -634,12 +778,17 @@ function FlowCanvasInner() {
           onRunModel: nodeToDuplicate.type === 'imageGenerator' ? handleRunModel : undefined,
           onDelete: handleDeleteNode,
           onDuplicate: handleDuplicateNode,
+          onImageIndexChange: nodeToDuplicate.type === 'imageGenerator' ? handleImageIndexChange : undefined,
+          onOpenFullscreen: nodeToDuplicate.type === 'imageGenerator' ? handleOpenFullscreen : undefined,
+          onRemoveCurrentGeneration: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveCurrentGeneration : undefined,
+          onRemoveAllOtherGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllOtherGenerations : undefined,
+          onRemoveAllGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllGenerations : undefined,
         },
       };
 
       return nds.concat(newNode);
     });
-  }, [setNodes, handleDeleteNode, handleRunModel]);
+  }, [setNodes, handleDeleteNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]);
 
   // Handle drag over canvas
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -709,10 +858,16 @@ function FlowCanvasInner() {
             modelName: 'Seedream-4',
             modelId: 'bytedance/seedream-4',
             imageUrl: undefined,
+            imageUrls: [],
+            currentImageIndex: 0,
             isGenerating: false,
             onRunModel: handleRunModel,
             onDelete: handleDeleteNode,
             onDuplicate: handleDuplicateNode,
+            onImageIndexChange: handleImageIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherGenerations,
+            onRemoveAllGenerations: handleRemoveAllGenerations,
           },
         };
       } else if (type === 'fluxGenerator') {
@@ -725,10 +880,17 @@ function FlowCanvasInner() {
             modelName: 'FLUX 1.1 Pro Ultra',
             modelId: 'black-forest-labs/flux-1.1-pro-ultra',
             imageUrl: undefined,
+            imageUrls: [],
+            currentImageIndex: 0,
             isGenerating: false,
             onRunModel: handleRunModel,
             onDelete: handleDeleteNode,
             onDuplicate: handleDuplicateNode,
+            onImageIndexChange: handleImageIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherGenerations,
+            onRemoveAllGenerations: handleRemoveAllGenerations,
+            onOpenFullscreen: handleOpenFullscreen,
           },
         };
       } else if (type === 'imageDescriber') {
@@ -763,7 +925,7 @@ function FlowCanvasInner() {
       // Add the new node to the canvas
       setNodes((nds) => nds.concat(newNode));
     },
-    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel]
+    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]
   );
 
   // Handle zoom change
@@ -949,6 +1111,16 @@ function FlowCanvasInner() {
       console.log(`⚠️ handleRunFromPanel: nodeId is empty/null`);
     }
   }, [handleRunModel]);
+
+  // Handle open fullscreen modal
+  const handleOpenFullscreen = useCallback((nodeId: string) => {
+    setFullscreenNodeId(nodeId);
+  }, []);
+
+  // Handle close fullscreen modal
+  const handleCloseFullscreen = useCallback(() => {
+    setFullscreenNodeId(null);
+  }, []);
 
   // Helper function to sort nodes topologically based on flow connections
   const sortNodesByFlow = useCallback((nodeIds: string[]): string[] => {
@@ -1216,6 +1388,23 @@ function FlowCanvasInner() {
               modelName = 'Seedream-4';
             }
             
+            // Migrate old imageUrl to imageUrls array
+            const existingImageUrls = node.data?.imageUrls || [];
+            const oldImageUrl = node.data?.imageUrl;
+            let imageUrls = existingImageUrls;
+            let currentImageIndex = node.data?.currentImageIndex;
+            
+            if (oldImageUrl && !existingImageUrls.includes(oldImageUrl)) {
+              // If we have an old imageUrl that's not in the array, add it
+              imageUrls = [oldImageUrl];
+              currentImageIndex = 0;
+            } else if (imageUrls.length > 0 && currentImageIndex === undefined) {
+              // If we have images but no index, show the last one
+              currentImageIndex = imageUrls.length - 1;
+            } else if (imageUrls.length === 0) {
+              currentImageIndex = 0;
+            }
+            
             return {
               ...node,
               data: {
@@ -1223,9 +1412,16 @@ function FlowCanvasInner() {
                 isGenerating: false, // Always reset generating state on page load
                 modelId: modelId,
                 modelName: modelName,
+                imageUrls: imageUrls,
+                currentImageIndex: currentImageIndex,
                 onRunModel: handleRunModel,
                 onDelete: handleDeleteNode,
                 onDuplicate: handleDuplicateNode,
+                onImageIndexChange: handleImageIndexChange,
+                onRemoveCurrentGeneration: handleRemoveCurrentGeneration,
+                onRemoveAllOtherGenerations: handleRemoveAllOtherGenerations,
+                onRemoveAllGenerations: handleRemoveAllGenerations,
+                onOpenFullscreen: handleOpenFullscreen,
               },
             };
           } else if (node.type === 'imageDescriber') {
@@ -1261,7 +1457,7 @@ function FlowCanvasInner() {
       console.error('❌ Error loading canvas state:', error);
       setIsInitialized(true);
     }
-  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, setNodes, setEdges]);
+  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, setNodes, setEdges]);
 
   // Save canvas state to localStorage whenever nodes or edges change
   useEffect(() => {
@@ -1299,6 +1495,8 @@ function FlowCanvasInner() {
         isOpen={isPanelOpen}
         panelType={panelType}
         onClose={handleClosePanel}
+        nodes={nodes}
+        nodeSettingsMap={nodeSettings}
       />
 
       {/* Node Settings Panel - Right Side */}
@@ -1511,6 +1709,26 @@ function FlowCanvasInner() {
           onToolChange={setActiveTool}
         />
       </div>
+
+      {/* Fullscreen Modal */}
+      {fullscreenNodeId && (() => {
+        const fullscreenNode = nodes.find(n => n.id === fullscreenNodeId);
+        if (!fullscreenNode || fullscreenNode.type !== 'imageGenerator') return null;
+        
+        return (
+          <FullscreenModal
+            nodeId={fullscreenNodeId}
+            node={fullscreenNode}
+            nodeSettings={nodeSettings[fullscreenNodeId] || {}}
+            projectName="untitled"
+            tasks={tasks}
+            onClose={handleCloseFullscreen}
+            onImageIndexChange={handleImageIndexChange}
+            onRunModel={handleRunModel}
+            onSettingsChange={handleSettingsChange}
+          />
+        );
+      })()}
     </>
   );
 }

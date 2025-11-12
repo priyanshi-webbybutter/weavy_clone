@@ -14,10 +14,42 @@ interface SidePanelProps {
   isOpen: boolean;
   panelType: string | null;
   onClose: () => void;
+  nodes?: any[]; // Canvas nodes to extract images from
+  nodeSettingsMap?: Record<string, any>; // Node settings to get dimensions
 }
 
-const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => {
+const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes = [], nodeSettingsMap = {} }) => {
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Extract all images from image generator nodes
+  const getAllImages = () => {
+    const images: Array<{ url: string; dimensions?: string; nodeId: string }> = [];
+    
+    nodes.forEach((node) => {
+      if (node.type === 'imageGenerator') {
+        // Get images from imageUrls array or fallback to imageUrl
+        const imageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
+        
+        // Get node settings for dimensions
+        const settings = nodeSettingsMap[node.id] || {};
+        const width = settings.width || 1024;
+        const height = settings.height || 1024;
+        const dimensions = `${width} X ${height}`;
+        
+        imageUrls.forEach((url: string) => {
+          if (url) {
+            images.push({
+              url,
+              dimensions,
+              nodeId: node.id,
+            });
+          }
+        });
+      }
+    });
+    
+    return images;
+  };
 
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
     event.dataTransfer.setData('application/reactflow', nodeType);
@@ -99,6 +131,58 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
     </div>
   );
 
+  const renderAssets = () => {
+    const images = getAllImages();
+    
+    return (
+      <div
+        className="scroll-snap-start"
+        style={{
+          scrollSnapAlign: 'start',
+          scrollMarginTop: '80px',
+          minHeight: 'calc(100vh - 200px)',
+          paddingBottom: '40px',
+          paddingTop: '20px',
+        }}
+      >
+        <h2 className="text-base font-semibold text-white mb-4">Assets</h2>
+        {images.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48">
+            <div className="text-4xl mb-3">📦</div>
+            <h2 className="text-lg font-semibold text-white mb-1">No Assets</h2>
+            <p className="text-xs text-gray-400 text-center px-4">
+              Generated images will appear here
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {images.map((image, index) => (
+              <div
+                key={`${image.nodeId}-${index}`}
+                className="relative group bg-[#1f1f1f] border border-[#2a2a2a] rounded-lg overflow-hidden hover:border-[#3a3a3a] transition-colors cursor-pointer"
+              >
+                {/* Image Preview */}
+                <div
+                  className="w-full aspect-square bg-[#0a0a0a] relative"
+                  style={{
+                    backgroundImage: `url(${image.url})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
+                >
+                  {/* Dimensions Overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-2 py-1">
+                    <span className="text-[10px] text-white">{image.dimensions}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderTools = () => (
     <div>
       {/* Text tools subsection */}
@@ -160,6 +244,8 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
         return renderQuickAccess();
       case 'Image Generation':
         return renderImageModels();
+      case 'Assets':
+        return renderAssets();
       case 'Tools':
         return renderTools();
       default:
