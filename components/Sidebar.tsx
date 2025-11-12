@@ -2,16 +2,9 @@
 
 import React, { useState } from 'react';
 import {
-  Search,
   Clock,
-  FolderOpen,
-  PenLine,
   Image,
-  Box,
-  Sparkles,
-  Images,
-  CircleHelp,
-  MessageCircle,
+  Wrench,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
@@ -32,33 +25,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const topNavItems: NavItem[] = [
-    { icon: Search, label: 'Search' },
     { icon: Clock, label: 'Recent' },
-    { icon: FolderOpen, label: 'Projects' },
   ];
 
   const middleNavItems: NavItem[] = [
-    { icon: PenLine, label: 'Edit' },
     { icon: Image, label: 'Image Generation' },
-    { icon: Box, label: '3D Tools' },
-    { icon: Sparkles, label: 'AI Assistant' },
-    { icon: Images, label: 'Gallery' },
+    { icon: Wrench, label: 'Tools' },
   ];
 
-  const bottomNavItems: NavItem[] = [
-    { icon: CircleHelp, label: 'Help' },
-    { icon: MessageCircle, label: 'Community' },
-  ];
 
   const handleItemClick = (label: string) => {
-    // Only Recent and Image Generation open panels
-    if (label === 'Recent' || label === 'Image Generation') {
-      setActiveItem(label);
-      onOpenPanel(label);
-    } else {
-      // Show Coming Soon alert for other buttons
-      alert('Coming Soon: This feature is under development');
-    }
+    setActiveItem(label);
+    onOpenPanel(label);
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {
@@ -202,35 +180,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType }) => {
         })}
       </nav>
 
-      {/* Bottom Navigation */}
-      <nav className="flex flex-col gap-2 mt-auto">
-        {bottomNavItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activePanelType === item.label;
-          return (
-            <button
-              key={item.label}
-              onClick={() => handleItemClick(item.label)}
-              className={`
-                w-10 h-10 flex items-center justify-center rounded-lg
-                transition-all duration-200 group relative
-                ${
-                  isActive
-                    ? 'bg-[#2a2a2a] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-[#242424]'
-                }
-              `}
-              title={item.label}
-            >
-              <Icon className="w-5 h-5" />
-              {/* Tooltip */}
-              <span className="absolute left-full ml-3 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity z-50">
-                {item.label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
     </aside>
   );
 };

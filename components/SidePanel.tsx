@@ -39,7 +39,9 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
           onDragEnd={onDragEnd}
           className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
         >
-          <FileText className="w-6 h-6 text-gray-400 mb-2 group-hover:text-white transition-colors" />
+          <div className="w-8 h-8 mb-2 flex items-center justify-center">
+            <div className="text-lg text-white font-semibold">T</div>
+          </div>
           <span className="text-xs text-gray-300">Prompt</span>
         </button>
         <button className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group">
@@ -70,7 +72,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
     <div>
       <h2 className="text-base font-semibold text-white mb-1">Image Models</h2>
       <p className="text-xs text-gray-400 mb-4">Generate from text</p>
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className="grid grid-cols-2 gap-3">
         <button
           draggable
           onDragStart={(event) => onDragStart(event, 'imageGenerator')}
@@ -94,21 +96,49 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
           <span className="text-xs text-gray-300">FLUX 1.1 Pro Ultra</span>
         </button>
       </div>
-      <h2 className="text-base font-semibold text-white mb-1">Image Analysis</h2>
-      <p className="text-xs text-gray-400 mb-4">Describe images</p>
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          draggable
-          onDragStart={(event) => onDragStart(event, 'imageDescriber')}
-          onDragEnd={onDragEnd}
-          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
-        >
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg text-green-400">D</div>
-          </div>
-          <span className="text-xs text-gray-300">Image Describer</span>
-        </button>
+    </div>
+  );
+
+  const renderTools = () => (
+    <div>
+      {/* Text tools subsection */}
+      <div className="mb-6">
+        <h2 className="text-sm font-medium text-gray-300 mb-3">Text tools</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            draggable
+            onDragStart={(event) => onDragStart(event, 'promptInput')}
+            onDragEnd={onDragEnd}
+            className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+          >
+            <div className="w-8 h-8 mb-2 flex items-center justify-center">
+              <div className="text-lg text-white font-semibold">T</div>
+            </div>
+            <span className="text-xs text-gray-300">Prompt</span>
+          </button>
+          <button
+            draggable
+            onDragStart={(event) => onDragStart(event, 'imageDescriber')}
+            onDragEnd={onDragEnd}
+            className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+          >
+            <div className="w-8 h-8 mb-2 flex items-center justify-center">
+              <div className="text-lg text-green-400">D</div>
+            </div>
+            <span className="text-xs text-gray-300">Image Describer</span>
+          </button>
+        </div>
       </div>
+
+      {/* Future subsections can be added here */}
+      {/* Example structure for future additions:
+      <div className="mb-6">
+        <h2 className="text-sm font-medium text-gray-300 mb-3">Editing</h2>
+        <div className="grid grid-cols-2 gap-3">
+          // Tools here
+        </div>
+      </div>
+      */}
     </div>
   );
 
@@ -130,6 +160,8 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
         return renderQuickAccess();
       case 'Image Generation':
         return renderImageModels();
+      case 'Tools':
+        return renderTools();
       default:
         return renderComingSoon();
     }
@@ -153,10 +185,6 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose }) => 
           {/* Header */}
           <div className="sticky top-0 bg-[#171717] border-b border-[#2a2a2a] px-5 py-3 z-10">
             <div className="flex items-center gap-1.5">
-              <div className="w-6 h-6 bg-gradient-to-br from-purple-500 to-pink-500 rounded-md flex items-center justify-center text-white font-bold text-xs">
-                W
-              </div>
-              <ChevronDown className="w-3 h-3 text-gray-500" />
               <span className="text-white font-medium text-xs">My First Weavy</span>
             </div>
           </div>

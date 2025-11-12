@@ -1193,7 +1193,7 @@ function FlowCanvasInner() {
                 </div>
               </div>
               {/* Right: Share Button */}
-              <button className="bg-[#e5e5e5] hover:bg-white text-black px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5">
+              <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
                 <span className="text-xs">↗</span>
                 <span>Share</span>
               </button>
