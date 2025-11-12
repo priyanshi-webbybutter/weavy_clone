@@ -60,7 +60,7 @@ function FlowCanvasInner() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [bgVariant] = useState<BackgroundVariant>(BackgroundVariant.Dots);
   const [zoom, setZoom] = useState(100);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes } = useReactFlow();
 
   // Panel state management
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -70,6 +70,11 @@ function FlowCanvasInner() {
   // Node settings panel state
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
+  
+  // Track mouse state to prevent panel opening during selection drag
+  const isSelectingRef = useRef(false);
+  const pendingSelectionRef = useRef<Node[]>([]);
 
   // Toolbar state
   const [activeTool, setActiveTool] = useState<'pointer' | 'hand'>('pointer');
@@ -726,19 +731,129 @@ function FlowCanvasInner() {
     setPanelType(null);
   }, []);
 
-  // Handle node selection change
-  const handleSelectionChange = useCallback(
-    ({ nodes: selectedNodes }: { nodes: Node[] }) => {
-      if (selectedNodes.length === 1 && selectedNodes[0].type === 'imageGenerator') {
-        setSelectedNode(selectedNodes[0]);
+  // Update panel based on selection - show ALL selected nodes
+  const updatePanelForSelection = useCallback((selectedNodesList: Node[]) => {
+    console.log('🔍 updatePanelForSelection called with', selectedNodesList.length, 'nodes');
+    
+    // Only update if there are actually nodes selected
+    if (selectedNodesList.length === 0) {
+      console.log('🔍 No nodes selected, closing panel');
+      setSelectedNodes([]);
+      setSelectedNode(null);
+      setIsSettingsPanelOpen(false);
+      return;
+    }
+    
+    // Check if there are any imageGenerator nodes (these have settings to show)
+    const hasImageGeneratorNodes = selectedNodesList.some(node => 
+      node.type === 'imageGenerator'
+    );
+    
+    // Show all selected nodes in panel, but only open if there are imageGenerator nodes
+    console.log('🔍 Setting selectedNodes to', selectedNodesList.length, 'nodes:', selectedNodesList.map(n => ({ id: n.id, type: n.type })));
+    setSelectedNodes(selectedNodesList);
+    
+    if (hasImageGeneratorNodes) {
+      const imageGeneratorNodes = selectedNodesList.filter(node => node.type === 'imageGenerator');
+      
+      if (imageGeneratorNodes.length === 1) {
+        // Single imageGenerator selection - show detailed settings panel
+        console.log('🔍 Single imageGenerator selection, showing detailed panel');
+        setSelectedNode(imageGeneratorNodes[0]);
         setIsSettingsPanelOpen(true);
       } else {
+        // Multiple selection - show multi-selection panel with all nodes
+        console.log('🔍 Multiple selection, showing multi-selection panel');
         setSelectedNode(null);
-        setIsSettingsPanelOpen(false);
+        setIsSettingsPanelOpen(true);
+      }
+    } else {
+      // No imageGenerator nodes selected, close panel
+      console.log('🔍 No imageGenerator nodes selected, closing panel');
+      setSelectedNodes([]);
+      setSelectedNode(null);
+      setIsSettingsPanelOpen(false);
+    }
+  }, []);
+
+  // Handle node selection change - only update panel after mouse release
+  const handleSelectionChange = useCallback(
+    ({ nodes: selectedNodesList }: { nodes: Node[] }) => {
+      console.log('🔍 handleSelectionChange called with nodes:', selectedNodesList.length, selectedNodesList.map(n => ({ id: n.id, type: n.type })));
+      
+      // Store the pending selection but don't open panel yet if we're still selecting
+      pendingSelectionRef.current = selectedNodesList;
+      
+      // If we're not currently selecting (mouse is up), update immediately
+      if (!isSelectingRef.current) {
+        // Always update based on current selection - panel stays open if nodes are selected
+        console.log('🔍 Updating panel immediately with', selectedNodesList.length, 'nodes');
+        updatePanelForSelection(selectedNodesList);
+      } else {
+        console.log('🔍 Selection in progress, waiting for mouse up');
       }
     },
-    []
+    [updatePanelForSelection]
   );
+
+  // Track mouse down/up for selection
+  useEffect(() => {
+    let mouseDownTime = 0;
+    let mouseDownX = 0;
+    let mouseDownY = 0;
+    const DRAG_THRESHOLD = 5; // pixels
+    const CLICK_THRESHOLD = 200; // milliseconds
+
+    const handleMouseDown = (e: MouseEvent) => {
+      // Only track if clicking on canvas (not on nodes or other elements)
+      const target = e.target as HTMLElement;
+      if (target.closest('.react-flow__pane') && !target.closest('.react-flow__node')) {
+        isSelectingRef.current = true;
+        mouseDownTime = Date.now();
+        mouseDownX = e.clientX;
+        mouseDownY = e.clientY;
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isSelectingRef.current) {
+        const distance = Math.sqrt(
+          Math.pow(e.clientX - mouseDownX, 2) + Math.pow(e.clientY - mouseDownY, 2)
+        );
+        // If mouse moved significantly, it's a drag
+        if (distance > DRAG_THRESHOLD) {
+          // Keep isSelectingRef.current = true to prevent panel opening during drag
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isSelectingRef.current) {
+        isSelectingRef.current = false;
+        
+        // Get the current selection directly from React Flow nodes (more reliable than ref)
+        // Small delay to ensure React Flow has updated its selection state
+        setTimeout(() => {
+          const allNodes = getNodes();
+          const currentlySelectedNodes = allNodes.filter(node => node.selected);
+          console.log('🔍 Mouse up - React Flow reports', currentlySelectedNodes.length, 'selected nodes');
+          
+          // Update panel with all selected nodes (filtering happens in updatePanelForSelection)
+          updatePanelForSelection(currentlySelectedNodes);
+        }, 10); // Small delay to ensure React Flow has updated
+      }
+    };
+
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [updatePanelForSelection]);
 
   // Handle settings panel close
   const handleCloseSettingsPanel = useCallback(() => {
@@ -769,6 +884,25 @@ function FlowCanvasInner() {
       console.log(`⚠️ handleRunFromPanel: nodeId is empty/null`);
     }
   }, [handleRunModel]);
+
+  // Handle run all selected nodes
+  const handleRunSelectedNodes = useCallback(
+    (nodeIds: string[], runs: number = 1) => {
+      console.log(`🎛️ [Panel] handleRunSelectedNodes called for ${nodeIds.length} nodes with ${runs} runs:`, nodeIds);
+      
+      // Run each node the specified number of times
+      let runIndex = 0;
+      for (let run = 0; run < runs; run++) {
+        nodeIds.forEach((nodeId, nodeIndex) => {
+          setTimeout(() => {
+            handleRunModel(nodeId);
+          }, runIndex * 100); // Small delay between runs to prevent overwhelming the API
+          runIndex++;
+        });
+      }
+    },
+    [handleRunModel]
+  );
 
   // Log when handleRunModel is recreated (should only happen once now!)
   useEffect(() => {
@@ -914,19 +1048,22 @@ function FlowCanvasInner() {
         nodeId={selectedNode?.id || ''}
         nodeName={selectedNode?.data?.modelName || 'Seedream-4'}
         modelId={selectedNode?.data?.modelId || 'bytedance/seedream-4'}
-        creditCost={23}
+        creditCost={selectedNode?.type === 'imageGenerator' 
+          ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)
+          : selectedNode?.type === 'imageDescriber' ? 1 : 0}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
+        selectedNodes={selectedNodes}
+        nodeSettingsMap={nodeSettings}
         onClose={handleCloseSettingsPanel}
-        onSettingsChange={(settings) => {
-          if (selectedNode?.id) {
-            handleSettingsChange(selectedNode.id, settings);
-          }
+        onSettingsChange={(nodeId, settings) => {
+          handleSettingsChange(nodeId, settings);
         }}
         onRunModel={() => {
           if (selectedNode?.id) {
             handleRunFromPanel(selectedNode.id);
           }
         }}
+        onRunSelectedNodes={handleRunSelectedNodes}
       />
 
       {/* Main Content Area with Margin for Sidebar */}

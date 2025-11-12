@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Info, ChevronDown } from 'lucide-react';
+import { X, Info, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface NodeSettings {
   // Seedream-4 settings
@@ -22,28 +22,45 @@ interface NodeSettings {
 
 interface NodeSettingsPanelProps {
   isOpen: boolean;
-  nodeId: string;
-  nodeName: string;
+  nodeId?: string;
+  nodeName?: string;
   modelId?: string;
-  creditCost: number;
+  creditCost?: number;
   initialSettings?: NodeSettings;
+  selectedNodes?: any[]; // Array of selected nodes for multi-selection
+  nodeSettingsMap?: Record<string, NodeSettings>; // Settings for each node by nodeId
   onClose: () => void;
-  onSettingsChange?: (settings: NodeSettings) => void;
+  onSettingsChange?: (nodeId: string, settings: NodeSettings) => void;
   onRunModel?: () => void;
+  onRunSelectedNodes?: (nodeIds: string[], runs: number) => void; // For running multiple nodes with runs count
 }
 
 const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   isOpen,
-  nodeId,
-  nodeName,
+  nodeId = '',
+  nodeName = 'Seedream-4',
   modelId = 'bytedance/seedream-4',
-  creditCost,
+  creditCost = 23,
   initialSettings,
+  selectedNodes = [],
+  nodeSettingsMap = {},
   onClose,
   onSettingsChange,
   onRunModel,
+  onRunSelectedNodes,
 }) => {
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
+  const isMultiSelection = selectedNodes && selectedNodes.length > 1;
+  
+  // Track which node dropdowns are expanded
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+  // Debug: Log when selectedNodes changes
+  React.useEffect(() => {
+    if (selectedNodes && selectedNodes.length > 0) {
+      console.log('🔍 NodeSettingsPanel: selectedNodes changed to', selectedNodes.length, 'nodes:', selectedNodes.map(n => ({ id: n.id, type: n.type, modelId: n.data?.modelId })));
+    }
+  }, [selectedNodes]);
   
   const [settings, setSettings] = useState<NodeSettings>(
     initialSettings || (isFluxModel
@@ -78,13 +95,36 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
-    value: NodeSettings[K]
+    value: NodeSettings[K],
+    nodeId?: string
   ) => {
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings);
-    if (onSettingsChange) {
-      onSettingsChange(newSettings);
+    if (nodeId && isMultiSelection) {
+      // For multi-selection, update settings for specific node
+      const nodeSettings = nodeSettingsMap[nodeId] || {};
+      const newSettings = { ...nodeSettings, [key]: value };
+      if (onSettingsChange) {
+        onSettingsChange(nodeId, newSettings);
+      }
+    } else {
+      // For single selection, update local settings
+      const newSettings = { ...settings, [key]: value };
+      setSettings(newSettings);
+      if (onSettingsChange) {
+        onSettingsChange(nodeId || '', newSettings);
+      }
     }
+  };
+
+  const toggleNodeExpanded = (nodeId: string) => {
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
   };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,19 +136,35 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
     setRuns(Math.max(1, runs + delta));
   };
 
-  if (!isOpen) return null;
+  // Calculate total cost for multiple selected nodes
+  const calculateTotalCost = () => {
+    if (isMultiSelection && selectedNodes) {
+      const totalCostPerRun = selectedNodes.reduce((sum, node) => {
+        // Get credit cost for each node type
+        let nodeCost = 0; // Default (promptInput nodes have no cost)
+        if (node.type === 'imageGenerator') {
+          if (node.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
+            nodeCost = 11; // Flux cost
+          } else {
+            nodeCost = 23; // Seedream-4 cost
+          }
+        } else if (node.type === 'imageDescriber') {
+          nodeCost = 1; // Image Describer cost
+        }
+        return sum + nodeCost;
+      }, 0);
+      return totalCostPerRun * runs;
+    }
+    return creditCost * runs;
+  };
 
-  const totalCost = creditCost * runs;
+  const totalCost = calculateTotalCost();
+
+  if (!isOpen) return null;
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 z-40"
-        onClick={onClose}
-      />
-
-      {/* Settings Panel */}
+      {/* Settings Panel - No backdrop to allow canvas interactions */}
       <div className="fixed right-0 top-0 h-screen w-[340px] bg-[#0a0a0a] border-l border-[#2a2a2a] z-50 flex flex-col shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a]">
@@ -134,7 +190,193 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-          {isFluxModel ? (
+          {isMultiSelection ? (
+            /* Multi-Selection Mode - Collapsible Dropdowns */
+            <>
+              {selectedNodes.map((node) => {
+                const isExpanded = expandedNodes.has(node.id);
+                let nodeCost = 23;
+                let nodeName = 'Node';
+                let nodeModelId = '';
+                
+                if (node.type === 'imageGenerator') {
+                  nodeModelId = node.data?.modelId || 'bytedance/seedream-4';
+                  if (nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra') {
+                    nodeCost = 11;
+                    nodeName = 'FLUX 1.1 Pro Ultra';
+                  } else {
+                    nodeCost = 23;
+                    nodeName = node.data?.modelName || 'Seedream-4';
+                  }
+                } else if (node.type === 'imageDescriber') {
+                  nodeCost = 1;
+                  nodeName = 'Image Describer';
+                } else if (node.type === 'promptInput') {
+                  nodeCost = 0;
+                  nodeName = node.data?.label || 'Prompt';
+                }
+                
+                const nodeSettings = nodeSettingsMap[node.id] || {};
+                const isNodeFlux = nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra';
+                
+                return (
+                  <div key={node.id} className="border border-[#2a2a2a] rounded-lg overflow-hidden">
+                    {/* Collapsible Header */}
+                    <button
+                      onClick={() => toggleNodeExpanded(node.id)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-[#1a1a1a] hover:bg-[#242424] transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium text-white">{nodeName}</span>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-yellow-400">✨</span>
+                          <span className="text-gray-400">{nodeCost}</span>
+                        </div>
+                      </div>
+                      {isExpanded ? (
+                        <ChevronUp size={16} className="text-gray-400" />
+                      ) : (
+                        <ChevronDown size={16} className="text-gray-400" />
+                      )}
+                    </button>
+                    
+                    {/* Collapsible Content */}
+                    {isExpanded && (
+                      <div className="px-4 py-3 bg-[#0a0a0a] space-y-4">
+                        {node.type === 'imageGenerator' && isNodeFlux ? (
+                          /* Flux Settings */
+                          <>
+                            {/* Aspect Ratio */}
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <label className="text-xs text-gray-300 font-medium">Aspect Ratio</label>
+                                <Info size={12} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.aspectRatio || '1:1'}
+                                  onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-xs border border-[#2a2a2a] rounded-lg px-3 py-2 pr-8 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="1:1">1:1</option>
+                                  <option value="16:9">16:9</option>
+                                  <option value="9:16">9:16</option>
+                                  <option value="4:3">4:3</option>
+                                  <option value="3:4">3:4</option>
+                                  <option value="21:9">21:9</option>
+                                  <option value="9:21">9:21</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Output Format */}
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <label className="text-xs text-gray-300 font-medium">Output Format</label>
+                                <Info size={12} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.outputFormat || 'png'}
+                                  onChange={(e) => handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg', node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-xs border border-[#2a2a2a] rounded-lg px-3 py-2 pr-8 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="png">png</option>
+                                  <option value="jpeg">jpeg</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                          </>
+                        ) : node.type === 'imageGenerator' ? (
+                          /* Seedream-4 Settings */
+                          <>
+                            {/* Size */}
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <label className="text-xs text-gray-300 font-medium">Size</label>
+                                <Info size={12} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.size || '2K'}
+                                  onChange={(e) => {
+                                    const newSize = e.target.value as '1K' | '2K' | '4K';
+                                    handleSettingChange('size', newSize, node.id);
+                                    const sizeMap: Record<string, { width: number; height: number }> = {
+                                      '1K': { width: 1024, height: 1024 },
+                                      '2K': { width: 2048, height: 2048 },
+                                      '4K': { width: 4096, height: 4096 },
+                                    };
+                                    if (sizeMap[newSize]) {
+                                      handleSettingChange('width', sizeMap[newSize].width, node.id);
+                                      handleSettingChange('height', sizeMap[newSize].height, node.id);
+                                    }
+                                  }}
+                                  className="w-full bg-[#1a1a1a] text-white text-xs border border-[#2a2a2a] rounded-lg px-3 py-2 pr-8 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="1K">1K</option>
+                                  <option value="2K">2K</option>
+                                  <option value="4K">4K</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Aspect Ratio */}
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <label className="text-xs text-gray-300 font-medium">Aspect Ratio</label>
+                                <Info size={12} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.aspectRatio || '4:3'}
+                                  onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-xs border border-[#2a2a2a] rounded-lg px-3 py-2 pr-8 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="1:1">1:1</option>
+                                  <option value="4:3">4:3</option>
+                                  <option value="3:4">3:4</option>
+                                  <option value="16:9">16:9</option>
+                                  <option value="9:16">9:16</option>
+                                  <option value="21:9">21:9</option>
+                                  <option value="9:21">9:21</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                          </>
+                        ) : node.type === 'promptInput' ? (
+                          /* Prompt Input Node - Show content */
+                          <div className="text-xs text-gray-400">
+                            <div className="mb-2">
+                              <span className="text-gray-300 font-medium">Content:</span>
+                            </div>
+                            <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded p-2 text-gray-400 max-h-32 overflow-y-auto">
+                              {node.data?.value || 'No content'}
+                            </div>
+                          </div>
+                        ) : node.type === 'imageDescriber' ? (
+                          /* Image Describer Node - Show description */
+                          <div className="text-xs text-gray-400">
+                            <div className="mb-2">
+                              <span className="text-gray-300 font-medium">Description:</span>
+                            </div>
+                            <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded p-2 text-gray-400 max-h-32 overflow-y-auto">
+                              {node.data?.description || 'No description generated yet'}
+                            </div>
+                          </div>
+                        ) : (
+                          /* Other node types - no settings for now */
+                          <div className="text-xs text-gray-400">No settings available for this node type</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          ) : isFluxModel ? (
             <>
               {/* Aspect Ratio - Flux */}
               <div>
@@ -467,48 +709,44 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
             </>
           )}
 
-          {/* Run selected nodes button */}
-          <button
-            onClick={() => {
-              console.log(`🎛️ [Panel] "Run selected nodes" button clicked for nodeId: ${nodeId}`);
-              onRunModel && onRunModel();
-            }}
-            className="w-full bg-[#1a1a1a] hover:bg-[#2a2a2a] text-gray-300 text-sm font-medium py-2.5 rounded-lg border border-[#2a2a2a] transition-colors"
-          >
-            Run selected nodes
-          </button>
-
-          {/* Runs Counter */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-sm text-gray-300 font-medium">Runs</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => handleRunsChange(-1)}
-                disabled={runs <= 1}
-                className="w-10 h-10 bg-[#1a1a1a] hover:bg-[#2a2a2a] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg border border-[#2a2a2a] transition-colors flex items-center justify-center text-lg"
-              >
-                −
-              </button>
-              <div className="flex-1 text-center">
-                <span className="text-white font-medium text-lg">{runs}</span>
+          {/* Run selected nodes section - Show for both single and multi-selection */}
+          <div className="pt-3 border-t border-[#2a2a2a]">
+            <h3 className="text-sm font-semibold text-white mb-3">
+              {isMultiSelection ? 'Run selected nodes' : 'Run selected node'}
+            </h3>
+            
+            {/* Runs Counter */}
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-sm text-gray-300 font-medium">Runs</label>
               </div>
-              <button
-                onClick={() => handleRunsChange(1)}
-                className="w-10 h-10 bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white rounded-lg border border-[#2a2a2a] transition-colors flex items-center justify-center text-lg"
-              >
-                +
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => handleRunsChange(-1)}
+                  disabled={runs <= 1}
+                  className="w-10 h-10 bg-[#1a1a1a] hover:bg-[#2a2a2a] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg border border-[#2a2a2a] transition-colors flex items-center justify-center text-lg"
+                >
+                  −
+                </button>
+                <div className="flex-1 text-center">
+                  <span className="text-white font-medium text-lg">{runs}</span>
+                </div>
+                <button
+                  onClick={() => handleRunsChange(1)}
+                  className="w-10 h-10 bg-[#1a1a1a] hover:bg-[#2a2a2a] text-white rounded-lg border border-[#2a2a2a] transition-colors flex items-center justify-center text-lg"
+                >
+                  +
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Total Cost */}
-          <div className="flex items-center justify-between pt-3 border-t border-[#2a2a2a]">
-            <span className="text-sm text-gray-400">Total cost</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-yellow-400">✨</span>
-              <span className="text-white font-medium">{totalCost} credits</span>
+            {/* Total Cost */}
+            <div className="flex items-center justify-between pt-3 border-t border-[#2a2a2a]">
+              <span className="text-sm text-gray-400">Total cost</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-yellow-400">✨</span>
+                <span className="text-white font-medium">{totalCost} credits</span>
+              </div>
             </div>
           </div>
         </div>
@@ -517,13 +755,30 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
         <div className="px-6 py-4 border-t border-[#2a2a2a]">
           <button
             onClick={() => {
-              console.log(`🎛️ [Panel] "Run selected" button (bottom) clicked for nodeId: ${nodeId}`);
-              onRunModel && onRunModel();
+              if (isMultiSelection && onRunSelectedNodes) {
+                const nodeIds = selectedNodes.map(node => node.id);
+                console.log(`🎛️ [Panel] "Run selected" button clicked for ${nodeIds.length} nodes with ${runs} runs:`, nodeIds);
+                onRunSelectedNodes(nodeIds, runs);
+              } else if (onRunModel) {
+                // For single node, run it the specified number of times
+                if (runs > 1 && onRunSelectedNodes) {
+                  console.log(`🎛️ [Panel] "Run selected" button clicked for single node with ${runs} runs:`, nodeId);
+                  onRunSelectedNodes([nodeId], runs);
+                } else {
+                  console.log(`🎛️ [Panel] "Run selected" button (bottom) clicked for nodeId: ${nodeId}`);
+                  onRunModel();
+                }
+              }
             }}
-            className="w-full bg-[#e5e5e5] hover:bg-white text-black font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+            disabled={isMultiSelection && totalCost === 0}
+            className={`w-full font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+              isMultiSelection && totalCost === 0
+                ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
+                : 'bg-[#e5e5e5] hover:bg-white text-black'
+            }`}
           >
             <span>→</span>
-            <span>Run selected</span>
+            <span>{isMultiSelection ? 'Run selected' : 'Run selected'}</span>
           </button>
         </div>
       </div>
