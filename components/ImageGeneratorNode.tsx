@@ -24,6 +24,7 @@ interface ImageGeneratorNodeData {
 
 export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageGeneratorNodeData>) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isPreviewHovered, setIsPreviewHovered] = useState(false);
   const isClickingRef = useRef(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -436,6 +437,8 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
 
       {/* Image Preview Area */}
       <div
+        onMouseEnter={() => setIsPreviewHovered(true)}
+        onMouseLeave={() => setIsPreviewHovered(false)}
         style={{
           width: '100%',
           height: '400px',
@@ -452,6 +455,8 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           marginBottom: '12px',
           position: 'relative',
           overflow: 'hidden',
+          boxShadow: isPreviewHovered ? 'inset 0 45px 20px -20px rgba(0, 0, 0, 0.4)' : 'none',
+          transition: 'box-shadow 0.2s ease',
         }}
       >
         {/* Navigation Controls - Top Bar */}
@@ -469,6 +474,8 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               justifyContent: 'space-between',
               padding: '0 12px',
               zIndex: 15,
+              opacity: isPreviewHovered ? 1 : 0,
+              transition: 'opacity 0.2s ease',
             }}
           >
             {/* Left: Previous, Counter, Next */}
