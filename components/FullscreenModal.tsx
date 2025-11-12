@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { X, Info, Download, Link2, MoreVertical, ArrowRight } from 'lucide-react';
 
 interface FullscreenModalProps {
@@ -34,6 +34,11 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
   const modelName = node?.data?.modelName || 'Seedream-4';
   const width = nodeSettings?.width || 1024;
   const height = nodeSettings?.height || 1024;
+  
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const handlePreviousImage = useCallback(() => {
     if (currentIndex > 0) {
@@ -82,6 +87,95 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
       document.body.removeChild(link);
     }
   }, [currentImageUrl, modelName, currentIndex]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoomLevel((prev) => Math.min(prev + 25, 500)); // Max 500%
+    setImagePosition({ x: 0, y: 0 }); // Center the image on zoom
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoomLevel((prev) => Math.max(prev - 25, 100)); // Min 100%
+    setImagePosition({ x: 0, y: 0 }); // Center the image on zoom
+  }, []);
+
+  const handleResetZoom = useCallback(() => {
+    setZoomLevel(100);
+  }, []);
+
+  // Reset zoom and position when image changes
+  useEffect(() => {
+    setZoomLevel(100);
+    setImagePosition({ x: 0, y: 0 });
+  }, [currentImageUrl]);
+
+  // Handle mouse down for dragging
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Middle mouse button (button 1) or left button when zoomed
+    if (e.button === 1 || (e.button === 0 && zoomLevel > 100)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - imagePosition.x, y: e.clientY - imagePosition.y });
+    }
+  }, [zoomLevel, imagePosition]);
+
+  // Global mouse move handler
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        setImagePosition({
+          x: e.clientX - dragStart.x,
+          y: e.clientY - dragStart.y,
+        });
+      }
+    };
+
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleGlobalMouseMove);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isDragging, dragStart]);
+
+  // Handle mouse move for dragging (local)
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (isDragging) {
+      setImagePosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    }
+  }, [isDragging, dragStart]);
+
+  // Handle mouse up to stop dragging
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Prevent context menu on middle click
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+  }, []);
+
+  // Handle mouse wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      // Scrolling up - zoom in
+      handleZoomIn();
+    } else {
+      // Scrolling down - zoom out
+      handleZoomOut();
+    }
+  }, [handleZoomIn, handleZoomOut]);
 
   return (
     <div
@@ -151,7 +245,7 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
               gap: '12px',
             }}
           >
-            <span style={{ color: '#ffffff', fontSize: '13px', opacity: 0.9 }}>107%</span>
+             <span style={{ color: '#ffffff', fontSize: '13px', opacity: 0.9 }}>{zoomLevel}%</span>
             <div
               style={{
                 width: '1px',
@@ -159,21 +253,21 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
                 background: '#2a2a2a',
               }}
             />
-            <button
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#ffffff',
-                cursor: 'pointer',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.9,
-              }}
-            >
-              <Info size={16} />
-            </button>
+             <button
+               style={{
+                 background: 'transparent',
+                 border: 'none',
+                 color: '#ffffff',
+                 cursor: 'pointer',
+                 padding: '4px',
+                 display: 'flex',
+                 alignItems: 'center',
+                 justifyContent: 'center',
+                 opacity: 0.9,
+               }}
+             >
+               <Info size={16} />
+             </button>
              <button
                onClick={handleDownload}
                disabled={!currentImageUrl}
@@ -250,33 +344,45 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
           overflow: 'hidden',
         }}
       >
-        {/* Center: Image Display */}
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '40px',
-            overflow: 'auto',
-            background: '#0a0a0a',
-          }}
-        >
-          {currentImageUrl ? (
-            <img
-              src={currentImageUrl}
-              alt="Generated image"
-              style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
+         {/* Center: Image Display */}
+         <div
+           onWheel={handleWheel}
+           onMouseDown={handleMouseDown}
+           onMouseMove={handleMouseMove}
+           onMouseUp={handleMouseUp}
+           onMouseLeave={handleMouseUp}
+           onContextMenu={handleContextMenu}
+           style={{
+             flex: 1,
+             display: 'flex',
+             alignItems: 'center',
+             justifyContent: 'center',
+             padding: '40px',
+             overflow: 'hidden',
+             background: '#0a0a0a',
+             cursor: isDragging || (zoomLevel > 100) ? 'grab' : 'default',
+           }}
+         >
+           {currentImageUrl ? (
+             <img
+               src={currentImageUrl}
+               alt="Generated image"
+               draggable={false}
+               style={{
+                 maxWidth: '100%',
+                 maxHeight: '100%',
                 objectFit: 'contain',
                 borderRadius: '8px',
+                transform: `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${zoomLevel / 100})`,
+                transformOrigin: 'center center',
+                transition: isDragging ? 'none' : 'transform 0.2s ease',
+                cursor: isDragging ? 'grabbing' : (zoomLevel > 100 ? 'grab' : 'default'),
               }}
-            />
-          ) : (
-            <div style={{ color: '#666', fontSize: '14px' }}>No image generated yet</div>
-          )}
-        </div>
+             />
+           ) : (
+             <div style={{ color: '#666', fontSize: '14px' }}>No image generated yet</div>
+           )}
+         </div>
 
         {/* Right Panel - Image Previews */}
         <div
