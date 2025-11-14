@@ -19,9 +19,10 @@ interface NavItem {
 interface SidebarProps {
   onOpenPanel: (type: string) => void;
   activePanelType: string | null;
+  onClosePanel?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClosePanel }) => {
   const [activeItem, setActiveItem] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -37,8 +38,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType }) => {
 
 
   const handleItemClick = (label: string) => {
-    setActiveItem(label);
-    onOpenPanel(label);
+    // Toggle: if clicking the same panel that's already open, close it
+    if (activePanelType === label && onClosePanel) {
+      onClosePanel();
+      setActiveItem(null);
+    } else {
+      setActiveItem(label);
+      onOpenPanel(label);
+    }
   };
 
   const handleDropdownToggle = (e: React.MouseEvent) => {

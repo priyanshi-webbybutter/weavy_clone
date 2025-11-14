@@ -257,12 +257,6 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
 
   return (
     <>
-      {/* Backdrop - only covers the area outside sidebar and panel */}
-      <div
-        className={`fixed left-[300px] top-0 right-0 bottom-0 bg-black/30 z-40 ${isDragging ? 'pointer-events-none' : ''}`}
-        onClick={onClose}
-      />
-
       {/* Panel */}
       <div
         className="fixed left-[68px] top-0 h-screen w-[235px] bg-[#171717] border-r border-[#2a2a2a] z-50 overflow-hidden animate-slide-in shadow-2xl"

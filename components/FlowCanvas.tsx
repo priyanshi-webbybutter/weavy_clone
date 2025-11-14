@@ -1488,7 +1488,7 @@ function FlowCanvasInner() {
   return (
     <>
       {/* Sidebar - Fixed Position */}
-      <Sidebar onOpenPanel={handleOpenPanel} activePanelType={panelType} />
+      <Sidebar onOpenPanel={handleOpenPanel} activePanelType={panelType} onClosePanel={handleClosePanel} />
 
       {/* Side Panel - Fixed Position */}
       <SidePanel
