@@ -9,6 +9,11 @@ router.post('/generate-video', async (req, res) => {
     const {
       modelId = 'pixverse/pixverse-v5',
       prompt,
+      aspectRatio = '16:9',
+      duration = 5,
+      quality = '720p',
+      effect = 'none',
+      negativePrompt = '',
     } = req.body;
 
     // Validate prompt
@@ -21,6 +26,11 @@ router.post('/generate-video', async (req, res) => {
     console.log('🎬 Received video generation request:', {
       modelId,
       prompt,
+      aspectRatio,
+      duration,
+      quality,
+      effect,
+      negativePrompt: negativePrompt || 'none',
     });
 
     // Check for API token
@@ -43,7 +53,16 @@ router.post('/generate-video', async (req, res) => {
     // Prepare input parameters for Pixverse v5
     const inputParams = {
       prompt: prompt,
+      aspect_ratio: aspectRatio,
+      duration: duration,
+      quality: quality,
+      effect: effect,
     };
+    
+    // Only add negative_prompt if provided
+    if (negativePrompt && negativePrompt.trim()) {
+      inputParams.negative_prompt = negativePrompt.trim();
+    }
 
     console.log('📤 Calling Replicate API:', modelId);
     console.log('📤 With params:', JSON.stringify(inputParams, null, 2));

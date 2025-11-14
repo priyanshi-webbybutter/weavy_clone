@@ -402,7 +402,11 @@ function FlowCanvasInner() {
         body: JSON.stringify({
           modelId: modelId,
           prompt: promptText,
-          ...settings,
+          aspectRatio: settings.aspectRatio || '16:9',
+          duration: settings.duration || 5,
+          quality: settings.quality || '720p',
+          effect: settings.effect || 'none',
+          negativePrompt: settings.negativePrompt || '',
         }),
       })
         .then(async (response) => {
@@ -1269,9 +1273,9 @@ function FlowCanvasInner() {
       return;
     }
     
-    // Check if there are any nodes with settings (imageGenerator or imageDescriber)
+    // Check if there are any nodes with settings (imageGenerator, imageDescriber, or videoGenerator)
     const nodesWithSettings = selectedNodesList.filter(node => 
-      node.type === 'imageGenerator' || node.type === 'imageDescriber'
+      node.type === 'imageGenerator' || node.type === 'imageDescriber' || node.type === 'videoGenerator'
     );
     
     // Store ALL selected nodes in panel
@@ -1835,11 +1839,14 @@ function FlowCanvasInner() {
         nodeId={selectedNode?.id || ''}
         nodeName={selectedNode?.type === 'imageDescriber' 
           ? 'Image Describer' 
+          : selectedNode?.type === 'videoGenerator'
+          ? selectedNode?.data?.modelName || 'Pixverse v5'
           : selectedNode?.data?.modelName || 'Seedream-4'}
-        modelId={selectedNode?.data?.modelId || 'bytedance/seedream-4'}
+        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v5' : 'bytedance/seedream-4')}
         creditCost={selectedNode?.type === 'imageGenerator' 
           ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)
-          : selectedNode?.type === 'imageDescriber' ? 1 : 0}
+          : selectedNode?.type === 'imageDescriber' ? 1 
+          : selectedNode?.type === 'videoGenerator' ? 50 : 0}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
         selectedNodes={selectedNodes}
         nodeSettingsMap={nodeSettings}
