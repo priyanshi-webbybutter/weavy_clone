@@ -41,6 +41,7 @@ import { CustomNode } from './CustomNode';
 import { PromptInputNode } from './PromptInputNode';
 import { ImageGeneratorNode } from './ImageGeneratorNode';
 import { ImageDescriberNode } from './ImageDescriberNode';
+import { VideoGeneratorNode } from './VideoGeneratorNode';
 
 // Define node types
 const nodeTypes = {
@@ -48,6 +49,7 @@ const nodeTypes = {
   promptInput: PromptInputNode,
   imageGenerator: ImageGeneratorNode,
   imageDescriber: ImageDescriberNode,
+  videoGenerator: VideoGeneratorNode,
 };
 
 // Initial nodes - Start with empty canvas
@@ -100,22 +102,72 @@ function FlowCanvasInner() {
   const [nodeSettings, setNodeSettings] = useState<Record<string, any>>({});
   const nodeSettingsRef = useRef<Record<string, any>>({});
 
-  // Sync ref with state whenever settings change
-  useEffect(() => {
-    nodeSettingsRef.current = nodeSettings;
-  }, [nodeSettings]);
+  // Note: We update the ref manually in handleSettingsChange to avoid timing issues
+  // The ref is the source of truth for handleRunModel to avoid stale closures
 
   // Track ongoing image generations to prevent duplicates
   const generatingNodes = useRef<Set<string>>(new Set());
 
+  // Validate connections - Prompt node should only connect to text/prompt inputs
+  const isValidConnection = useCallback((connection: Connection) => {
+    // Get source and target nodes
+    const sourceNode = nodes.find(n => n.id === connection.source);
+    const targetNode = nodes.find(n => n.id === connection.target);
+    
+    // If source is a Prompt node (text output)
+    if (sourceNode?.type === 'promptInput') {
+      // Only allow connections to handles that accept text/prompt
+      if (targetNode?.type === 'videoGenerator') {
+        // Video generator: only 'prompt' and 'negativePrompt' accept text
+        const textAcceptingHandles = ['prompt', 'negativePrompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        // If no target handle specified, reject (shouldn't happen but be safe)
+        return false;
+      }
+      
+      // For image generator nodes, allow connections to prompt inputs
+      if (targetNode?.type === 'imageGenerator') {
+        // Image generator: allow 'prompt' and 'imagePrompt' (imagePrompt can accept text URLs)
+        const textAcceptingHandles = ['prompt', 'imagePrompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        return false;
+      }
+      
+      // For image describer nodes, allow connections to prompt inputs
+      if (targetNode?.type === 'imageDescriber') {
+        // Image describer: allow 'prompt' handle
+        const textAcceptingHandles = ['prompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        return false;
+      }
+      
+      // Default: reject connections to unknown node types
+      return false;
+    }
+    
+    // Default: allow all other connections (non-prompt sources)
+    return true;
+  }, [nodes]);
+
   // Handle connection between nodes
   const onConnect = useCallback(
-    (params: Connection | Edge) => setEdges((eds) => addEdge({
-      ...params,
-      animated: true,
-      style: { stroke: '#8b5cf6' }
-    }, eds)),
-    [setEdges]
+    (params: Connection | Edge) => {
+      // Only add edge if connection is valid
+      if (isValidConnection(params as Connection)) {
+        setEdges((eds) => addEdge({
+          ...params,
+          animated: true,
+          style: { stroke: '#8b5cf6' }
+        }, eds));
+      }
+    },
+    [setEdges, isValidConnection]
   );
 
   // Handle node deletion
@@ -326,6 +378,195 @@ function FlowCanvasInner() {
           EXECUTION_IN_PROGRESS.delete(nodeId);
           GLOBAL_GENERATING_NODES.delete(nodeId);
           generatingNodes.current.delete(nodeId);
+        });
+
+      return;
+    }
+
+    // Handle Video Generator nodes
+    if (currentNode.type === 'videoGenerator') {
+      const promptEdge = currentEdges.find((edge) => edge.target === nodeId && (!edge.targetHandle || edge.targetHandle === 'prompt'));
+      
+      if (!promptEdge) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Please connect a Prompt node to the input before running the model.');
+        return;
+      }
+
+      const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
+      if (!promptSourceNode) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Connected prompt node not found.');
+        return;
+      }
+
+      let promptText = '';
+      if (promptSourceNode.type === 'imageDescriber') {
+        promptText = promptSourceNode.data?.description || '';
+      } else if (promptSourceNode.type === 'promptInput') {
+        promptText = promptSourceNode.data?.value || '';
+      } else {
+        promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
+      }
+
+      if (!promptText.trim()) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('The connected prompt is empty. Please enter some text first.');
+        return;
+      }
+
+      const modelId = currentNode.data?.modelId || 'pixverse/pixverse-v4.5';
+      // Read from ref directly - this is the source of truth
+      const refSettings = nodeSettingsRef.current[nodeId];
+      const settings = refSettings ? { ...refSettings } : {};
+      
+      console.log(`🎬 Video generation - Reading settings for node ${nodeId}`);
+      console.log(`🔊 Ref has nodeId?`, !!refSettings);
+      console.log(`🔊 Settings object:`, JSON.stringify(settings, null, 2));
+      console.log(`🔊 enableSoundEffects value:`, settings.enableSoundEffects, `type:`, typeof settings.enableSoundEffects);
+      console.log(`🔊 Full nodeSettingsRef.current:`, JSON.stringify(nodeSettingsRef.current, null, 2));
+      
+      // Ensure enableSoundEffects is explicitly set (not undefined)
+      if (settings.enableSoundEffects === undefined) {
+        console.warn(`⚠️ enableSoundEffects is undefined, defaulting to false`);
+        settings.enableSoundEffects = false;
+      }
+
+      // Set generating state
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: true,
+              },
+            };
+          }
+          return node;
+        })
+      );
+
+      // Call backend API to generate video
+      fetch('http://localhost:3001/api/generate-video', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelId: modelId,
+          prompt: promptText,
+          aspect_ratio: settings.aspectRatio || '16:9',
+          duration: settings.duration || 5,
+          quality: settings.quality || '720p',
+          effect: settings.effect || 'None',
+          negative_prompt: settings.negativePrompt || '',
+          motion_mode: settings.motionMode || 'normal',
+          seed: {
+            seed: settings.seed || 597311,
+            isRandom: settings.seedRandom !== false,
+          },
+          style: settings.style || 'None',
+          sound_effect_switch: Boolean(settings.enableSoundEffects),
+          // Only include sound_effect_content if it has a value
+          ...(settings.enableSoundEffects && settings.soundEffectPrompt && settings.soundEffectPrompt.trim() 
+            ? { sound_effect_content: settings.soundEffectPrompt.trim() } 
+            : {}),
+        }),
+      })
+        .then(async (response) => {
+          const data = await response.json();
+
+          if (!response.ok) {
+            const errorMsg = data.message || data.error || 'Failed to generate video';
+            throw new Error(errorMsg);
+          }
+
+          if (!data.videoUrl) {
+            throw new Error('Server response missing video URL');
+          }
+
+          // Update node with generated video - append to array
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              if (node.id === nodeId) {
+                const existingVideoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+                const newVideoUrls = [...existingVideoUrls, data.videoUrl];
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    isGenerating: false,
+                    videoUrl: data.videoUrl,
+                    videoUrls: newVideoUrls,
+                    currentVideoIndex: newVideoUrls.length - 1,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+
+          // Update task as completed
+          setTasks((prev) =>
+            prev.map((task) =>
+              task.nodeId === nodeId && task.status === 'running'
+                ? { ...task, completed: 1, status: 'completed' }
+                : task
+            )
+          );
+
+          // Remove ALL locks
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
+        })
+        .catch((error) => {
+          console.error('Error generating video:', error);
+          
+          // Update task as failed
+          setTasks((prev) =>
+            prev.map((task) =>
+              task.nodeId === nodeId && task.status === 'running'
+                ? { ...task, status: 'failed' }
+                : task
+            )
+          );
+
+          // Update node to show error state
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              if (node.id === nodeId) {
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    isGenerating: false,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+
+          alert(`Failed to generate video:\n\n${error.message || 'Unknown error'}`);
+
+          // Remove ALL locks after error
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
         });
 
       return;
@@ -740,6 +981,115 @@ function FlowCanvasInner() {
     });
   }, [setNodes]);
 
+  // Handle video index change for video generator nodes
+  const handleVideoIndexChange = useCallback((nodeId: string, index: number) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              currentVideoIndex: index,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  // Handle remove current video generation
+  const handleRemoveCurrentVideoGeneration = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          const videoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+          const currentIndex = node.data?.currentVideoIndex !== undefined 
+            ? node.data.currentVideoIndex 
+            : (videoUrls.length > 0 ? videoUrls.length - 1 : 0);
+          
+          if (videoUrls.length === 0 || currentIndex < 0 || currentIndex >= videoUrls.length) {
+            return node;
+          }
+          
+          const newVideoUrls = videoUrls.filter((_: string, index: number) => index !== currentIndex);
+          let newCurrentIndex = currentIndex;
+          if (newVideoUrls.length === 0) {
+            newCurrentIndex = 0;
+          } else if (currentIndex >= newVideoUrls.length) {
+            newCurrentIndex = newVideoUrls.length - 1;
+          }
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: newVideoUrls,
+              videoUrl: newVideoUrls.length > 0 ? newVideoUrls[newCurrentIndex] : undefined,
+              currentVideoIndex: newCurrentIndex,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all other video generations
+  const handleRemoveAllOtherVideoGenerations = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          const videoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+          const currentIndex = node.data?.currentVideoIndex !== undefined 
+            ? node.data.currentVideoIndex 
+            : (videoUrls.length > 0 ? videoUrls.length - 1 : 0);
+          
+          if (videoUrls.length === 0 || currentIndex < 0 || currentIndex >= videoUrls.length) {
+            return node;
+          }
+          
+          const currentVideoUrl = videoUrls[currentIndex];
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: [currentVideoUrl],
+              videoUrl: currentVideoUrl,
+              currentVideoIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all video generations
+  const handleRemoveAllVideoGenerations = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: [],
+              videoUrl: undefined,
+              currentVideoIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
   // Handle node duplication
   const handleDuplicateNode = useCallback((nodeId: string) => {
     setNodes((nds) => {
@@ -775,20 +1125,24 @@ function FlowCanvasInner() {
                 );
               }
             : undefined,
-          onRunModel: nodeToDuplicate.type === 'imageGenerator' ? handleRunModel : undefined,
+          onRunModel: (nodeToDuplicate.type === 'imageGenerator' || nodeToDuplicate.type === 'videoGenerator') ? handleRunModel : undefined,
           onDelete: handleDeleteNode,
           onDuplicate: handleDuplicateNode,
           onImageIndexChange: nodeToDuplicate.type === 'imageGenerator' ? handleImageIndexChange : undefined,
+          onVideoIndexChange: nodeToDuplicate.type === 'videoGenerator' ? handleVideoIndexChange : undefined,
           onOpenFullscreen: nodeToDuplicate.type === 'imageGenerator' ? handleOpenFullscreen : undefined,
           onRemoveCurrentGeneration: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveCurrentGeneration : undefined,
           onRemoveAllOtherGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllOtherGenerations : undefined,
           onRemoveAllGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllGenerations : undefined,
+          onRemoveCurrentVideoGeneration: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveCurrentVideoGeneration : undefined,
+          onRemoveAllOtherVideoGenerations: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveAllOtherVideoGenerations : undefined,
+          onRemoveAllVideoGenerations: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveAllVideoGenerations : undefined,
         },
       };
 
       return nds.concat(newNode);
     });
-  }, [setNodes, handleDeleteNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]);
+  }, [setNodes, handleDeleteNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations]);
 
   // Handle drag over canvas
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -912,6 +1266,28 @@ function FlowCanvasInner() {
             },
           },
         };
+      } else if (type === 'videoGenerator') {
+        newNode = {
+          id: newNodeId,
+          type: 'videoGenerator',
+          position,
+          data: {
+            label: 'Video Generator',
+            modelName: 'Pixverse v4.5',
+            modelId: 'pixverse/pixverse-v4.5',
+            videoUrl: undefined,
+            videoUrls: [],
+            currentVideoIndex: 0,
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+            onVideoIndexChange: handleVideoIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentVideoGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherVideoGenerations,
+            onRemoveAllGenerations: handleRemoveAllVideoGenerations,
+          },
+        };
       } else {
         // Default fallback
         newNode = {
@@ -925,7 +1301,7 @@ function FlowCanvasInner() {
       // Add the new node to the canvas
       setNodes((nds) => nds.concat(newNode));
     },
-    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]
+    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations]
   );
 
   // Handle zoom change
@@ -972,9 +1348,9 @@ function FlowCanvasInner() {
       return;
     }
     
-    // Check if there are any nodes with settings (imageGenerator or imageDescriber)
+    // Check if there are any nodes with settings (imageGenerator, imageDescriber, or videoGenerator)
     const nodesWithSettings = selectedNodesList.filter(node => 
-      node.type === 'imageGenerator' || node.type === 'imageDescriber'
+      node.type === 'imageGenerator' || node.type === 'imageDescriber' || node.type === 'videoGenerator'
     );
     
     // Store ALL selected nodes in panel
@@ -1090,16 +1466,20 @@ function FlowCanvasInner() {
 
   // Handle settings change from panel
   const handleSettingsChange = useCallback((nodeId: string, settings: any) => {
-    console.log(`⚙️ Settings changed for node ${nodeId}:`, settings);
-    setNodeSettings((prev) => {
-      const newSettings = {
-        ...prev,
-        [nodeId]: settings,
-      };
-      // Ref is automatically synced via useEffect
-      console.log(`✅ Settings updated, ref will sync automatically`);
-      return newSettings;
-    });
+    console.log(`⚙️ Settings changed for node ${nodeId}:`, JSON.stringify(settings, null, 2));
+    console.log(`🔊 enableSoundEffects value:`, settings.enableSoundEffects, typeof settings.enableSoundEffects);
+    
+    // Update ref immediately (synchronously) - this is the source of truth
+    const currentRef = { ...nodeSettingsRef.current };
+    currentRef[nodeId] = { ...settings }; // Create a new object to avoid reference issues
+    nodeSettingsRef.current = currentRef;
+    
+    console.log(`✅ Ref updated immediately`);
+    console.log(`🔊 Ref now contains for ${nodeId}:`, JSON.stringify(nodeSettingsRef.current[nodeId], null, 2));
+    console.log(`🔊 enableSoundEffects in ref:`, nodeSettingsRef.current[nodeId]?.enableSoundEffects);
+    
+    // Also update state for UI reactivity (but ref is source of truth for API calls)
+    setNodeSettings(currentRef);
   }, []);
 
   // Handle run from settings panel
@@ -1439,6 +1819,51 @@ function FlowCanvasInner() {
                 },
               },
             };
+          } else if (node.type === 'videoGenerator') {
+            // Migrate old pixverse-v5 to pixverse-v4.5
+            let modelId = node.data?.modelId || 'pixverse/pixverse-v4.5';
+            let modelName = node.data?.modelName || 'Pixverse v4.5';
+            
+            if (modelId === 'pixverse/pixverse-v5') {
+              console.log(`🔄 Migrating old Pixverse v5 node to v4.5: ${node.id}`);
+              modelId = 'pixverse/pixverse-v4.5';
+              modelName = 'Pixverse v4.5';
+            }
+            
+            // Migrate old videoUrl to videoUrls array
+            const existingVideoUrls = node.data?.videoUrls || [];
+            const oldVideoUrl = node.data?.videoUrl;
+            let videoUrls = existingVideoUrls;
+            let currentVideoIndex = node.data?.currentVideoIndex;
+            
+            if (oldVideoUrl && !existingVideoUrls.includes(oldVideoUrl)) {
+              videoUrls = [oldVideoUrl];
+              currentVideoIndex = 0;
+            } else if (videoUrls.length > 0 && currentVideoIndex === undefined) {
+              currentVideoIndex = videoUrls.length - 1;
+            } else if (videoUrls.length === 0) {
+              currentVideoIndex = 0;
+            }
+            
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                modelId: modelId,
+                modelName: modelName,
+                isGenerating: false,
+                videoUrls: videoUrls,
+                videoUrl: videoUrls.length > 0 ? videoUrls[currentVideoIndex] : undefined,
+                currentVideoIndex: currentVideoIndex,
+                onRunModel: handleRunModel,
+                onDelete: handleDeleteNode,
+                onDuplicate: handleDuplicateNode,
+                onVideoIndexChange: handleVideoIndexChange,
+                onRemoveCurrentVideoGeneration: handleRemoveCurrentVideoGeneration,
+                onRemoveAllOtherVideoGenerations: handleRemoveAllOtherVideoGenerations,
+                onRemoveAllVideoGenerations: handleRemoveAllVideoGenerations,
+              },
+            };
           }
           return node;
         });
@@ -1457,7 +1882,7 @@ function FlowCanvasInner() {
       console.error('❌ Error loading canvas state:', error);
       setIsInitialized(true);
     }
-  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, setNodes, setEdges]);
+  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations, handleOpenFullscreen, setNodes, setEdges]);
 
   // Save canvas state to localStorage whenever nodes or edges change
   useEffect(() => {
@@ -1488,7 +1913,7 @@ function FlowCanvasInner() {
   return (
     <>
       {/* Sidebar - Fixed Position */}
-      <Sidebar onOpenPanel={handleOpenPanel} activePanelType={panelType} />
+      <Sidebar onOpenPanel={handleOpenPanel} activePanelType={panelType} onClosePanel={handleClosePanel} />
 
       {/* Side Panel - Fixed Position */}
       <SidePanel
@@ -1505,11 +1930,14 @@ function FlowCanvasInner() {
         nodeId={selectedNode?.id || ''}
         nodeName={selectedNode?.type === 'imageDescriber' 
           ? 'Image Describer' 
+          : selectedNode?.type === 'videoGenerator'
+          ? selectedNode?.data?.modelName || 'Pixverse v4.5'
           : selectedNode?.data?.modelName || 'Seedream-4'}
-        modelId={selectedNode?.data?.modelId || 'bytedance/seedream-4'}
+        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v4.5' : 'bytedance/seedream-4')}
         creditCost={selectedNode?.type === 'imageGenerator' 
           ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)
-          : selectedNode?.type === 'imageDescriber' ? 1 : 0}
+          : selectedNode?.type === 'imageDescriber' ? 1 
+          : selectedNode?.type === 'videoGenerator' ? 50 : 0}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
         selectedNodes={selectedNodes}
         nodeSettingsMap={nodeSettings}
@@ -1541,6 +1969,7 @@ function FlowCanvasInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onDrop={onDrop}
           onDragOver={onDragOver}
           onSelectionChange={handleSelectionChange}

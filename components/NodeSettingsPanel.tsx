@@ -21,6 +21,16 @@ interface NodeSettings {
   // Image Describer settings
   modelName?: string;
   modelInstructions?: string;
+  // Video Generator settings (Pixverse v4.5)
+  duration?: number; // Video duration in seconds
+  quality?: string; // Video quality
+  effect?: string; // Video effect
+  negativePrompt?: string; // Negative prompt
+  motionMode?: string; // Motion mode
+  seedRandom?: boolean; // Random seed checkbox (reuses seed from Flux settings)
+  style?: string; // Style
+  enableSoundEffects?: boolean; // Enable sound effects
+  soundEffectPrompt?: string; // Sound effect prompt
 }
 
 interface Task {
@@ -56,7 +66,7 @@ interface NodeSettingsPanelProps {
 
 const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   isOpen,
-  nodeId = '',
+  nodeId: propNodeId = '',
   nodeName = 'Seedream-4',
   modelId = 'bytedance/seedream-4',
   creditCost = 23,
@@ -74,7 +84,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   onRunModel,
   onRunSelectedNodes,
 }) => {
+  // Store nodeId in a way that handleSettingChange can access it
+  const nodeId = propNodeId;
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
+  const isVideoGenerator = modelId === 'pixverse/pixverse-v4.5' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'videoGenerator');
   const isMultiSelection = selectedNodes && selectedNodes.length > 1;
   const isImageDescriber = nodeName === 'Image Describer' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'imageDescriber');
   
@@ -94,6 +107,21 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           // Image Describer default settings
           modelName: 'gemini-2.5-flash',
           modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
+        }
+      : isVideoGenerator
+      ? {
+          // Pixverse v4.5 default settings
+          aspectRatio: '16:9',
+          duration: 5,
+          quality: '720p',
+          effect: 'None',
+          negativePrompt: '',
+          motionMode: 'normal',
+          seed: 597311,
+          seedRandom: true,
+          style: 'None',
+          enableSoundEffects: false,
+          soundEffectPrompt: '',
         }
       : isFluxModel
       ? {
@@ -122,11 +150,25 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   React.useEffect(() => {
     if (initialSettings) {
       setSettings(initialSettings);
-    } else {
-      // Reset to defaults when no initial settings
-      if (isImageDescriber) {
-        setSettings({
-          modelName: 'gemini-2.5-flash',
+      } else {
+        // Reset to defaults when no initial settings
+        if (isVideoGenerator) {
+          setSettings({
+            aspectRatio: '16:9',
+            duration: 5,
+            quality: '720p',
+            effect: 'None',
+            negativePrompt: '',
+            motionMode: 'normal',
+            seed: 597311,
+            seedRandom: true,
+            style: 'None',
+            enableSoundEffects: false,
+            soundEffectPrompt: '',
+          });
+        } else if (isImageDescriber) {
+          setSettings({
+            modelName: 'gemini-2.5-flash',
           modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
         });
       } else if (isFluxModel) {
@@ -150,26 +192,28 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
         });
       }
     }
-  }, [initialSettings, isImageDescriber, isFluxModel]);
+  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel]);
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
     value: NodeSettings[K],
-    nodeId?: string
+    specificNodeId?: string // Parameter for multi-selection only
   ) => {
-    if (nodeId && isMultiSelection) {
+    if (specificNodeId && isMultiSelection) {
       // For multi-selection, update settings for specific node
-      const nodeSettings = nodeSettingsMap[nodeId] || {};
+      const nodeSettings = nodeSettingsMap[specificNodeId] || {};
       const newSettings = { ...nodeSettings, [key]: value };
       if (onSettingsChange) {
-        onSettingsChange(nodeId, newSettings);
+        onSettingsChange(specificNodeId, newSettings);
       }
     } else {
       // For single selection, update local settings
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings);
-    if (onSettingsChange) {
-        onSettingsChange(nodeId || '', newSettings);
+      const newSettings = { ...settings, [key]: value };
+      setSettings(newSettings);
+      if (onSettingsChange) {
+        // Use the nodeId from the component scope (prop), not the parameter (which is only for multi-selection)
+        console.log(`🔧 handleSettingChange - using nodeId from prop: "${nodeId}"`);
+        onSettingsChange(nodeId, newSettings);
       }
     }
   };
@@ -204,6 +248,8 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           }
         } else if (node.type === 'imageDescriber') {
           nodeCost = 1; // Image Describer cost
+        } else if (node.type === 'videoGenerator') {
+          nodeCost = 50; // Video Generator cost (estimated)
         }
         return sum + nodeCost;
       }, 0);
@@ -265,10 +311,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 />
                 {/* Dropdown Panel - Positioned to the left, same line */}
                 <div className="absolute top-1/2 -translate-y-1/2 right-full mr-4 bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl shadow-2xl w-[280px] z-40">
-                  {/* Header */}
+        {/* Header */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]">
                     <span className="text-white text-sm">Task manager</span>
-                    <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
                       {tasks.length > 0 && (
                         <button
                           onClick={onClearTasks}
@@ -285,8 +331,8 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                    </div>
-                  </div>
+            </div>
+          </div>
                   {/* Content */}
                   <div className="px-4 py-4">
                     {tasks.length === 0 ? (
@@ -387,6 +433,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 } else if (node.type === 'imageDescriber') {
                   nodeCost = 1;
                   nodeName = 'Image Describer';
+                } else if (node.type === 'videoGenerator') {
+                  nodeCost = 50;
+                  nodeName = node.data?.modelName || 'Pixverse v4.5';
+                  nodeModelId = node.data?.modelId || 'pixverse/pixverse-v4.5';
                 } else if (node.type === 'promptInput') {
                   nodeCost = 0;
                   nodeName = node.data?.label || 'Prompt';
@@ -394,6 +444,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 
                 const nodeSettings = nodeSettingsMap[node.id] || {};
                 const isNodeFlux = nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra';
+                const isNodeVideoGenerator = nodeModelId === 'pixverse/pixverse-v4.5' || node.type === 'videoGenerator';
                 
                 return (
                   <div key={node.id} className="border border-[#2a2a2a] rounded-lg overflow-hidden">
@@ -423,13 +474,13 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                           /* Flux Settings - Full Settings */
                           <>
                             {/* Aspect Ratio */}
-                            <div>
+          <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
-                              </div>
-                              <div className="relative">
-                                <select
+            </div>
+            <div className="relative">
+              <select
                                   value={nodeSettings.aspectRatio || '1:1'}
                                   onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
                                   className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
@@ -569,7 +620,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   <option value="1K">1K</option>
                                   <option value="2K">2K</option>
                                   <option value="4K">4K</option>
-                                </select>
+              </select>
                                 <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                               </div>
                             </div>
@@ -587,14 +638,14 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 max="8192"
                                 step="256"
                                 className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a]"
-                              />
-                            </div>
+              />
+            </div>
                             {/* Height */}
                             <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Height</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
-                              </div>
+          </div>
                               <input
                                 type="number"
                                 value={nodeSettings.height || 2048}
@@ -606,11 +657,11 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                               />
                             </div>
                             {/* Aspect Ratio */}
-                            <div>
+          <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
-                              </div>
+              </div>
                               <div className="relative">
                                 <select
                                   value={nodeSettings.aspectRatio || '4:3'}
@@ -636,22 +687,22 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   <Info size={10} className="text-gray-500 cursor-help" />
                                 </div>
                                 <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.maxImages || 1}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="1"
+            </div>
+            <input
+              type="range"
+              min="1"
                                 max="4"
                                 value={nodeSettings.maxImages || 1}
                                 onChange={(e) => handleSettingChange('maxImages', parseInt(e.target.value), node.id)}
                                 className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
-                                style={{
+              style={{
                                   background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((nodeSettings.maxImages || 1) - 1) / 3) * 100}%, #2a2a2a ${(((nodeSettings.maxImages || 1) - 1) / 3) * 100}%, #2a2a2a 100%)`,
-                                }}
-                              />
+              }}
+            />
                               <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
-                                <span>1</span>
-                                <span>2</span>
-                                <span>3</span>
+              <span>1</span>
+              <span>2</span>
+              <span>3</span>
                                 <span>4</span>
                               </div>
                             </div>
@@ -692,6 +743,228 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                               </div>
                             </div>
                           </>
+                        ) : node.type === 'videoGenerator' ? (
+                          /* Video Generator Settings - Pixverse v4.5 */
+                          <>
+                            {/* Aspect Ratio */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.aspectRatio || '16:9'}
+                                  onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="16:9">16:9</option>
+                                  <option value="9:16">9:16</option>
+                                  <option value="1:1">1:1</option>
+                                  <option value="4:3">4:3</option>
+                                  <option value="3:4">3:4</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Duration */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Duration (seconds)</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.duration || 5}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                value={nodeSettings.duration || 5}
+                                onChange={(e) => handleSettingChange('duration', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((nodeSettings.duration || 5) - 1) / 9) * 100}%, #2a2a2a ${(((nodeSettings.duration || 5) - 1) / 9) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                              <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
+                                <span>1</span>
+                                <span>5</span>
+                                <span>10</span>
+                              </div>
+                            </div>
+                            {/* Quality */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Quality</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.quality || '720p'}
+                                  onChange={(e) => handleSettingChange('quality', e.target.value, node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="360p">360p</option>
+                                  <option value="540p">540p</option>
+                                  <option value="720p">720p</option>
+                                  <option value="1080p">1080p</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Effect */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Effect</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.effect || 'None'}
+                                  onChange={(e) => handleSettingChange('effect', e.target.value, node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="None">None</option>
+                                  <option value="Let's YMCA!">Let's YMCA!</option>
+                                  <option value="Subject 3 Fever">Subject 3 Fever</option>
+                                  <option value="Ghibli Live!">Ghibli Live!</option>
+                                  <option value="Suit Swagger">Suit Swagger</option>
+                                  <option value="Muscle Surge">Muscle Surge</option>
+                                  <option value="360° Microwave">360° Microwave</option>
+                                  <option value="Warmth of Jesus">Warmth of Jesus</option>
+                                  <option value="Emergency Beat">Emergency Beat</option>
+                                  <option value="Anything, Robot">Anything, Robot</option>
+                                  <option value="Kungfu Club">Kungfu Club</option>
+                                  <option value="Mint in Box">Mint in Box</option>
+                                  <option value="Retro Anime Pop">Retro Anime Pop</option>
+                                  <option value="Vogue Walk">Vogue Walk</option>
+                                  <option value="Mega Dive">Mega Dive</option>
+                                  <option value="Evil Trigger">Evil Trigger</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Negative Prompt */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Negative Prompt</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <textarea
+                                value={nodeSettings.negativePrompt || ''}
+                                onChange={(e) => handleSettingChange('negativePrompt', e.target.value, node.id)}
+                                placeholder="Enter negative prompt..."
+                                rows={3}
+                                className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                                style={{ fontWeight: 200 }}
+                              />
+                            </div>
+                            {/* Motion Mode */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Motion Mode</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.motionMode || 'normal'}
+                                  onChange={(e) => handleSettingChange('motionMode', e.target.value, node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="normal">normal</option>
+                                  <option value="fast">fast</option>
+                                  <option value="slow">slow</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Seed */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={nodeSettings.seedRandom !== false}
+                                    onChange={(e) => {
+                                      handleSettingChange('seedRandom', e.target.checked, node.id);
+                                      if (e.target.checked) {
+                                        handleSettingChange('seed', Math.floor(Math.random() * 1000000), node.id);
+                                      }
+                                    }}
+                                    className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                                  />
+                                  <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
+                                </label>
+                                <input
+                                  type="number"
+                                  value={nodeSettings.seed || 597311}
+                                  onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0, node.id)}
+                                  disabled={nodeSettings.seedRandom !== false}
+                                  className="flex-1 bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] disabled:opacity-50 disabled:cursor-not-allowed"
+                                  style={{ fontWeight: 200 }}
+                                />
+                              </div>
+                            </div>
+                            {/* Style */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Style</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.style || 'None'}
+                                  onChange={(e) => handleSettingChange('style', e.target.value, node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="None">None</option>
+                                  <option value="cinematic">Cinematic</option>
+                                  <option value="anime">Anime</option>
+                                  <option value="realistic">Realistic</option>
+                                  <option value="cartoon">Cartoon</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Enable Sound Effects */}
+                            <div>
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={nodeSettings.enableSoundEffects === true}
+                                  onChange={(e) => {
+                                    console.log('🔊 Enable Sound Effects checkbox changed (multi):', e.target.checked, 'for node:', node.id);
+                                    handleSettingChange('enableSoundEffects', e.target.checked ? true : false, node.id);
+                                  }}
+                                  className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Enable Sound Effects</span>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                              </label>
+                            </div>
+                            {/* Sound Effect Prompt */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Sound Effect Prompt</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <textarea
+                                value={nodeSettings.soundEffectPrompt || ''}
+                                onChange={(e) => handleSettingChange('soundEffectPrompt', e.target.value, node.id)}
+                                placeholder="Enter sound effect prompt..."
+                                rows={3}
+                                className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                                style={{ fontWeight: 200 }}
+                              />
+                            </div>
+                          </>
                         ) : node.type === 'promptInput' ? (
                           /* Prompt Input Node - Show content */
                           <div className="text-[10px] text-gray-400">
@@ -727,8 +1000,8 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   size={10}
                                   className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
                                 />
-                              </div>
-                            </div>
+            </div>
+          </div>
 
                             {/* Model Instructions */}
                             <div className="mb-3">
@@ -763,31 +1036,31 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           ) : isImageDescriber ? (
             <>
               {/* Model Name - Image Describer */}
-              <div>
+          <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model Name</label>
                   <Info size={10} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
+            </div>
+            <div className="relative">
+              <select
                     value={settings.modelName || 'gemini-2.5-flash'}
-                    onChange={(e) =>
+                onChange={(e) =>
                       handleSettingChange('modelName', e.target.value)
-                    }
+                }
                     className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-                  >
+              >
                     <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                     {/* More models will be added here */}
-                  </select>
-                  <ChevronDown
+              </select>
+              <ChevronDown
                     size={10}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                  />
-                </div>
-              </div>
+              />
+            </div>
+          </div>
 
               {/* Model Instructions - Image Describer */}
-              <div>
+          <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Model instructions</label>
                   <Info size={10} className="text-gray-500 cursor-help" />
@@ -799,6 +1072,230 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   }
                   placeholder="Enter model instructions..."
                   rows={6}
+                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                  style={{ fontWeight: 200 }}
+                />
+              </div>
+            </>
+          ) : isVideoGenerator ? (
+            <>
+              {/* Aspect Ratio - Video Generator */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+            </div>
+            <div className="relative">
+              <select
+                    value={settings.aspectRatio || '16:9'}
+                onChange={(e) =>
+                      handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])
+                    }
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="16:9">16:9 (Landscape)</option>
+                    <option value="9:16">9:16 (Portrait)</option>
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait Standard)</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Duration */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Duration (seconds)</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.duration || 5}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={settings.duration || 5}
+                  onChange={(e) => handleSettingChange('duration', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.duration || 5) - 1) / 9) * 100}%, #2a2a2a ${(((settings.duration || 5) - 1) / 9) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
+                  <span>1</span>
+                  <span>5</span>
+                  <span>10</span>
+                </div>
+              </div>
+              {/* Quality */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Quality</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.quality || '720p'}
+                    onChange={(e) => handleSettingChange('quality', e.target.value)}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="360p">360p</option>
+                    <option value="540p">540p</option>
+                    <option value="720p">720p</option>
+                    <option value="1080p">1080p</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Effect */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Effect</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.effect || 'None'}
+                    onChange={(e) => handleSettingChange('effect', e.target.value)}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="None">None</option>
+                    <option value="Let's YMCA!">Let's YMCA!</option>
+                    <option value="Subject 3 Fever">Subject 3 Fever</option>
+                    <option value="Ghibli Live!">Ghibli Live!</option>
+                    <option value="Suit Swagger">Suit Swagger</option>
+                    <option value="Muscle Surge">Muscle Surge</option>
+                    <option value="360° Microwave">360° Microwave</option>
+                    <option value="Warmth of Jesus">Warmth of Jesus</option>
+                    <option value="Emergency Beat">Emergency Beat</option>
+                    <option value="Anything, Robot">Anything, Robot</option>
+                    <option value="Kungfu Club">Kungfu Club</option>
+                    <option value="Mint in Box">Mint in Box</option>
+                    <option value="Retro Anime Pop">Retro Anime Pop</option>
+                    <option value="Vogue Walk">Vogue Walk</option>
+                    <option value="Mega Dive">Mega Dive</option>
+                    <option value="Evil Trigger">Evil Trigger</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Negative Prompt */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Negative Prompt</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <textarea
+                  value={settings.negativePrompt || ''}
+                  onChange={(e) => handleSettingChange('negativePrompt', e.target.value)}
+                  placeholder="Enter negative prompt..."
+                  rows={3}
+                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
+                  style={{ fontWeight: 200 }}
+                />
+              </div>
+              {/* Motion Mode */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Motion Mode</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.motionMode || 'normal'}
+                    onChange={(e) => handleSettingChange('motionMode', e.target.value)}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="normal">normal</option>
+                    <option value="fast">fast</option>
+                    <option value="slow">slow</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Seed */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.seedRandom !== false}
+                      onChange={(e) => {
+                        handleSettingChange('seedRandom', e.target.checked);
+                        if (e.target.checked) {
+                          // Generate random seed when checked
+                          handleSettingChange('seed', Math.floor(Math.random() * 1000000));
+                        }
+                      }}
+                      className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                    />
+                    <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.seed || 597311}
+                    onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0)}
+                    disabled={settings.seedRandom !== false}
+                    className="flex-1 bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ fontWeight: 200 }}
+                  />
+                </div>
+              </div>
+              {/* Style */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Style</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.style || 'None'}
+                    onChange={(e) => handleSettingChange('style', e.target.value)}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="None">None</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="anime">Anime</option>
+                    <option value="realistic">Realistic</option>
+                    <option value="cartoon">Cartoon</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Enable Sound Effects */}
+              <div>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.enableSoundEffects === true}
+                    onChange={(e) => {
+                      console.log('🔊 Enable Sound Effects checkbox changed:', e.target.checked);
+                      handleSettingChange('enableSoundEffects', e.target.checked ? true : false);
+                    }}
+                    className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Enable Sound Effects</span>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                </label>
+              </div>
+              {/* Sound Effect Prompt */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Sound Effect Prompt</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <textarea
+                  value={settings.soundEffectPrompt || ''}
+                  onChange={(e) => handleSettingChange('soundEffectPrompt', e.target.value)}
+                  placeholder="Enter sound effect prompt..."
+                  rows={3}
                   className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] resize-y"
                   style={{ fontWeight: 200 }}
                 />
@@ -836,28 +1333,28 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           </div>
 
               {/* Output Format - Flux */}
-              <div>
+          <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Format</label>
                   <Info size={10} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
+            </div>
+            <div className="relative">
+              <select
                     value={settings.outputFormat || 'png'}
-                    onChange={(e) =>
+                onChange={(e) =>
                       handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg')
-                    }
+                }
                     className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
-                  >
+              >
                     <option value="png">png</option>
                     <option value="jpeg">jpeg</option>
-                  </select>
-                  <ChevronDown
+              </select>
+              <ChevronDown
                     size={10}
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                  />
-                </div>
-              </div>
+              />
+            </div>
+          </div>
 
               {/* Prompt Upsampling - Flux */}
           <div>
@@ -936,7 +1433,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
               </div>
 
               {/* Seed - Flux (Optional) */}
-              <div>
+          <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed (Optional)</label>
                   <Info size={10} className="text-gray-500 cursor-help" />

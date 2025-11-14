@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const generateImageRoute = require('./routes/generate-image');
 const describeImageRoute = require('./routes/describe-image');
+const generateVideoRoute = require('./routes/generate-video');
 
 // Load environment variables
 dotenv.config();
@@ -33,6 +34,7 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api', generateImageRoute);
 app.use('/api', describeImageRoute);
+app.use('/api', generateVideoRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
@@ -62,4 +64,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`🎨 Image generation endpoint: http://localhost:${PORT}/api/generate-image`);
   console.log(`🖼️ Image description endpoint: http://localhost:${PORT}/api/describe-image`);
+  console.log(`🎬 Video generation endpoint (Pixverse v4.5): http://localhost:${PORT}/api/generate-video`);
 });

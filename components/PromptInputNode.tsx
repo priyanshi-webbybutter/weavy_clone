@@ -271,7 +271,7 @@ export const PromptInputNode = memo(({ data, id, selected }: NodeProps<PromptInp
         type="source"
         position={Position.Right}
         style={{
-          background: '#8b5cf6',
+          background: 'rgb(236, 72, 153)',
           width: '12px',
           height: '12px',
           border: '2px solid #1a1a1a',

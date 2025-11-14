@@ -226,6 +226,26 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
     </div>
   );
 
+  const renderVideoModels = () => (
+    <div>
+      <h2 className="text-base font-semibold text-white mb-1">Video Models</h2>
+      <p className="text-xs text-gray-400 mb-4">Generate from text</p>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          draggable
+          onDragStart={(event) => onDragStart(event, 'videoGenerator')}
+          onDragEnd={onDragEnd}
+          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+        >
+          <div className="w-8 h-8 mb-2 flex items-center justify-center">
+            <div className="text-lg text-purple-400">P</div>
+          </div>
+          <span className="text-xs text-gray-300">Pixverse v4.5</span>
+        </button>
+      </div>
+    </div>
+  );
+
   const renderComingSoon = () => (
     <div className="flex flex-col items-center justify-center h-48">
       <div className="text-4xl mb-3">🚀</div>
@@ -244,6 +264,8 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
         return renderQuickAccess();
       case 'Image Generation':
         return renderImageModels();
+      case 'Video models':
+        return renderVideoModels();
       case 'Assets':
         return renderAssets();
       case 'Tools':
@@ -257,12 +279,6 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
 
   return (
     <>
-      {/* Backdrop - only covers the area outside sidebar and panel */}
-      <div
-        className={`fixed left-[300px] top-0 right-0 bottom-0 bg-black/30 z-40 ${isDragging ? 'pointer-events-none' : ''}`}
-        onClick={onClose}
-      />
-
       {/* Panel */}
       <div
         className="fixed left-[68px] top-0 h-screen w-[235px] bg-[#171717] border-r border-[#2a2a2a] z-50 overflow-hidden animate-slide-in shadow-2xl"
