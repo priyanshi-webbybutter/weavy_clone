@@ -226,6 +226,21 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
     </div>
   );
 
+  const renderVideoModels = () => (
+    <div>
+      <h2 className="text-base font-semibold text-white mb-4">Video models</h2>
+      <div className="grid grid-cols-2 gap-3">
+        {/* Video models will be added here */}
+        <div className="flex flex-col items-center justify-center h-48 bg-[#1f1f1f] border border-[#2a2a2a] rounded-lg">
+          <div className="text-4xl mb-3">🎬</div>
+          <p className="text-xs text-gray-400 text-center px-4">
+            Video models coming soon
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderComingSoon = () => (
     <div className="flex flex-col items-center justify-center h-48">
       <div className="text-4xl mb-3">🚀</div>
@@ -244,6 +259,8 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
         return renderQuickAccess();
       case 'Image Generation':
         return renderImageModels();
+      case 'Video models':
+        return renderVideoModels();
       case 'Assets':
         return renderAssets();
       case 'Tools':
