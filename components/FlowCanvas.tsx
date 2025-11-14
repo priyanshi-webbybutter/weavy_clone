@@ -42,8 +42,6 @@ import { PromptInputNode } from './PromptInputNode';
 import { ImageGeneratorNode } from './ImageGeneratorNode';
 import { ImageDescriberNode } from './ImageDescriberNode';
 import { VideoGeneratorNode } from './VideoGeneratorNode';
-import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 
 // Define node types
 const nodeTypes = {
@@ -79,8 +77,6 @@ function FlowCanvasInner() {
   const [bgVariant] = useState<BackgroundVariant>(BackgroundVariant.Dots);
   const [zoom, setZoom] = useState(100);
   const { screenToFlowPosition, getNodes } = useReactFlow();
-  const { signOut, user } = useAuth();
-  const router = useRouter();
 
   // Panel state management
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -2026,21 +2022,11 @@ function FlowCanvasInner() {
                   <span className="text-yellow-400 text-[10px]">Low credits</span>
                 </div>
               </div>
-              {/* Right: Share and Logout Buttons */}
+              {/* Right: Share Button */}
               <div className="flex items-center gap-2">
                 <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
                   <span className="text-xs">↗</span>
                   <span>Share</span>
-                </button>
-                <button 
-                  onClick={async () => {
-                    await signOut();
-                    router.push('/login');
-                  }}
-                  className="bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5"
-                  title={user?.email || 'Logout'}
-                >
-                  <span>Logout</span>
                 </button>
               </div>
             </div>

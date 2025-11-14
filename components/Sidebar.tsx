@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Clock,
   Image,
@@ -9,6 +11,7 @@ import {
   Video,
   ChevronDown,
   ChevronRight,
+  LogOut,
 } from 'lucide-react';
 
 interface NavItem {
@@ -26,6 +29,8 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClosePanel }) => {
   const [activeItem, setActiveItem] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const { signOut, user } = useAuth();
+  const router = useRouter();
 
   const topNavItems: NavItem[] = [
     { icon: Clock, label: 'Recent' },
@@ -126,6 +131,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
               >
                 <span>Preferences</span>
                 <ChevronRight className="w-3 h-3 text-gray-500 group-hover:text-white transition-colors" />
+              </button>
+
+              <div className="w-full h-px bg-[#2a2a2a] my-1" />
+
+              <button
+                onClick={async () => {
+                  await signOut();
+                  router.push('/login');
+                }}
+                className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-[#2a2a2a] transition-colors flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
               </button>
             </div>
           </>
