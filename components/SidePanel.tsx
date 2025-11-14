@@ -228,15 +228,20 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
 
   const renderVideoModels = () => (
     <div>
-      <h2 className="text-base font-semibold text-white mb-4">Video models</h2>
+      <h2 className="text-base font-semibold text-white mb-1">Video Models</h2>
+      <p className="text-xs text-gray-400 mb-4">Generate from text</p>
       <div className="grid grid-cols-2 gap-3">
-        {/* Video models will be added here */}
-        <div className="flex flex-col items-center justify-center h-48 bg-[#1f1f1f] border border-[#2a2a2a] rounded-lg">
-          <div className="text-4xl mb-3">🎬</div>
-          <p className="text-xs text-gray-400 text-center px-4">
-            Video models coming soon
-          </p>
-        </div>
+        <button
+          draggable
+          onDragStart={(event) => onDragStart(event, 'videoGenerator')}
+          onDragEnd={onDragEnd}
+          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+        >
+          <div className="w-8 h-8 mb-2 flex items-center justify-center">
+            <div className="text-lg text-purple-400">P</div>
+          </div>
+          <span className="text-xs text-gray-300">Pixverse v5</span>
+        </button>
       </div>
     </div>
   );

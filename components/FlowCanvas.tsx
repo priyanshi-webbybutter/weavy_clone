@@ -41,6 +41,7 @@ import { CustomNode } from './CustomNode';
 import { PromptInputNode } from './PromptInputNode';
 import { ImageGeneratorNode } from './ImageGeneratorNode';
 import { ImageDescriberNode } from './ImageDescriberNode';
+import { VideoGeneratorNode } from './VideoGeneratorNode';
 
 // Define node types
 const nodeTypes = {
@@ -48,6 +49,7 @@ const nodeTypes = {
   promptInput: PromptInputNode,
   imageGenerator: ImageGeneratorNode,
   imageDescriber: ImageDescriberNode,
+  videoGenerator: VideoGeneratorNode,
 };
 
 // Initial nodes - Start with empty canvas
@@ -326,6 +328,166 @@ function FlowCanvasInner() {
           EXECUTION_IN_PROGRESS.delete(nodeId);
           GLOBAL_GENERATING_NODES.delete(nodeId);
           generatingNodes.current.delete(nodeId);
+        });
+
+      return;
+    }
+
+    // Handle Video Generator nodes
+    if (currentNode.type === 'videoGenerator') {
+      const promptEdge = currentEdges.find((edge) => edge.target === nodeId && (!edge.targetHandle || edge.targetHandle === 'prompt'));
+      
+      if (!promptEdge) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Please connect a Prompt node to the input before running the model.');
+        return;
+      }
+
+      const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
+      if (!promptSourceNode) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('Connected prompt node not found.');
+        return;
+      }
+
+      let promptText = '';
+      if (promptSourceNode.type === 'imageDescriber') {
+        promptText = promptSourceNode.data?.description || '';
+      } else if (promptSourceNode.type === 'promptInput') {
+        promptText = promptSourceNode.data?.value || '';
+      } else {
+        promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
+      }
+
+      if (!promptText.trim()) {
+        EXECUTION_IN_PROGRESS.delete(nodeId);
+        GLOBAL_GENERATING_NODES.delete(nodeId);
+        generatingNodes.current.delete(nodeId);
+        LAST_CALL_TIMESTAMPS.delete(nodeId);
+        alert('The connected prompt is empty. Please enter some text first.');
+        return;
+      }
+
+      const modelId = currentNode.data?.modelId || 'pixverse/pixverse-v5';
+      const settings = nodeSettingsRef.current[nodeId] || {};
+
+      // Set generating state
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id === nodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: true,
+              },
+            };
+          }
+          return node;
+        })
+      );
+
+      // Call backend API to generate video
+      fetch('http://localhost:3001/api/generate-video', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          modelId: modelId,
+          prompt: promptText,
+          ...settings,
+        }),
+      })
+        .then(async (response) => {
+          const data = await response.json();
+
+          if (!response.ok) {
+            const errorMsg = data.message || data.error || 'Failed to generate video';
+            throw new Error(errorMsg);
+          }
+
+          if (!data.videoUrl) {
+            throw new Error('Server response missing video URL');
+          }
+
+          // Update node with generated video - append to array
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              if (node.id === nodeId) {
+                const existingVideoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+                const newVideoUrls = [...existingVideoUrls, data.videoUrl];
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    isGenerating: false,
+                    videoUrl: data.videoUrl,
+                    videoUrls: newVideoUrls,
+                    currentVideoIndex: newVideoUrls.length - 1,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+
+          // Update task as completed
+          setTasks((prev) =>
+            prev.map((task) =>
+              task.nodeId === nodeId && task.status === 'running'
+                ? { ...task, completed: 1, status: 'completed' }
+                : task
+            )
+          );
+
+          // Remove ALL locks
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
+        })
+        .catch((error) => {
+          console.error('Error generating video:', error);
+          
+          // Update task as failed
+          setTasks((prev) =>
+            prev.map((task) =>
+              task.nodeId === nodeId && task.status === 'running'
+                ? { ...task, status: 'failed' }
+                : task
+            )
+          );
+
+          // Update node to show error state
+          setNodes((currentNodes) =>
+            currentNodes.map((node) => {
+              if (node.id === nodeId) {
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    isGenerating: false,
+                  },
+                };
+              }
+              return node;
+            })
+          );
+
+          alert(`Failed to generate video:\n\n${error.message || 'Unknown error'}`);
+
+          // Remove ALL locks after error
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
         });
 
       return;
@@ -740,6 +902,115 @@ function FlowCanvasInner() {
     });
   }, [setNodes]);
 
+  // Handle video index change for video generator nodes
+  const handleVideoIndexChange = useCallback((nodeId: string, index: number) => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              currentVideoIndex: index,
+            },
+          };
+        }
+        return node;
+      })
+    );
+  }, [setNodes]);
+
+  // Handle remove current video generation
+  const handleRemoveCurrentVideoGeneration = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          const videoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+          const currentIndex = node.data?.currentVideoIndex !== undefined 
+            ? node.data.currentVideoIndex 
+            : (videoUrls.length > 0 ? videoUrls.length - 1 : 0);
+          
+          if (videoUrls.length === 0 || currentIndex < 0 || currentIndex >= videoUrls.length) {
+            return node;
+          }
+          
+          const newVideoUrls = videoUrls.filter((_: string, index: number) => index !== currentIndex);
+          let newCurrentIndex = currentIndex;
+          if (newVideoUrls.length === 0) {
+            newCurrentIndex = 0;
+          } else if (currentIndex >= newVideoUrls.length) {
+            newCurrentIndex = newVideoUrls.length - 1;
+          }
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: newVideoUrls,
+              videoUrl: newVideoUrls.length > 0 ? newVideoUrls[newCurrentIndex] : undefined,
+              currentVideoIndex: newCurrentIndex,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all other video generations
+  const handleRemoveAllOtherVideoGenerations = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          const videoUrls = node.data?.videoUrls || (node.data?.videoUrl ? [node.data.videoUrl] : []);
+          const currentIndex = node.data?.currentVideoIndex !== undefined 
+            ? node.data.currentVideoIndex 
+            : (videoUrls.length > 0 ? videoUrls.length - 1 : 0);
+          
+          if (videoUrls.length === 0 || currentIndex < 0 || currentIndex >= videoUrls.length) {
+            return node;
+          }
+          
+          const currentVideoUrl = videoUrls[currentIndex];
+          
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: [currentVideoUrl],
+              videoUrl: currentVideoUrl,
+              currentVideoIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
+  // Handle remove all video generations
+  const handleRemoveAllVideoGenerations = useCallback((nodeId: string) => {
+    setNodes((nds) => {
+      const updatedNodes = nds.map((node) => {
+        if (node.id === nodeId && node.type === 'videoGenerator') {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              videoUrls: [],
+              videoUrl: undefined,
+              currentVideoIndex: 0,
+            },
+          };
+        }
+        return node;
+      });
+      return updatedNodes;
+    });
+  }, [setNodes]);
+
   // Handle node duplication
   const handleDuplicateNode = useCallback((nodeId: string) => {
     setNodes((nds) => {
@@ -775,20 +1046,24 @@ function FlowCanvasInner() {
                 );
               }
             : undefined,
-          onRunModel: nodeToDuplicate.type === 'imageGenerator' ? handleRunModel : undefined,
+          onRunModel: (nodeToDuplicate.type === 'imageGenerator' || nodeToDuplicate.type === 'videoGenerator') ? handleRunModel : undefined,
           onDelete: handleDeleteNode,
           onDuplicate: handleDuplicateNode,
           onImageIndexChange: nodeToDuplicate.type === 'imageGenerator' ? handleImageIndexChange : undefined,
+          onVideoIndexChange: nodeToDuplicate.type === 'videoGenerator' ? handleVideoIndexChange : undefined,
           onOpenFullscreen: nodeToDuplicate.type === 'imageGenerator' ? handleOpenFullscreen : undefined,
           onRemoveCurrentGeneration: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveCurrentGeneration : undefined,
           onRemoveAllOtherGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllOtherGenerations : undefined,
           onRemoveAllGenerations: nodeToDuplicate.type === 'imageGenerator' ? handleRemoveAllGenerations : undefined,
+          onRemoveCurrentVideoGeneration: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveCurrentVideoGeneration : undefined,
+          onRemoveAllOtherVideoGenerations: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveAllOtherVideoGenerations : undefined,
+          onRemoveAllVideoGenerations: nodeToDuplicate.type === 'videoGenerator' ? handleRemoveAllVideoGenerations : undefined,
         },
       };
 
       return nds.concat(newNode);
     });
-  }, [setNodes, handleDeleteNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]);
+  }, [setNodes, handleDeleteNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations]);
 
   // Handle drag over canvas
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -912,6 +1187,28 @@ function FlowCanvasInner() {
             },
           },
         };
+      } else if (type === 'videoGenerator') {
+        newNode = {
+          id: newNodeId,
+          type: 'videoGenerator',
+          position,
+          data: {
+            label: 'Video Generator',
+            modelName: 'Pixverse v5',
+            modelId: 'pixverse/pixverse-v5',
+            videoUrl: undefined,
+            videoUrls: [],
+            currentVideoIndex: 0,
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+            onVideoIndexChange: handleVideoIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentVideoGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherVideoGenerations,
+            onRemoveAllGenerations: handleRemoveAllVideoGenerations,
+          },
+        };
       } else {
         // Default fallback
         newNode = {
@@ -925,7 +1222,7 @@ function FlowCanvasInner() {
       // Add the new node to the canvas
       setNodes((nds) => nds.concat(newNode));
     },
-    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations]
+    [screenToFlowPosition, setNodes, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations]
   );
 
   // Handle zoom change
@@ -1439,6 +1736,39 @@ function FlowCanvasInner() {
                 },
               },
             };
+          } else if (node.type === 'videoGenerator') {
+            // Migrate old videoUrl to videoUrls array
+            const existingVideoUrls = node.data?.videoUrls || [];
+            const oldVideoUrl = node.data?.videoUrl;
+            let videoUrls = existingVideoUrls;
+            let currentVideoIndex = node.data?.currentVideoIndex;
+            
+            if (oldVideoUrl && !existingVideoUrls.includes(oldVideoUrl)) {
+              videoUrls = [oldVideoUrl];
+              currentVideoIndex = 0;
+            } else if (videoUrls.length > 0 && currentVideoIndex === undefined) {
+              currentVideoIndex = videoUrls.length - 1;
+            } else if (videoUrls.length === 0) {
+              currentVideoIndex = 0;
+            }
+            
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: false,
+                videoUrls: videoUrls,
+                videoUrl: videoUrls.length > 0 ? videoUrls[currentVideoIndex] : undefined,
+                currentVideoIndex: currentVideoIndex,
+                onRunModel: handleRunModel,
+                onDelete: handleDeleteNode,
+                onDuplicate: handleDuplicateNode,
+                onVideoIndexChange: handleVideoIndexChange,
+                onRemoveCurrentVideoGeneration: handleRemoveCurrentVideoGeneration,
+                onRemoveAllOtherVideoGenerations: handleRemoveAllOtherVideoGenerations,
+                onRemoveAllVideoGenerations: handleRemoveAllVideoGenerations,
+              },
+            };
           }
           return node;
         });
@@ -1457,7 +1787,7 @@ function FlowCanvasInner() {
       console.error('❌ Error loading canvas state:', error);
       setIsInitialized(true);
     }
-  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, setNodes, setEdges]);
+  }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations, handleOpenFullscreen, setNodes, setEdges]);
 
   // Save canvas state to localStorage whenever nodes or edges change
   useEffect(() => {
