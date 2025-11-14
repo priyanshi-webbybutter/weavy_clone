@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const generateImageRoute = require('./routes/generate-image');
 const describeImageRoute = require('./routes/describe-image');
 const generateVideoRoute = require('./routes/generate-video');
+const authRoute = require('./routes/auth');
 
 // Load environment variables
 dotenv.config();
@@ -35,10 +36,16 @@ app.use((req, res, next) => {
 app.use('/api', generateImageRoute);
 app.use('/api', describeImageRoute);
 app.use('/api', generateVideoRoute);
+app.use('/api', authRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
   res.json({ message: 'Describe image route is registered' });
+});
+
+// Test route to verify auth routes are registered
+app.get('/api/test-auth', (req, res) => {
+  res.json({ message: 'Auth routes are registered' });
 });
 
 // Health check endpoint
@@ -65,4 +72,10 @@ app.listen(PORT, () => {
   console.log(`🎨 Image generation endpoint: http://localhost:${PORT}/api/generate-image`);
   console.log(`🖼️ Image description endpoint: http://localhost:${PORT}/api/describe-image`);
   console.log(`🎬 Video generation endpoint (Pixverse v4.5): http://localhost:${PORT}/api/generate-video`);
+  console.log(`🔐 Auth endpoints:`);
+  console.log(`   - Signup: http://localhost:${PORT}/api/auth/signup`);
+  console.log(`   - Login: http://localhost:${PORT}/api/auth/login`);
+  console.log(`   - Google OAuth: http://localhost:${PORT}/api/auth/google`);
+  console.log(`   - Logout: http://localhost:${PORT}/api/auth/logout`);
+  console.log(`   - Session: http://localhost:${PORT}/api/auth/session`);
 });

@@ -12,10 +12,19 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   useEffect(() => {
     // Give auth context time to initialize
     if (!loading) {
-      setIsChecking(false);
-      if (!user) {
-        router.push('/login');
-      }
+      console.log('🔒 ProtectedRoute check:', { hasUser: !!user, loading });
+      // Small delay to ensure state is fully propagated
+      const timer = setTimeout(() => {
+        setIsChecking(false);
+        if (!user) {
+          console.log('❌ No user found, redirecting to login');
+          router.push('/login');
+        } else {
+          console.log('✅ User authenticated, allowing access');
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
     }
   }, [user, loading, router]);
 

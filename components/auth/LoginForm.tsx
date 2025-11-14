@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -30,11 +30,10 @@ export default function LoginForm() {
       setLoading(false);
     } else {
       console.log('Login successful, redirecting...');
-      // Wait a moment for the session to be set, then redirect
-      setTimeout(() => {
-        router.push('/');
-        router.refresh(); // Force refresh to update auth state
-      }, 200);
+      setLoading(false);
+      // Use window.location for a hard redirect to ensure state is reset
+      // This ensures the ProtectedRoute will check auth state fresh
+      window.location.href = '/';
     }
   };
 
@@ -48,17 +47,27 @@ export default function LoginForm() {
     setError(null);
     setEmailSent(false);
 
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email: email,
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/resend-confirmation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
 
-    if (error) {
-      setError(error.message);
-    } else {
-      setEmailSent(true);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to resend confirmation email');
+      } else {
+        setEmailSent(true);
+      }
+    } catch (error: any) {
+      setError(error.message || 'Network error');
+    } finally {
+      setResendingEmail(false);
     }
-    setResendingEmail(false);
   };
 
   const handleGoogleLogin = async () => {
