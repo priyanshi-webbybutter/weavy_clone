@@ -133,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
+      console.log('🔄 Initiating Google OAuth...');
       const response = await fetch(`${API_BASE_URL}/auth/google`, {
         method: 'POST',
         headers: {
@@ -144,18 +145,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       const data = await response.json();
+      console.log('📦 Backend response:', { ok: response.ok, data });
 
       if (!response.ok) {
-        return { error: { message: data.error || 'Google OAuth failed' } };
+        console.error('❌ Backend error response:', data);
+        return { 
+          error: { 
+            message: data.error || data.message || 'Google OAuth failed',
+            error: data.error,
+            code: data.code
+          } 
+        };
       }
 
       // Redirect to Google OAuth URL
       if (data.url) {
+        console.log('✅ Redirecting to Google OAuth URL');
         window.location.href = data.url;
+        return { error: null };
+      } else {
+        console.error('❌ No OAuth URL in response:', data);
+        return { error: { message: 'No OAuth URL received from server' } };
       }
-
-      return { error: null };
     } catch (error: any) {
+      console.error('❌ Network error:', error);
       return { error: { message: error.message || 'Network error' } };
     }
   };

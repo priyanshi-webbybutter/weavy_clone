@@ -74,15 +74,24 @@ export default function LoginForm() {
     setError(null);
     setGoogleLoading(true);
     
-    const { error } = await signInWithGoogle();
-    
-    if (error) {
-      console.error('Google login error:', error);
-      setError(error.message);
+    try {
+      const { error } = await signInWithGoogle();
+      
+      if (error) {
+        console.error('Google login error:', error);
+        const errorMessage = error?.message || error?.error || 'Failed to initiate Google login';
+        setError(errorMessage);
+        setGoogleLoading(false);
+      } else {
+        // On success, user will be redirected to Google
+        // The loading state will persist until redirect
+        console.log('Google OAuth URL generated, redirecting...');
+      }
+    } catch (err: any) {
+      console.error('Google login exception:', err);
+      setError(err?.message || 'An unexpected error occurred');
       setGoogleLoading(false);
     }
-    // Note: On success, user will be redirected to Google, then back to /auth/callback
-    // The loading state will persist until redirect
   };
 
   return (
