@@ -102,10 +102,8 @@ function FlowCanvasInner() {
   const [nodeSettings, setNodeSettings] = useState<Record<string, any>>({});
   const nodeSettingsRef = useRef<Record<string, any>>({});
 
-  // Sync ref with state whenever settings change
-  useEffect(() => {
-    nodeSettingsRef.current = nodeSettings;
-  }, [nodeSettings]);
+  // Note: We update the ref manually in handleSettingsChange to avoid timing issues
+  // The ref is the source of truth for handleRunModel to avoid stale closures
 
   // Track ongoing image generations to prevent duplicates
   const generatingNodes = useRef<Set<string>>(new Set());
@@ -374,8 +372,22 @@ function FlowCanvasInner() {
         return;
       }
 
-      const modelId = currentNode.data?.modelId || 'pixverse/pixverse-v5';
-      const settings = nodeSettingsRef.current[nodeId] || {};
+      const modelId = currentNode.data?.modelId || 'pixverse/pixverse-v4.5';
+      // Read from ref directly - this is the source of truth
+      const refSettings = nodeSettingsRef.current[nodeId];
+      const settings = refSettings ? { ...refSettings } : {};
+      
+      console.log(`🎬 Video generation - Reading settings for node ${nodeId}`);
+      console.log(`🔊 Ref has nodeId?`, !!refSettings);
+      console.log(`🔊 Settings object:`, JSON.stringify(settings, null, 2));
+      console.log(`🔊 enableSoundEffects value:`, settings.enableSoundEffects, `type:`, typeof settings.enableSoundEffects);
+      console.log(`🔊 Full nodeSettingsRef.current:`, JSON.stringify(nodeSettingsRef.current, null, 2));
+      
+      // Ensure enableSoundEffects is explicitly set (not undefined)
+      if (settings.enableSoundEffects === undefined) {
+        console.warn(`⚠️ enableSoundEffects is undefined, defaulting to false`);
+        settings.enableSoundEffects = false;
+      }
 
       // Set generating state
       setNodes((nds) =>
@@ -402,11 +414,22 @@ function FlowCanvasInner() {
         body: JSON.stringify({
           modelId: modelId,
           prompt: promptText,
-          aspectRatio: settings.aspectRatio || '16:9',
+          aspect_ratio: settings.aspectRatio || '16:9',
           duration: settings.duration || 5,
           quality: settings.quality || '720p',
-          effect: settings.effect || 'none',
-          negativePrompt: settings.negativePrompt || '',
+          effect: settings.effect || 'None',
+          negative_prompt: settings.negativePrompt || '',
+          motion_mode: settings.motionMode || 'normal',
+          seed: {
+            seed: settings.seed || 597311,
+            isRandom: settings.seedRandom !== false,
+          },
+          style: settings.style || 'None',
+          sound_effect_switch: Boolean(settings.enableSoundEffects),
+          // Only include sound_effect_content if it has a value
+          ...(settings.enableSoundEffects && settings.soundEffectPrompt && settings.soundEffectPrompt.trim() 
+            ? { sound_effect_content: settings.soundEffectPrompt.trim() } 
+            : {}),
         }),
       })
         .then(async (response) => {
@@ -1198,8 +1221,8 @@ function FlowCanvasInner() {
           position,
           data: {
             label: 'Video Generator',
-            modelName: 'Pixverse v5',
-            modelId: 'pixverse/pixverse-v5',
+            modelName: 'Pixverse v4.5',
+            modelId: 'pixverse/pixverse-v4.5',
             videoUrl: undefined,
             videoUrls: [],
             currentVideoIndex: 0,
@@ -1391,16 +1414,20 @@ function FlowCanvasInner() {
 
   // Handle settings change from panel
   const handleSettingsChange = useCallback((nodeId: string, settings: any) => {
-    console.log(`⚙️ Settings changed for node ${nodeId}:`, settings);
-    setNodeSettings((prev) => {
-      const newSettings = {
-        ...prev,
-        [nodeId]: settings,
-      };
-      // Ref is automatically synced via useEffect
-      console.log(`✅ Settings updated, ref will sync automatically`);
-      return newSettings;
-    });
+    console.log(`⚙️ Settings changed for node ${nodeId}:`, JSON.stringify(settings, null, 2));
+    console.log(`🔊 enableSoundEffects value:`, settings.enableSoundEffects, typeof settings.enableSoundEffects);
+    
+    // Update ref immediately (synchronously) - this is the source of truth
+    const currentRef = { ...nodeSettingsRef.current };
+    currentRef[nodeId] = { ...settings }; // Create a new object to avoid reference issues
+    nodeSettingsRef.current = currentRef;
+    
+    console.log(`✅ Ref updated immediately`);
+    console.log(`🔊 Ref now contains for ${nodeId}:`, JSON.stringify(nodeSettingsRef.current[nodeId], null, 2));
+    console.log(`🔊 enableSoundEffects in ref:`, nodeSettingsRef.current[nodeId]?.enableSoundEffects);
+    
+    // Also update state for UI reactivity (but ref is source of truth for API calls)
+    setNodeSettings(currentRef);
   }, []);
 
   // Handle run from settings panel
@@ -1741,6 +1768,16 @@ function FlowCanvasInner() {
               },
             };
           } else if (node.type === 'videoGenerator') {
+            // Migrate old pixverse-v5 to pixverse-v4.5
+            let modelId = node.data?.modelId || 'pixverse/pixverse-v4.5';
+            let modelName = node.data?.modelName || 'Pixverse v4.5';
+            
+            if (modelId === 'pixverse/pixverse-v5') {
+              console.log(`🔄 Migrating old Pixverse v5 node to v4.5: ${node.id}`);
+              modelId = 'pixverse/pixverse-v4.5';
+              modelName = 'Pixverse v4.5';
+            }
+            
             // Migrate old videoUrl to videoUrls array
             const existingVideoUrls = node.data?.videoUrls || [];
             const oldVideoUrl = node.data?.videoUrl;
@@ -1760,6 +1797,8 @@ function FlowCanvasInner() {
               ...node,
               data: {
                 ...node.data,
+                modelId: modelId,
+                modelName: modelName,
                 isGenerating: false,
                 videoUrls: videoUrls,
                 videoUrl: videoUrls.length > 0 ? videoUrls[currentVideoIndex] : undefined,
@@ -1840,9 +1879,9 @@ function FlowCanvasInner() {
         nodeName={selectedNode?.type === 'imageDescriber' 
           ? 'Image Describer' 
           : selectedNode?.type === 'videoGenerator'
-          ? selectedNode?.data?.modelName || 'Pixverse v5'
+          ? selectedNode?.data?.modelName || 'Pixverse v4.5'
           : selectedNode?.data?.modelName || 'Seedream-4'}
-        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v5' : 'bytedance/seedream-4')}
+        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v4.5' : 'bytedance/seedream-4')}
         creditCost={selectedNode?.type === 'imageGenerator' 
           ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)
           : selectedNode?.type === 'imageDescriber' ? 1 

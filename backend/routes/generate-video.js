@@ -7,14 +7,31 @@ const router = express.Router();
 router.post('/generate-video', async (req, res) => {
   try {
     const {
-      modelId = 'pixverse/pixverse-v5',
+      modelId = 'pixverse/pixverse-v4.5',
       prompt,
-      aspectRatio = '16:9',
+      aspect_ratio = req.body.aspectRatio || '16:9', // Support both snake_case and camelCase
       duration = 5,
       quality = '720p',
-      effect = 'none',
-      negativePrompt = '',
+      effect = 'None',
+      negative_prompt = req.body.negativePrompt || '', // Support both snake_case and camelCase
+      motion_mode = req.body.motionMode || 'normal', // Support both snake_case and camelCase
+      seed: seedObj, // Expect seed as object: { seed: number, isRandom: boolean }
+      style = 'None',
+      sound_effect_switch = req.body.enableSoundEffects || false, // Support both snake_case and camelCase
+      sound_effect_content = req.body.soundEffectPrompt || '', // Support both snake_case and camelCase
     } = req.body;
+    
+    // Extract seed values from object (with fallback for old format)
+    let seed;
+    let seedRandom = true;
+    if (seedObj && typeof seedObj === 'object') {
+      seed = seedObj.seed;
+      seedRandom = seedObj.isRandom !== false;
+    } else if (seedObj !== undefined) {
+      // Fallback: if seed is a number (old format)
+      seed = seedObj;
+      seedRandom = req.body.seedRandom !== false;
+    }
 
     // Validate prompt
     if (!prompt || typeof prompt !== 'string') {
@@ -23,14 +40,29 @@ router.post('/generate-video', async (req, res) => {
       });
     }
 
+    // Normalize parameter names (use snake_case internally)
+    const aspectRatio = aspect_ratio;
+    const negativePrompt = negative_prompt;
+    const motionMode = motion_mode;
+    const enableSoundEffects = sound_effect_switch;
+    const soundEffectPrompt = sound_effect_content;
+
     console.log('🎬 Received video generation request:', {
       modelId,
       prompt,
-      aspectRatio,
+      aspect_ratio: aspectRatio,
       duration,
       quality,
       effect,
-      negativePrompt: negativePrompt || 'none',
+      negative_prompt: negativePrompt || 'none',
+      motion_mode: motionMode,
+      seed: {
+        seed: seedRandom ? 'random' : seed,
+        isRandom: seedRandom,
+      },
+      style,
+      sound_effect_switch: enableSoundEffects,
+      sound_effect_content: soundEffectPrompt || 'none',
     });
 
     // Check for API token
@@ -50,18 +82,34 @@ router.post('/generate-video', async (req, res) => {
     console.log('🎬 Starting video generation with prompt:', prompt);
     console.log('⏳ This may take 30-60 seconds...');
 
-    // Prepare input parameters for Pixverse v5
+    // Prepare input parameters for Pixverse v4.5
     const inputParams = {
       prompt: prompt,
       aspect_ratio: aspectRatio,
       duration: duration,
       quality: quality,
       effect: effect,
+      motion_mode: motionMode,
+      style: style,
     };
     
     // Only add negative_prompt if provided
     if (negativePrompt && negativePrompt.trim()) {
       inputParams.negative_prompt = negativePrompt.trim();
+    }
+    
+    // Handle seed - if seedRandom is false and seed is provided, use it
+    if (!seedRandom && seed !== undefined && seed !== null) {
+      inputParams.seed = seed;
+    }
+    
+    // Handle sound effects
+    if (enableSoundEffects === true) {
+      inputParams.sound_effect_switch = true;
+      // Only send sound_effect_content if it has a value
+      if (soundEffectPrompt && soundEffectPrompt.trim()) {
+        inputParams.sound_effect_content = soundEffectPrompt.trim();
+      }
     }
 
     console.log('📤 Calling Replicate API:', modelId);

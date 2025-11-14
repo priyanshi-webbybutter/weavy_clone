@@ -64,5 +64,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
   console.log(`🎨 Image generation endpoint: http://localhost:${PORT}/api/generate-image`);
   console.log(`🖼️ Image description endpoint: http://localhost:${PORT}/api/describe-image`);
-  console.log(`🎬 Video generation endpoint: http://localhost:${PORT}/api/generate-video`);
+  console.log(`🎬 Video generation endpoint (Pixverse v4.5): http://localhost:${PORT}/api/generate-video`);
 });

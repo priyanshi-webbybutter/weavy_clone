@@ -240,7 +240,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
           <div className="w-8 h-8 mb-2 flex items-center justify-center">
             <div className="text-lg text-purple-400">P</div>
           </div>
-          <span className="text-xs text-gray-300">Pixverse v5</span>
+          <span className="text-xs text-gray-300">Pixverse v4.5</span>
         </button>
       </div>
     </div>
