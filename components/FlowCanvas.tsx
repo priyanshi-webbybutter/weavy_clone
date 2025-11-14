@@ -108,14 +108,66 @@ function FlowCanvasInner() {
   // Track ongoing image generations to prevent duplicates
   const generatingNodes = useRef<Set<string>>(new Set());
 
+  // Validate connections - Prompt node should only connect to text/prompt inputs
+  const isValidConnection = useCallback((connection: Connection) => {
+    // Get source and target nodes
+    const sourceNode = nodes.find(n => n.id === connection.source);
+    const targetNode = nodes.find(n => n.id === connection.target);
+    
+    // If source is a Prompt node (text output)
+    if (sourceNode?.type === 'promptInput') {
+      // Only allow connections to handles that accept text/prompt
+      if (targetNode?.type === 'videoGenerator') {
+        // Video generator: only 'prompt' and 'negativePrompt' accept text
+        const textAcceptingHandles = ['prompt', 'negativePrompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        // If no target handle specified, reject (shouldn't happen but be safe)
+        return false;
+      }
+      
+      // For image generator nodes, allow connections to prompt inputs
+      if (targetNode?.type === 'imageGenerator') {
+        // Image generator: allow 'prompt' and 'imagePrompt' (imagePrompt can accept text URLs)
+        const textAcceptingHandles = ['prompt', 'imagePrompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        return false;
+      }
+      
+      // For image describer nodes, allow connections to prompt inputs
+      if (targetNode?.type === 'imageDescriber') {
+        // Image describer: allow 'prompt' handle
+        const textAcceptingHandles = ['prompt'];
+        if (connection.targetHandle) {
+          return textAcceptingHandles.includes(connection.targetHandle);
+        }
+        return false;
+      }
+      
+      // Default: reject connections to unknown node types
+      return false;
+    }
+    
+    // Default: allow all other connections (non-prompt sources)
+    return true;
+  }, [nodes]);
+
   // Handle connection between nodes
   const onConnect = useCallback(
-    (params: Connection | Edge) => setEdges((eds) => addEdge({
-      ...params,
-      animated: true,
-      style: { stroke: '#8b5cf6' }
-    }, eds)),
-    [setEdges]
+    (params: Connection | Edge) => {
+      // Only add edge if connection is valid
+      if (isValidConnection(params as Connection)) {
+        setEdges((eds) => addEdge({
+          ...params,
+          animated: true,
+          style: { stroke: '#8b5cf6' }
+        }, eds));
+      }
+    },
+    [setEdges, isValidConnection]
   );
 
   // Handle node deletion
@@ -1917,6 +1969,7 @@ function FlowCanvasInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          isValidConnection={isValidConnection}
           onDrop={onDrop}
           onDragOver={onDragOver}
           onSelectionChange={handleSelectionChange}

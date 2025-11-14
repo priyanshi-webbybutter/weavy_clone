@@ -172,11 +172,11 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
         <span style={{ fontSize: '20px', color: '#ec4899', fontWeight: '500' }}>Prompt*</span>
       </div>
       
-      {/* Three teal handles */}
+      {/* First Frame - Teal handle */}
       <Handle
         type="target"
         position={Position.Left}
-        id="input1"
+        id="firstFrame"
         style={{
           background: '#14b8a6', // Teal
           width: '12px',
@@ -186,23 +186,24 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
           top: '45%',
         }}
       />
-      {/* Input 1 Label - Left of Handle (Outside) */}
+      {/* First Frame Label - Left of Handle (Outside) */}
       <div
         style={{
           position: 'absolute',
-          left: '-85px',
+          left: '-110px',
           top: '41%',
           transform: 'translateY(-50%)',
           zIndex: 10,
         }}
       >
-        <span style={{ fontSize: '20px', color: '#14b8a6', fontWeight: '500' }}>Image</span>
+        <span style={{ fontSize: '20px', color: '#14b8a6', fontWeight: '500' }}>First Frame</span>
       </div>
       
+      {/* Last Frame - Teal handle */}
       <Handle
         type="target"
         position={Position.Left}
-        id="input2"
+        id="lastFrame"
         style={{
           background: '#14b8a6', // Teal
           width: '12px',
@@ -212,25 +213,26 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
           top: '60%',
         }}
       />
-      {/* Input 2 Label - Left of Handle (Outside) */}
+      {/* Last Frame Label - Left of Handle (Outside) */}
       <div
         style={{
           position: 'absolute',
-          left: '-85px',
+          left: '-110px',
           top: '56%',
           transform: 'translateY(-50%)',
           zIndex: 10,
         }}
       >
-        <span style={{ fontSize: '20px', color: '#14b8a6', fontWeight: '500' }}>Video</span>
+        <span style={{ fontSize: '20px', color: '#14b8a6', fontWeight: '500' }}>Last Frame</span>
       </div>
       
+      {/* Negative Prompt - Magenta handle */}
       <Handle
         type="target"
         position={Position.Left}
-        id="input3"
+        id="negativePrompt"
         style={{
-          background: '#14b8a6', // Teal
+          background: '#ec4899', // Magenta
           width: '12px',
           height: '12px',
           border: '2px solid #1a1a1a',
@@ -238,17 +240,17 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
           top: '75%',
         }}
       />
-      {/* Input 3 Label - Left of Handle (Outside) */}
+      {/* Negative Prompt Label - Left of Handle (Outside) */}
       <div
         style={{
           position: 'absolute',
-          left: '-85px',
+          left: '-165px',
           top: '71%',
           transform: 'translateY(-50%)',
           zIndex: 10,
         }}
       >
-        <span style={{ fontSize: '20px', color: '#14b8a6', fontWeight: '500' }}>Audio</span>
+        <span style={{ fontSize: '20px', color: '#ec4899', fontWeight: '500' }}>Negative Prompt</span>
       </div>
 
       {/* Header with Title and Menu */}
