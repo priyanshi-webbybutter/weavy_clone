@@ -95,9 +95,16 @@ export default function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-8 shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] px-4 relative overflow-hidden">
+      {/* Background "WEAVY" text */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <h1 className="text-[200px] md:text-[300px] font-black text-white/5 select-none">
+          WEAVY
+        </h1>
+      </div>
+      
+      <div className="w-full max-w-md relative z-10">
+        <div className="bg-[#1a1a1a]/50 backdrop-blur-md border border-[#2a2a2a]/50 rounded-lg p-8 shadow-lg">
           <h2 className="text-2xl font-bold text-white mb-6 text-center">Login</h2>
           
           <form onSubmit={handleSubmit} className="space-y-4">
