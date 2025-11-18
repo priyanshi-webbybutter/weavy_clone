@@ -1,10 +1,5 @@
-import FlowCanvas from '@/components/FlowCanvas';
-import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import HomePage from '@/components/HomePage';
 
 export default function Home() {
-  return (
-    <ProtectedRoute>
-      <FlowCanvas />
-    </ProtectedRoute>
-  );
+  return <HomePage />;
 }

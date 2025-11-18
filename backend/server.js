@@ -5,6 +5,7 @@ const generateImageRoute = require('./routes/generate-image');
 const describeImageRoute = require('./routes/describe-image');
 const generateVideoRoute = require('./routes/generate-video');
 const authRoute = require('./routes/auth');
+const projectsRoute = require('./routes/projects');
 
 // Load environment variables
 dotenv.config();
@@ -37,6 +38,7 @@ app.use('/api', generateImageRoute);
 app.use('/api', describeImageRoute);
 app.use('/api', generateVideoRoute);
 app.use('/api', authRoute);
+app.use('/api', projectsRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
@@ -78,4 +80,13 @@ app.listen(PORT, () => {
   console.log(`   - Google OAuth: http://localhost:${PORT}/api/auth/google`);
   console.log(`   - Logout: http://localhost:${PORT}/api/auth/logout`);
   console.log(`   - Session: http://localhost:${PORT}/api/auth/session`);
+  console.log(`📂 Project endpoints:`);
+  console.log(`   - GET /api/projects - List projects`);
+  console.log(`   - POST /api/projects - Create project`);
+  console.log(`   - PUT /api/projects/:id - Update project`);
+  console.log(`   - DELETE /api/projects/:id - Delete project`);
+  console.log(`   - GET /api/workflows/:projectId - Get workflow`);
+  console.log(`   - POST /api/workflows/:projectId - Save workflow`);
+  console.log(`   - POST /api/generations - Save generation history`);
+  console.log(`   - GET /api/generations/:workflowId - Get generation history`);
 });

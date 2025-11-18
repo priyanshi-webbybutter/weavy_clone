@@ -104,7 +104,7 @@ export default function LoginForm() {
       </div>
       
       <div className="w-full max-w-md relative z-10">
-        <div className="bg-[#1a1a1a]/50 backdrop-blur-md border border-[#2a2a2a]/50 rounded-lg p-8 shadow-lg">
+        <div className="bg-[#1a1a1a]/0 backdrop-blur-md border border-[#2a2a2a]/0 rounded-lg p-8 shadow-lg">
           <h2 className="text-2xl font-bold text-white mb-6 text-center">Login</h2>
           
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -193,7 +193,7 @@ a {
 }
 
 .react-flow.cursor-default .react-flow__node {
-  cursor: default !important;
+  cursor: move !important;
 }
 
 .react-flow.cursor-default .react-flow__edge {
@@ -201,7 +201,7 @@ a {
 }
 
 .react-flow.cursor-default .react-flow__handle {
-  cursor: default !important;
+  cursor: crosshair !important;
 }
 
 /* Cursor Styles for Tools - Hand Tool (grab cursor) */
@@ -214,7 +214,7 @@ a {
 }
 
 .react-flow.cursor-grab .react-flow__node {
-  cursor: default !important;
+  cursor: move !important;
 }
 
 .react-flow.cursor-grab .react-flow__edge {
@@ -222,5 +222,5 @@ a {
 }
 
 .react-flow.cursor-grab .react-flow__handle {
-  cursor: default !important;
+  cursor: crosshair !important;
 }

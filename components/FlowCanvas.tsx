@@ -20,12 +20,16 @@ import Sidebar from './Sidebar';
 import SidePanel from './SidePanel';
 import NodeSettingsPanel from './NodeSettingsPanel';
 import FullscreenModal from './FullscreenModal';
+import { useAuth } from '@/contexts/AuthContext';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
   NODES: 'weavy-canvas-nodes',
   EDGES: 'weavy-canvas-edges',
+  MIGRATED_TO_DB: 'weavy-migrated-to-db', // Flag to track if localStorage data has been migrated
 };
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
 // Global lock to prevent duplicate API calls across all component instances
 const GLOBAL_GENERATING_NODES = new Set<string>();
@@ -69,7 +73,11 @@ interface Task {
   status: 'running' | 'completed' | 'failed';
 }
 
-function FlowCanvasInner() {
+interface FlowCanvasProps {
+  initialProjectId?: string | null;
+}
+
+function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [isTasksDropdownOpen, setIsTasksDropdownOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -77,6 +85,18 @@ function FlowCanvasInner() {
   const [bgVariant] = useState<BackgroundVariant>(BackgroundVariant.Dots);
   const [zoom, setZoom] = useState(100);
   const { screenToFlowPosition, getNodes } = useReactFlow();
+  const { user } = useAuth();
+  
+  // Project management state
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(initialProjectId || null);
+  const [currentProjectName, setCurrentProjectName] = useState<string>('untitled');
+  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null); // Track which project's workflow has been loaded
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [tempProjectName, setTempProjectName] = useState<string>('untitled');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isLoadingWorkflow, setIsLoadingWorkflow] = useState(false);
 
   // Panel state management
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -161,9 +181,9 @@ function FlowCanvasInner() {
       // Only add edge if connection is valid
       if (isValidConnection(params as Connection)) {
         setEdges((eds) => addEdge({
-          ...params,
-          animated: true,
-          style: { stroke: '#8b5cf6' }
+      ...params,
+      animated: true,
+      style: { stroke: '#8b5cf6' }
         }, eds));
       }
     },
@@ -352,6 +372,31 @@ function FlowCanvasInner() {
                 return node;
               })
             );
+
+            // Save generation history
+            const workflowId = (window as any).currentWorkflowId;
+            if (workflowId && currentProjectId) {
+              const token = localStorage.getItem('auth_token');
+              fetch(`${API_BASE_URL}/generations`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  workflow_id: workflowId,
+                  node_id: nodeId,
+                  node_type: 'imageDescriber',
+                  generation_type: 'description',
+                  data: {
+                    description: data.description,
+                    imageUrl: imageUrl,
+                    modelName: modelName,
+                    modelInstructions: modelInstructions,
+                  },
+                }),
+              }).catch(err => console.error('Error saving generation history:', err));
+            }
           } else {
             throw new Error(data.error || 'Failed to describe image');
           }
@@ -517,6 +562,30 @@ function FlowCanvasInner() {
             })
           );
 
+          // Save generation history
+          const workflowId = (window as any).currentWorkflowId;
+          if (workflowId && currentProjectId) {
+            const token = localStorage.getItem('auth_token');
+            fetch(`${API_BASE_URL}/generations`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                workflow_id: workflowId,
+                node_id: nodeId,
+                node_type: 'videoGenerator',
+                generation_type: 'video',
+                data: {
+                  videoUrl: data.videoUrl,
+                  prompt: promptText,
+                  settings: settings,
+                },
+              }),
+            }).catch(err => console.error('Error saving generation history:', err));
+          }
+
           // Update task as completed
           setTasks((prev) =>
             prev.map((task) =>
@@ -587,21 +656,21 @@ function FlowCanvasInner() {
     }
 
     const imageNode = currentNode;
-    if (!imageNode) {
+        if (!imageNode) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
       LAST_CALL_TIMESTAMPS.delete(nodeId);
       return;
-    }
+        }
 
-    // Additional check: Is this node already generating in current state?
-    if (imageNode.data?.isGenerating) {
+        // Additional check: Is this node already generating in current state?
+        if (imageNode.data?.isGenerating) {
       console.log(`⏸️ [${callId}] Node already generating (state check), aborting`);
-      EXECUTION_IN_PROGRESS.delete(nodeId);
-      GLOBAL_GENERATING_NODES.delete(nodeId);
-      generatingNodes.current.delete(nodeId);
-      LAST_CALL_TIMESTAMPS.delete(nodeId);
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
       return;
     }
 
@@ -613,7 +682,7 @@ function FlowCanvasInner() {
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
       LAST_CALL_TIMESTAMPS.delete(nodeId);
-      alert('Connected prompt node not found.');
+          alert('Connected prompt node not found.');
       return;
     }
 
@@ -630,7 +699,7 @@ function FlowCanvasInner() {
       promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
     }
 
-    if (!promptText.trim()) {
+        if (!promptText.trim()) {
       EXECUTION_IN_PROGRESS.delete(nodeId);
       GLOBAL_GENERATING_NODES.delete(nodeId);
       generatingNodes.current.delete(nodeId);
@@ -638,7 +707,7 @@ function FlowCanvasInner() {
       if (promptSourceNode.type === 'imageDescriber') {
         alert('The connected Image Describer has no description yet. Please run the Image Describer first to generate a description.');
       } else {
-        alert('The connected prompt is empty. Please enter some text first.');
+          alert('The connected prompt is empty. Please enter some text first.');
       }
       return;
     }
@@ -694,16 +763,16 @@ function FlowCanvasInner() {
         // Set generating state FIRST (before API call)
         setNodes((nds) =>
           nds.map((node) => {
-            if (node.id === nodeId) {
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  isGenerating: true,
-                },
-              };
-            }
-            return node;
+          if (node.id === nodeId) {
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                isGenerating: true,
+              },
+            };
+          }
+          return node;
           })
         );
 
@@ -743,17 +812,17 @@ function FlowCanvasInner() {
     console.log(`📤 [${callId}] Sending API request with body:`, requestBody);
 
     // Call backend API to generate image (OUTSIDE of state setters to prevent multiple calls)
-    fetch('http://localhost:3001/api/generate-image', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    })
-      .then(async (response) => {
-        const data = await response.json();
+        fetch('http://localhost:3001/api/generate-image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        })
+          .then(async (response) => {
+            const data = await response.json();
 
-        if (!response.ok) {
+            if (!response.ok) {
           // Extract detailed error message from backend
           const errorMsg = data.message || data.error || 'Failed to generate image';
           const errorDetails = data.details ? `\n\nDetails: ${data.details}` : '';
@@ -767,27 +836,51 @@ function FlowCanvasInner() {
         }
 
         // Update node with generated image - append to array instead of replacing
-        setNodes((currentNodes) =>
-          currentNodes.map((node) => {
-            if (node.id === nodeId) {
+            setNodes((currentNodes) =>
+              currentNodes.map((node) => {
+                if (node.id === nodeId) {
               const existingImageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
               const newImageUrls = [...existingImageUrls, data.imageUrl];
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  isGenerating: false,
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      isGenerating: false,
                   imageUrl: data.imageUrl, // Keep for backward compatibility
                   imageUrls: newImageUrls, // Array of all generated images
                   currentImageIndex: newImageUrls.length - 1, // Show the newest image
-                },
-              };
-            }
-            return node;
-          })
-        );
+                    },
+                  };
+                }
+                return node;
+              })
+            );
 
         console.log(`✅ [${callId}] Image generated successfully:`, data.imageUrl);
+
+        // Save generation history
+        const workflowId = (window as any).currentWorkflowId;
+        if (workflowId && currentProjectId) {
+          const token = localStorage.getItem('auth_token');
+          fetch(`${API_BASE_URL}/generations`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              workflow_id: workflowId,
+              node_id: nodeId,
+              node_type: currentNode.type || 'imageGenerator',
+              generation_type: 'image',
+              data: {
+                imageUrl: data.imageUrl,
+                prompt: promptText,
+                settings: settings,
+              },
+            }),
+          }).catch(err => console.error('Error saving generation history:', err));
+        }
 
         // Update task as completed
         setTasks((prev) =>
@@ -798,13 +891,13 @@ function FlowCanvasInner() {
           )
         );
 
-        // Remove ALL locks after successful generation
-        EXECUTION_IN_PROGRESS.delete(nodeId);
-        GLOBAL_GENERATING_NODES.delete(nodeId);
-        generatingNodes.current.delete(nodeId);
-        LAST_CALL_TIMESTAMPS.delete(nodeId);
-      })
-      .catch((error) => {
+            // Remove ALL locks after successful generation
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+          })
+          .catch((error) => {
         console.error(`❌ [${callId}] Error generating image:`, error);
         console.error(`❌ [${callId}] Error stack:`, error.stack);
 
@@ -817,32 +910,32 @@ function FlowCanvasInner() {
           )
         );
 
-        // Update node to show error state
-        setNodes((currentNodes) =>
-          currentNodes.map((node) => {
-            if (node.id === nodeId) {
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  isGenerating: false,
-                },
-              };
-            }
-            return node;
-          })
-        );
+            // Update node to show error state
+            setNodes((currentNodes) =>
+              currentNodes.map((node) => {
+                if (node.id === nodeId) {
+                  return {
+                    ...node,
+                    data: {
+                      ...node.data,
+                      isGenerating: false,
+                    },
+                  };
+                }
+                return node;
+              })
+            );
 
         // Show detailed error message
         const errorMessage = error.message || 'Failed to generate image. Please check the console for details.';
         alert(`Failed to generate image:\n\n${errorMessage}`);
 
-        // Remove ALL locks after error
-        EXECUTION_IN_PROGRESS.delete(nodeId);
-        GLOBAL_GENERATING_NODES.delete(nodeId);
-        generatingNodes.current.delete(nodeId);
-        LAST_CALL_TIMESTAMPS.delete(nodeId);
-      });
+            // Remove ALL locks after error
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+          });
   }, [setNodes]);
 
   // Handle image index change for image generator nodes
@@ -906,8 +999,8 @@ function FlowCanvasInner() {
         }
         return node;
       });
-      return updatedNodes;
-    });
+        return updatedNodes;
+      });
   }, [setNodes]);
 
   // Handle remove all other generations
@@ -1374,8 +1467,8 @@ function FlowCanvasInner() {
       // No nodes with settings selected, close panel
       console.log('🔍 No nodes with settings selected, closing panel');
       setSelectedNodes([]);
-      setSelectedNode(null);
-      setIsSettingsPanelOpen(false);
+        setSelectedNode(null);
+        setIsSettingsPanelOpen(false);
     }
   }, []);
 
@@ -1464,6 +1557,452 @@ function FlowCanvasInner() {
     setSelectedNode(null);
   }, []);
 
+  // Handle open fullscreen modal
+  const handleOpenFullscreen = useCallback((nodeId: string) => {
+    setFullscreenNodeId(nodeId);
+  }, []);
+
+  // Handle close fullscreen modal
+  const handleCloseFullscreen = useCallback(() => {
+    setFullscreenNodeId(null);
+  }, []);
+
+  // Fetch project name
+  const fetchProjectName = useCallback(async (projectId: string) => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_BASE_URL}/projects`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const project = data.projects?.find((p: any) => p.id === projectId);
+        if (project) {
+          const projectName = project.name || 'untitled';
+          setCurrentProjectName(projectName);
+          setTempProjectName(projectName);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching project name:', error);
+    }
+  }, []);
+
+  // Save project name
+  const saveProjectName = useCallback(async () => {
+    if (!currentProjectId || !editingProjectName) return;
+    
+    const trimmedName = tempProjectName.trim() || 'untitled';
+    
+    // Only save if name actually changed
+    if (trimmedName === currentProjectName) {
+      setEditingProjectName(false);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_BASE_URL}/projects/${currentProjectId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+        }),
+      });
+
+      if (response.ok) {
+        setCurrentProjectName(trimmedName);
+        setEditingProjectName(false);
+        console.log('✅ Project name updated');
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Error updating project name:', errorData);
+        // Revert to original name on error
+        setTempProjectName(currentProjectName);
+        setEditingProjectName(false);
+      }
+    } catch (error) {
+      console.error('❌ Error updating project name:', error);
+      // Revert to original name on error
+      setTempProjectName(currentProjectName);
+      setEditingProjectName(false);
+    }
+  }, [currentProjectId, editingProjectName, tempProjectName, currentProjectName]);
+
+  // Handle project selection
+  const handleProjectSelect = useCallback(async (projectId: string) => {
+    if (!projectId) return;
+    
+    // If we've already loaded this project, skip
+    if (projectId === loadedProjectId) {
+      console.log('⏭️ Project already loaded, skipping:', projectId);
+      return;
+    }
+    
+    setIsLoadingWorkflow(true);
+    setCurrentProjectId(projectId);
+    setHasUnsavedChanges(false);
+    
+    // Fetch project name
+    await fetchProjectName(projectId);
+    
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${API_BASE_URL}/workflows/${projectId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load workflow');
+      }
+
+      const workflow = data.workflow;
+      
+      console.log('📥 Loading workflow:', {
+        hasWorkflow: !!workflow,
+        hasNodes: !!(workflow?.nodes),
+        nodesCount: workflow?.nodes?.length || 0,
+        hasEdges: !!(workflow?.edges),
+        edgesCount: workflow?.edges?.length || 0,
+        hasSettings: !!(workflow?.node_settings),
+        workflowData: workflow,
+      });
+      
+      // Restore nodes with handlers
+      if (workflow.nodes && Array.isArray(workflow.nodes) && workflow.nodes.length > 0) {
+        console.log('✅ Restoring nodes:', workflow.nodes.length);
+        const nodesWithHandlers = workflow.nodes.map((node: any) => {
+          // Base restored node with essential properties
+          const restoredNode: any = {
+            id: node.id,
+            type: node.type,
+            position: node.position || { x: 0, y: 0 },
+            data: { ...node.data },
+            // Ensure nodes are draggable and selectable
+            draggable: true,
+            selectable: true,
+            // Preserve other properties if they exist
+            ...(node.width && { width: node.width }),
+            ...(node.height && { height: node.height }),
+            ...(node.selected !== undefined && { selected: node.selected }),
+          };
+          
+          // Add handlers based on node type
+          if (node.type === 'promptInput') {
+            restoredNode.data.onChange = (nodeId: string, newValue: string) => {
+              setNodes((nds) =>
+                nds.map((n) => {
+                  if (n.id === nodeId) {
+                    return {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        value: newValue,
+                      },
+                    };
+                  }
+                  return n;
+                })
+              );
+            };
+            restoredNode.data.onDelete = handleDeleteNode;
+            restoredNode.data.onDuplicate = handleDuplicateNode;
+          } else if (node.type === 'imageGenerator') {
+            restoredNode.data.isGenerating = false;
+            restoredNode.data.onRunModel = handleRunModel;
+            restoredNode.data.onDelete = handleDeleteNode;
+            restoredNode.data.onDuplicate = handleDuplicateNode;
+            restoredNode.data.onImageIndexChange = handleImageIndexChange;
+            restoredNode.data.onRemoveCurrentGeneration = handleRemoveCurrentGeneration;
+            restoredNode.data.onRemoveAllOtherGenerations = handleRemoveAllOtherGenerations;
+            restoredNode.data.onRemoveAllGenerations = handleRemoveAllGenerations;
+            restoredNode.data.onOpenFullscreen = handleOpenFullscreen;
+          } else if (node.type === 'imageDescriber') {
+            restoredNode.data.isGenerating = false;
+            restoredNode.data.onRunModel = handleRunModel;
+            restoredNode.data.onDelete = handleDeleteNode;
+            restoredNode.data.onDuplicate = handleDuplicateNode;
+            restoredNode.data.onAddImage = (nodeId: string) => {
+              console.log('Add image clicked for node:', nodeId);
+            };
+          } else if (node.type === 'videoGenerator') {
+            restoredNode.data.isGenerating = false;
+            restoredNode.data.onRunModel = handleRunModel;
+            restoredNode.data.onDelete = handleDeleteNode;
+            restoredNode.data.onDuplicate = handleDuplicateNode;
+            restoredNode.data.onVideoIndexChange = handleVideoIndexChange;
+            restoredNode.data.onRemoveCurrentVideoGeneration = handleRemoveCurrentVideoGeneration;
+            restoredNode.data.onRemoveAllOtherVideoGenerations = handleRemoveAllOtherVideoGenerations;
+            restoredNode.data.onRemoveAllVideoGenerations = handleRemoveAllVideoGenerations;
+          }
+          
+          return restoredNode;
+        });
+        console.log('✅ Nodes restored with handlers:', nodesWithHandlers.length);
+        setNodes(nodesWithHandlers);
+      } else {
+        console.log('⚠️ No nodes to restore or empty array');
+        setNodes([]);
+      }
+
+      // Restore edges
+      if (workflow.edges && Array.isArray(workflow.edges)) {
+        console.log('✅ Restoring edges:', workflow.edges.length);
+        setEdges(workflow.edges);
+      } else {
+        console.log('⚠️ No edges to restore');
+        setEdges([]);
+      }
+
+      // Restore node settings
+      if (workflow.node_settings && typeof workflow.node_settings === 'object') {
+        setNodeSettings(workflow.node_settings);
+        nodeSettingsRef.current = workflow.node_settings;
+      } else {
+        setNodeSettings({});
+        nodeSettingsRef.current = {};
+      }
+
+      // Store workflow ID for generation history
+      if (workflow.id) {
+        (window as any).currentWorkflowId = workflow.id;
+      }
+
+      // Reset unsaved changes tracking after loading
+      setHasUnsavedChanges(false);
+      // Reset tracking refs so we track the loaded state as the new baseline
+      hasTrackedInitialStateRef.current = false;
+      isInitialLoadRef.current = true;
+      
+      // Mark this project as loaded
+      setLoadedProjectId(projectId);
+
+      console.log('✅ Workflow loaded from database');
+    } catch (error: any) {
+      console.error('❌ Error loading workflow:', error);
+      // On error, clear canvas
+      setNodes([]);
+      setEdges([]);
+      setNodeSettings({});
+    } finally {
+      setIsLoadingWorkflow(false);
+    }
+  }, [currentProjectId, fetchProjectName, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations, handleOpenFullscreen, setNodes, setEdges]);
+
+  // Save generation history
+  const saveGenerationHistory = useCallback(async (
+    nodeId: string,
+    nodeType: string,
+    generationType: 'image' | 'video' | 'description',
+    data: any
+  ) => {
+    if (!currentProjectId || !user) return;
+
+    try {
+      // Get workflow ID from current project
+      const token = localStorage.getItem('auth_token');
+      const workflowResponse = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const workflowData = await workflowResponse.json();
+      if (!workflowResponse.ok || !workflowData.workflow) {
+        console.warn('Could not fetch workflow for generation history');
+        return;
+      }
+
+      // Get workflow ID (we need to fetch it from the database)
+      // For now, we'll use a workaround: fetch workflows for this project
+      const workflowsResponse = await fetch(`${API_BASE_URL}/projects/${currentProjectId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      // Actually, we need to get the workflow ID differently
+      // Let's modify the backend to return workflow_id in the workflow response
+      // For now, we'll skip this and add it later when we have workflow_id
+      console.log('📝 Generation history tracking (workflow_id lookup needed)');
+    } catch (error) {
+      console.error('Error saving generation history:', error);
+      // Don't throw - generation history is non-critical
+    }
+  }, [currentProjectId, user]);
+
+  // Helper function to serialize nodes without handlers (defined early for use in save)
+  const serializeNodes = useCallback((nodesToSerialize: Node[]) => {
+    return JSON.stringify(
+      nodesToSerialize.map((node) => ({
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        data: {
+          ...node.data,
+          // Remove all function handlers
+          onChange: undefined,
+          onRunModel: undefined,
+          onDelete: undefined,
+          onDuplicate: undefined,
+          onImageIndexChange: undefined,
+          onRemoveCurrentGeneration: undefined,
+          onRemoveAllOtherGenerations: undefined,
+          onRemoveAllGenerations: undefined,
+          onVideoIndexChange: undefined,
+          onRemoveCurrentVideoGeneration: undefined,
+          onRemoveAllOtherVideoGenerations: undefined,
+          onRemoveAllVideoGenerations: undefined,
+          onOpenFullscreen: undefined,
+          onAddImage: undefined,
+          isGenerating: false, // Normalize this
+        },
+      }))
+    );
+  }, []);
+
+  // Handle save workflow
+  const handleSaveWorkflow = useCallback(async () => {
+    if (!currentProjectId || !user) {
+      console.error('Cannot save: No project selected or user not authenticated');
+      alert('Cannot save: No project selected or user not authenticated');
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus('saving');
+
+    try {
+      // Serialize nodes (remove handlers but preserve all data including images/videos)
+      const nodesToSave = nodes.map((node) => {
+        const nodeData = { ...node.data };
+        
+        // Remove function handlers (they can't be serialized)
+        delete nodeData.onChange;
+        delete nodeData.onRunModel;
+        delete nodeData.onDelete;
+        delete nodeData.onDuplicate;
+        delete nodeData.onImageIndexChange;
+        delete nodeData.onRemoveCurrentGeneration;
+        delete nodeData.onRemoveAllOtherGenerations;
+        delete nodeData.onRemoveAllGenerations;
+        delete nodeData.onVideoIndexChange;
+        delete nodeData.onRemoveCurrentVideoGeneration;
+        delete nodeData.onRemoveAllOtherVideoGenerations;
+        delete nodeData.onRemoveAllVideoGenerations;
+        delete nodeData.onOpenFullscreen;
+        delete nodeData.onAddImage;
+        
+        // Preserve isGenerating as false (it's a state flag, not a handler)
+        nodeData.isGenerating = false;
+        
+        return {
+          ...node,
+          data: nodeData,
+        };
+      });
+
+      console.log('💾 Saving workflow:', {
+        projectId: currentProjectId,
+        nodesCount: nodesToSave.length,
+        edgesCount: edges.length,
+        hasImages: nodesToSave.some(n => n.data?.imageUrls?.length || n.data?.imageUrl),
+        hasVideos: nodesToSave.some(n => n.data?.videoUrls?.length || n.data?.videoUrl),
+        nodesPreview: nodesToSave.slice(0, 2).map(n => ({
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          dataKeys: Object.keys(n.data || {}),
+        })),
+      });
+
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nodes: nodesToSave,
+          edges: edges,
+          node_settings: nodeSettingsRef.current,
+        }),
+      });
+
+      // Read response as text first to handle errors better
+      const responseText = await response.text();
+      let data;
+      
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Failed to parse response:', responseText);
+        throw new Error(`Server returned invalid JSON: ${responseText.substring(0, 200)}`);
+      }
+
+      if (!response.ok) {
+        console.error('❌ Save failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: data.error || data.message || 'Unknown error',
+          details: data,
+        });
+        throw new Error(data.error || data.message || `Failed to save workflow (${response.status})`);
+      }
+
+      setSaveStatus('saved');
+      setHasUnsavedChanges(false);
+      
+      // Update refs to reflect saved state (use serializeNodes helper)
+      prevNodesRef.current = serializeNodes(nodes);
+      prevEdgesRef.current = JSON.stringify(edges);
+      prevSettingsRef.current = JSON.stringify(nodeSettingsRef.current);
+      
+      console.log('✅ Workflow saved successfully');
+
+      // Reset saved status after 2 seconds
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
+    } catch (error: any) {
+      console.error('❌ Error saving workflow:', error);
+      setSaveStatus('error');
+      
+      // Show user-friendly error message
+      const errorMessage = error.message || 'Failed to save workflow. Please try again.';
+      alert(`Error saving workflow: ${errorMessage}`);
+      
+      setTimeout(() => {
+        setSaveStatus('idle');
+      }, 3000);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [currentProjectId, user, nodes, edges, serializeNodes]);
+
   // Handle settings change from panel
   const handleSettingsChange = useCallback((nodeId: string, settings: any) => {
     console.log(`⚙️ Settings changed for node ${nodeId}:`, JSON.stringify(settings, null, 2));
@@ -1491,16 +2030,6 @@ function FlowCanvasInner() {
       console.log(`⚠️ handleRunFromPanel: nodeId is empty/null`);
     }
   }, [handleRunModel]);
-
-  // Handle open fullscreen modal
-  const handleOpenFullscreen = useCallback((nodeId: string) => {
-    setFullscreenNodeId(nodeId);
-  }, []);
-
-  // Handle close fullscreen modal
-  const handleCloseFullscreen = useCallback(() => {
-    setFullscreenNodeId(null);
-  }, []);
 
   // Helper function to sort nodes topologically based on flow connections
   const sortNodesByFlow = useCallback((nodeIds: string[]): string[] => {
@@ -1720,9 +2249,190 @@ function FlowCanvasInner() {
     console.log(`🔄 handleRunModel callback was recreated/updated (this should only happen ONCE)`);
   }, [handleRunModel]);
 
-  // Load saved canvas state from localStorage on mount
+  // Load project if initialProjectId is provided
   useEffect(() => {
-    if (isInitialized) return; // Prevent multiple loads
+    console.log('🔍 Checking if project should be loaded:', {
+      initialProjectId,
+      loadedProjectId,
+      user: !!user,
+      shouldLoad: initialProjectId && initialProjectId !== loadedProjectId && user,
+    });
+    
+    if (initialProjectId && initialProjectId !== loadedProjectId && user) {
+      console.log('📂 Loading project from initialProjectId:', initialProjectId);
+      handleProjectSelect(initialProjectId);
+    }
+  }, [initialProjectId, user, loadedProjectId, handleProjectSelect]);
+
+  // Fetch project name when projectId changes
+  useEffect(() => {
+    if (currentProjectId && user) {
+      fetchProjectName(currentProjectId);
+    }
+  }, [currentProjectId, user, fetchProjectName]);
+
+  // Migration and initial load (only if no initialProjectId)
+  useEffect(() => {
+    if (isInitialized || !user || initialProjectId) return; // Skip if projectId is provided via route
+
+    const migrateAndLoad = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        
+        if (!token) {
+          console.log('⚠️ No auth token found, skipping migration');
+          setIsInitialized(true);
+          return;
+        }
+
+        const migrated = localStorage.getItem(STORAGE_KEYS.MIGRATED_TO_DB);
+        
+        // Check if user has projects
+        const projectsResponse = await fetch(`${API_BASE_URL}/projects`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!projectsResponse.ok) {
+          let errorData: any = {};
+          let errorText = '';
+          
+          try {
+            errorText = await projectsResponse.text();
+            errorData = JSON.parse(errorText);
+          } catch (e) {
+            errorData = { 
+              error: 'Failed to fetch projects',
+              message: errorText || `HTTP ${projectsResponse.status} ${projectsResponse.statusText}`,
+              status: projectsResponse.status,
+              statusText: projectsResponse.statusText
+            };
+          }
+          
+          console.error('❌ Error fetching projects:', {
+            status: projectsResponse.status,
+            statusText: projectsResponse.statusText,
+            error: errorData.error || errorData.message || 'Unknown error',
+            details: errorData
+          });
+          
+          setIsInitialized(true);
+          return;
+        }
+
+        const projectsData = await projectsResponse.json();
+        const hasProjects = projectsData.projects && projectsData.projects.length > 0;
+
+        // If not migrated and has localStorage data, migrate it
+        if (!migrated && !hasProjects) {
+          const savedNodes = localStorage.getItem(STORAGE_KEYS.NODES);
+          const savedEdges = localStorage.getItem(STORAGE_KEYS.EDGES);
+
+          if (savedNodes || savedEdges) {
+            console.log('🔄 Migrating localStorage data to database...');
+            
+            // Create default project
+            const createProjectResponse = await fetch(`${API_BASE_URL}/projects`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                name: 'My First Project',
+              }),
+            });
+
+            if (!createProjectResponse.ok) {
+              let errorData: any = {};
+              let errorText = '';
+              
+              try {
+                errorText = await createProjectResponse.text();
+                errorData = JSON.parse(errorText);
+              } catch (e) {
+                // If JSON parsing fails, use the text as error message
+                errorData = { 
+                  error: 'Failed to create project',
+                  message: errorText || `HTTP ${createProjectResponse.status} ${createProjectResponse.statusText}`,
+                  status: createProjectResponse.status,
+                  statusText: createProjectResponse.statusText
+                };
+              }
+              
+              console.error('❌ Error creating project during migration:', {
+                status: createProjectResponse.status,
+                statusText: createProjectResponse.statusText,
+                error: errorData.error || errorData.message || 'Unknown error',
+                details: errorData
+              });
+              
+              // Don't fail completely, just mark as migrated to prevent retry loops
+              localStorage.setItem(STORAGE_KEYS.MIGRATED_TO_DB, 'true');
+              setIsInitialized(true);
+              return;
+            }
+
+            const projectData = await createProjectResponse.json();
+            
+            if (projectData.project) {
+              const projectId = projectData.project.id;
+              setCurrentProjectId(projectId);
+
+              // Migrate nodes and edges
+              const parsedNodes = savedNodes ? JSON.parse(savedNodes) : [];
+              const parsedEdges = savedEdges ? JSON.parse(savedEdges) : [];
+
+              // Save to database
+              const saveResponse = await fetch(`${API_BASE_URL}/workflows/${projectId}`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  nodes: parsedNodes,
+                  edges: parsedEdges,
+                  node_settings: {},
+                }),
+              });
+
+              if (saveResponse.ok) {
+                console.log('✅ Migration successful');
+                localStorage.setItem(STORAGE_KEYS.MIGRATED_TO_DB, 'true');
+              }
+            }
+          } else {
+            // No localStorage data, just mark as migrated
+            localStorage.setItem(STORAGE_KEYS.MIGRATED_TO_DB, 'true');
+          }
+        }
+
+        // Load first project if available
+        if (projectsData.projects && projectsData.projects.length > 0) {
+          const firstProject = projectsData.projects[0];
+          setCurrentProjectId(firstProject.id);
+          // Load workflow will be handled by handleProjectSelect
+          await handleProjectSelect(firstProject.id);
+        } else {
+          // No projects, start with empty canvas
+          setIsInitialized(true);
+        }
+      } catch (error) {
+        console.error('❌ Error during migration/load:', error);
+        setIsInitialized(true);
+      }
+    };
+
+    migrateAndLoad();
+  }, [isInitialized, user, handleProjectSelect, initialProjectId]);
+
+  // Legacy localStorage loading (fallback, will be removed after migration)
+  useEffect(() => {
+    if (isInitialized || user) return; // Skip if user is logged in (use DB instead)
 
     try {
       const savedNodes = localStorage.getItem(STORAGE_KEYS.NODES);
@@ -1884,31 +2594,86 @@ function FlowCanvasInner() {
     }
   }, [isInitialized, handleDeleteNode, handleDuplicateNode, handleRunModel, handleImageIndexChange, handleRemoveCurrentGeneration, handleRemoveAllOtherGenerations, handleRemoveAllGenerations, handleVideoIndexChange, handleRemoveCurrentVideoGeneration, handleRemoveAllOtherVideoGenerations, handleRemoveAllVideoGenerations, handleOpenFullscreen, setNodes, setEdges]);
 
-  // Save canvas state to localStorage whenever nodes or edges change
+  // Track unsaved changes (but don't auto-save to database)
+  // Use a ref to track previous values and compare
+  const prevNodesRef = useRef<string>('');
+  const prevEdgesRef = useRef<string>('');
+  const prevSettingsRef = useRef<string>('');
+  const isInitialLoadRef = useRef(true);
+  const hasTrackedInitialStateRef = useRef(false);
+
   useEffect(() => {
-    if (!isInitialized) return; // Don't save during initial load
+    console.log('🔍 Change detection effect running', {
+      isInitialized,
+      currentProjectId,
+      nodesCount: nodes.length,
+      edgesCount: edges.length,
+      hasTrackedInitial: hasTrackedInitialStateRef.current,
+    });
 
-    try {
-      // Remove function handlers and temporary state before saving (can't be serialized)
-      const nodesToSave = nodes.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          onChange: undefined,
-          onRunModel: undefined,
-          onDelete: undefined,
-          onDuplicate: undefined,
-          isGenerating: undefined, // Don't save loading state
-        },
-      }));
-
-      localStorage.setItem(STORAGE_KEYS.NODES, JSON.stringify(nodesToSave));
-      localStorage.setItem(STORAGE_KEYS.EDGES, JSON.stringify(edges));
-      console.log(`💾 Saved ${nodes.length} nodes and ${edges.length} edges to localStorage`);
-    } catch (error) {
-      console.error('❌ Error saving canvas state:', error);
+    // Skip tracking if not initialized or no project
+    if (!isInitialized || !currentProjectId) {
+      console.log('⏭️ Skipping - not initialized or no project');
+      return;
     }
-  }, [nodes, edges, isInitialized]);
+
+    // On first load after initialization, store the initial state
+    if (!hasTrackedInitialStateRef.current) {
+      prevNodesRef.current = serializeNodes(nodes);
+      prevEdgesRef.current = JSON.stringify(edges);
+      prevSettingsRef.current = JSON.stringify(nodeSettingsRef.current);
+      hasTrackedInitialStateRef.current = true;
+      isInitialLoadRef.current = false;
+      console.log('📝 Initial state tracked', {
+        nodesCount: nodes.length,
+        edgesCount: edges.length,
+        prevNodesStr: prevNodesRef.current.substring(0, 100),
+      });
+      return;
+    }
+
+    // Serialize current state for comparison (without handlers)
+    const currentNodesStr = serializeNodes(nodes);
+    const currentEdgesStr = JSON.stringify(edges);
+    const currentSettingsStr = JSON.stringify(nodeSettingsRef.current);
+
+    // Check if anything actually changed
+    const nodesChanged = currentNodesStr !== prevNodesRef.current;
+    const edgesChanged = currentEdgesStr !== prevEdgesRef.current;
+    const settingsChanged = currentSettingsStr !== prevSettingsRef.current;
+
+    console.log('🔍 Comparison result', {
+      nodesChanged,
+      edgesChanged,
+      settingsChanged,
+      currentNodesCount: nodes.length,
+      prevNodesCount: prevNodesRef.current ? JSON.parse(prevNodesRef.current).length : 0,
+      currentNodesStr: currentNodesStr.substring(0, 100),
+      prevNodesStr: prevNodesRef.current.substring(0, 100),
+    });
+
+    if (nodesChanged || edgesChanged || settingsChanged) {
+      console.log('✅ Canvas changed - marking as unsaved', {
+        nodesChanged,
+        edgesChanged,
+        settingsChanged,
+        nodesCount: nodes.length,
+        edgesCount: edges.length,
+      });
+      
+      setHasUnsavedChanges(true);
+      if (saveStatus === 'saved') {
+        setSaveStatus('idle');
+      }
+
+      // Update refs for next comparison
+      prevNodesRef.current = currentNodesStr;
+      prevEdgesRef.current = currentEdgesStr;
+      prevSettingsRef.current = currentSettingsStr;
+    } else {
+      console.log('❌ No changes detected');
+    }
+  }, [nodes, edges, nodeSettings, isInitialized, currentProjectId, saveStatus, serializeNodes]);
 
   return (
     <>
@@ -1973,10 +2738,32 @@ function FlowCanvasInner() {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onSelectionChange={handleSelectionChange}
+          onNodeClick={() => {
+            // Save project name if editing
+            if (editingProjectName) {
+              saveProjectName();
+            }
+          }}
+          onPaneClick={() => {
+            // Save project name if editing
+            if (editingProjectName) {
+              saveProjectName();
+            }
+          }}
           nodeTypes={nodeTypes}
           fitView
-          panOnDrag={activeTool === 'hand'}
-          selectionOnDrag={activeTool === 'pointer'}
+          panOnDrag={activeTool === 'hand' ? [1, 2] : false}
+          selectionOnDrag={false}
+          nodesDraggable={true}
+          nodesConnectable={true}
+          elementsSelectable={true}
+          selectNodesOnDrag={false}
+          panOnScroll={true}
+          zoomOnScroll={true}
+          zoomOnDoubleClick={false}
+          preventScrolling={false}
+          connectionRadius={20}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           minZoom={0.01}
           maxZoom={20}
           proOptions={{ hideAttribution: true }}
@@ -1994,17 +2781,65 @@ function FlowCanvasInner() {
         </ReactFlow>
       </div>
 
-      {/* Project Name Input - Positioned at top left */}
-      <div className="fixed top-6 left-[88px] z-40">
-        <input
-          type="text"
-          defaultValue="untitled"
-          className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-gray-300 focus:outline-none focus:border-[#3a3a3a] w-64 shadow-2xl"
-          placeholder="Project name"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        />
-      </div>
+      {/* Project Name Display - Positioned at top left */}
+      {user && currentProjectId && (
+        <div className="fixed top-6 left-[88px] z-40">
+          {isLoadingWorkflow ? (
+            <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-gray-400 shadow-2xl min-w-[200px]">
+              Loading...
+            </div>
+          ) : editingProjectName ? (
+            <input
+              type="text"
+              value={tempProjectName}
+              onChange={(e) => setTempProjectName(e.target.value)}
+              onBlur={saveProjectName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
+                } else if (e.key === 'Escape') {
+                  setTempProjectName(currentProjectName);
+                  setEditingProjectName(false);
+                }
+              }}
+              autoFocus
+              className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#8b5cf6] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] outline-none focus:ring-2 focus:ring-[#8b5cf6]/50"
+            />
+          ) : (
+            <div
+              onClick={() => {
+                setEditingProjectName(true);
+                setTempProjectName(currentProjectName);
+              }}
+              className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] cursor-pointer hover:border-[#3a3a3a] transition-colors"
+            >
+              <div className="truncate">{currentProjectName}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Save Button - Positioned next to project name */}
+      {user && currentProjectId && (
+        <div className="fixed top-6 left-[300px] z-40">
+          <button
+            onClick={handleSaveWorkflow}
+            disabled={isSaving}
+            className={`
+              px-4 py-2 rounded-xl text-sm font-medium transition-all
+              ${isSaving
+                ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
+                : saveStatus === 'saved'
+                ? 'bg-green-500/20 border border-green-500/50 text-green-400'
+                : 'bg-[#8b5cf6] hover:bg-[#7c3aed] text-white'
+              }
+            `}
+            title={isSaving ? 'Saving...' : 'Save workflow'}
+          >
+            {isSaving ? 'Saving...' : saveStatus === 'saved' ? 'Saved ✓' : 'Save'}
+          </button>
+        </div>
+      )}
 
       {/* Right Side Panel - Credits, Status, Share, Tasks - Only show when settings panel is closed */}
       {!isSettingsPanelOpen && (
@@ -2164,10 +2999,10 @@ function FlowCanvasInner() {
   );
 }
 
-export default function FlowCanvas() {
+export default function FlowCanvas({ initialProjectId }: FlowCanvasProps = {}) {
   return (
     <ReactFlowProvider>
-      <FlowCanvasInner />
+      <FlowCanvasInner initialProjectId={initialProjectId} />
     </ReactFlowProvider>
   );
 }
