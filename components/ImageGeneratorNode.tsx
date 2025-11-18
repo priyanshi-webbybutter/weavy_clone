@@ -427,7 +427,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         style={{
           position: 'absolute',
           right: '-60px',
-          top: '46%',
+          top: '110px',
           transform: 'translateY(-50%)',
           zIndex: 10
         }}
@@ -644,39 +644,10 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         </button>
       </div>
 
-      {/* Input Handle - Prompt (Left Side, Top) */}
-      <Handle
-        id="prompt"
-        type="target"
-        position={Position.Left}
-        style={{
-          background: '#d946ef',
-          width: '12px',
-          height: '12px',
-          border: '2px solid #1a1a1a',
-          left: '-7px',
-          top: '30%',
-        }}
-      />
-      
-      {/* Prompt Label - Left of Handle (Outside) */}
-      <div
-        style={{
-          position: 'absolute',
-          left: '-85px',
-          top: '26%',
-          transform: 'translateY(-50%)',
-          zIndex: 10,
-        }}
-      >
-        <span style={{ fontSize: '20px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
-      </div>
-
-      {/* Input Handle - Image Prompt (Left Side, Bottom) - Only for Flux */}
-      {data.modelId === 'black-forest-labs/flux-1.1-pro-ultra' && (
+      {data.modelId === 'black-forest-labs/flux-redux-dev' ? (
         <>
           <Handle
-            id="imagePrompt"
+            id="reduxImage"
             type="target"
             position={Position.Left}
             style={{
@@ -685,22 +656,82 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               height: '12px',
               border: '2px solid #1a1a1a',
               left: '-7px',
-              top: '70%',
+              top: '50%',
             }}
           />
-          
-          {/* Image Prompt Label - Left of Handle (Outside) */}
           <div
             style={{
               position: 'absolute',
-              left: '-145px',
-              top: '66%',
+              left: '-150px',
+              top: '46%',
               transform: 'translateY(-50%)',
               zIndex: 10,
             }}
           >
-            <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Image Prompt</span>
+            <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Redux image*</span>
           </div>
+        </>
+      ) : (
+        <>
+          {/* Input Handle - Prompt (Left Side, Top) */}
+          <Handle
+            id="prompt"
+            type="target"
+            position={Position.Left}
+            style={{
+              background: '#d946ef',
+              width: '12px',
+              height: '12px',
+              border: '2px solid #1a1a1a',
+              left: '-7px',
+              top: '30%',
+            }}
+          />
+          
+          {/* Prompt Label - Left of Handle (Outside) */}
+          <div
+            style={{
+              position: 'absolute',
+              left: '-85px',
+              top: '26%',
+              transform: 'translateY(-50%)',
+              zIndex: 10,
+            }}
+          >
+            <span style={{ fontSize: '20px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
+          </div>
+          
+          {/* Input Handle - Image Prompt (Left Side, Bottom) - Flux */}
+          {data.modelId === 'black-forest-labs/flux-1.1-pro-ultra' && (
+            <>
+              <Handle
+                id="imagePrompt"
+                type="target"
+                position={Position.Left}
+                style={{
+                  background: '#10b981',
+                  width: '12px',
+                  height: '12px',
+                  border: '2px solid #1a1a1a',
+                  left: '-7px',
+                  top: '70%',
+                }}
+              />
+              
+              {/* Image Prompt Label - Left of Handle (Outside) */}
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '-145px',
+                  top: '66%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 10,
+                }}
+              >
+                <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Image Prompt</span>
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -715,6 +746,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           height: '12px',
           border: '2px solid #1a1a1a',
           right: '-7px',
+          top: '130px',
         }}
       />
     </div>

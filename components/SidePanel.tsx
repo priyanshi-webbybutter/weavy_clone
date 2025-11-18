@@ -100,36 +100,102 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
     </div>
   );
 
-  const renderImageModels = () => (
-    <div>
-      <h2 className="text-base font-semibold text-white mb-1">Image Models</h2>
-      <p className="text-xs text-gray-400 mb-4">Generate from text</p>
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          draggable
-          onDragStart={(event) => onDragStart(event, 'imageGenerator')}
-          onDragEnd={onDragEnd}
-          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
-        >
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg text-blue-400">S</div>
-          </div>
-          <span className="text-xs text-gray-300">Seedream-4</span>
-        </button>
-        <button
-          draggable
-          onDragStart={(event) => onDragStart(event, 'fluxGenerator')}
-          onDragEnd={onDragEnd}
-          className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
-        >
-          <div className="w-8 h-8 mb-2 flex items-center justify-center">
-            <div className="text-lg text-purple-400">F</div>
-          </div>
-          <span className="text-xs text-gray-300">FLUX 1.1 Pro Ultra</span>
-        </button>
+  const renderImageModels = () => {
+    const categories = [
+      {
+        key: 'text',
+        title: 'Generate from Text'
+      },
+      {
+        key: 'image',
+        title: 'Generate from Image'
+      },
+      {
+        key: 'edit',
+        title: 'Edit images'
+      },
+    ];
+
+    const models = [
+      {
+        id: 'seedream-4',
+        label: 'Seedream-4',
+        badge: 'S',
+        badgeColor: 'text-blue-400',
+        nodeType: 'imageGenerator',
+        category: 'text',
+      },
+      {
+        id: 'flux-11-pro',
+        label: 'FLUX 1.1 Pro Ultra',
+        badge: 'F',
+        badgeColor: 'text-purple-400',
+        nodeType: 'fluxGenerator',
+        category: 'text',
+      },
+      {
+        id: 'flux-redux-dev',
+        label: 'FLUX.1 Redux [dev]',
+        badge: 'R',
+        badgeColor: 'text-amber-400',
+        nodeType: 'fluxReduxGenerator',
+        category: 'image',
+      },
+    ];
+
+    const modelsByCategory = categories.reduce<Record<string, typeof models>>((acc, category) => {
+      acc[category.key] = models.filter((model) => model.category === category.key);
+      return acc;
+    }, {});
+
+    return (
+      <div>
+        <h2 className="text-base font-semibold text-white mb-4">Image Models</h2>
+        {categories.map((category) => {
+          const categoryModels = modelsByCategory[category.key] || [];
+
+          return (
+            <div key={category.key} className="mb-6 last:mb-0">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-semibold text-white">{category.title}</h3>
+                {categoryModels.length > 0 && (
+                  <span className="text-[10px] text-gray-500 uppercase tracking-wide">
+                    {categoryModels.length} models
+                  </span>
+                )}
+              </div>
+
+              {categoryModels.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {categoryModels.map((model) => (
+                    <button
+                      key={model.id}
+                      draggable
+                      onDragStart={(event) => onDragStart(event, model.nodeType)}
+                      onDragEnd={onDragEnd}
+                      className="flex flex-col items-center justify-center h-24 bg-[#1f1f1f] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg transition-colors group cursor-grab active:cursor-grabbing"
+                    >
+                      <div className="w-8 h-8 mb-2 flex items-center justify-center">
+                        <div className={`text-lg ${model.badgeColor}`}>{model.badge}</div>
+                      </div>
+                      <span className="text-xs text-gray-300 text-center px-2 leading-tight">
+                        {model.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-24 bg-[#1a1a1a] border border-dashed border-[#2a2a2a] rounded-lg text-center px-4">
+                  <span className="text-xl mb-1">✨</span>
+                  <p className="text-[11px] text-gray-400">Models coming soon</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderAssets = () => {
     const images = getAllImages();

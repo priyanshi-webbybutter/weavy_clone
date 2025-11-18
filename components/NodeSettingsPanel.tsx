@@ -17,7 +17,14 @@ interface NodeSettings {
   seed?: number;
   safetyTolerance?: number;
   raw?: boolean;
-  outputFormat?: 'png' | 'jpeg';
+  outputFormat?: 'png' | 'jpeg' | 'webp';
+  // Flux Redux settings
+  guidance?: number;
+  megapixels?: '0.5' | '1' | '1.5' | '2';
+  numOutputs?: number;
+  numInferenceSteps?: number;
+  outputQuality?: number;
+  disableSafetyChecker?: boolean;
   // Image Describer settings
   modelName?: string;
   modelInstructions?: string;
@@ -87,6 +94,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   // Store nodeId in a way that handleSettingChange can access it
   const nodeId = propNodeId;
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
+  const isFluxReduxModel = modelId === 'black-forest-labs/flux-redux-dev' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'black-forest-labs/flux-redux-dev');
   const isVideoGenerator = modelId === 'pixverse/pixverse-v4.5' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'videoGenerator');
   const isMultiSelection = selectedNodes && selectedNodes.length > 1;
   const isImageDescriber = nodeName === 'Image Describer' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'imageDescriber');
@@ -101,48 +109,63 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
     }
   }, [selectedNodes]);
   
-  const [settings, setSettings] = useState<NodeSettings>(
-    initialSettings || (isImageDescriber
-      ? {
-          // Image Describer default settings
-          modelName: 'gemini-2.5-flash',
-          modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
-        }
-      : isVideoGenerator
-      ? {
-          // Pixverse v4.5 default settings
-          aspectRatio: '16:9',
-          duration: 5,
-          quality: '720p',
-          effect: 'None',
-          negativePrompt: '',
-          motionMode: 'normal',
-          seed: 597311,
-          seedRandom: true,
-          style: 'None',
-          enableSoundEffects: false,
-          soundEffectPrompt: '',
-        }
-      : isFluxModel
-      ? {
-          aspectRatio: '1:1',
-          promptUpsampling: true,
-          seed: undefined,
-          safetyTolerance: 2,
-          outputFormat: 'png',
-          raw: false,
-        }
-      : {
-          // Seedream-4 default settings
-          size: '2K',
-          width: 2048,
-          height: 2048,
-          aspectRatio: '4:3',
-          maxImages: 1,
-          enhancePrompt: true,
-          sequentialImageGeneration: 'disabled',
-        })
-  );
+  const buildDefaultSettings = (): NodeSettings => {
+    if (isVideoGenerator) {
+      return {
+        aspectRatio: '16:9',
+        duration: 5,
+        quality: '720p',
+        effect: 'None',
+        negativePrompt: '',
+        motionMode: 'normal',
+        seed: 597311,
+        seedRandom: true,
+        style: 'None',
+        enableSoundEffects: false,
+        soundEffectPrompt: '',
+      };
+    }
+    if (isImageDescriber) {
+      return {
+        modelName: 'gemini-2.5-flash',
+        modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
+      };
+    }
+    if (isFluxModel) {
+      return {
+        aspectRatio: '1:1',
+        promptUpsampling: true,
+        seed: undefined,
+        safetyTolerance: 2,
+        outputFormat: 'png',
+        raw: false,
+      };
+    }
+    if (isFluxReduxModel) {
+      return {
+        aspectRatio: '1:1',
+        guidance: 3,
+        megapixels: '1',
+        numOutputs: 1,
+        outputFormat: 'webp',
+        outputQuality: 80,
+        numInferenceSteps: 28,
+        disableSafetyChecker: false,
+        seed: undefined,
+      };
+    }
+    return {
+      size: '2K',
+      width: 2048,
+      height: 2048,
+      aspectRatio: '4:3',
+      maxImages: 1,
+      enhancePrompt: true,
+      sequentialImageGeneration: 'disabled',
+    };
+  };
+
+  const [settings, setSettings] = useState<NodeSettings>(initialSettings || buildDefaultSettings());
 
   const [runs, setRuns] = useState(1);
 
@@ -150,49 +173,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   React.useEffect(() => {
     if (initialSettings) {
       setSettings(initialSettings);
-      } else {
-        // Reset to defaults when no initial settings
-        if (isVideoGenerator) {
-          setSettings({
-            aspectRatio: '16:9',
-            duration: 5,
-            quality: '720p',
-            effect: 'None',
-            negativePrompt: '',
-            motionMode: 'normal',
-            seed: 597311,
-            seedRandom: true,
-            style: 'None',
-            enableSoundEffects: false,
-            soundEffectPrompt: '',
-          });
-        } else if (isImageDescriber) {
-          setSettings({
-            modelName: 'gemini-2.5-flash',
-          modelInstructions: 'You are an expert image analyst tasked with providing detailed accurate and helpful descriptions of images. Your goal is to make visual content accessible through clear comprehensive text descriptions. Be objective and factual using clear descriptive language. Organize information from general to specific and include relevant context. Start with a brief overview of what the image shows then describe the main subjects and setting. Include visual details like colors lighting, textures, style, genre, contrast and composition. Transcribe any visible text accurately. Use specific concrete language and mention spatial relationships. For people focus on actions clothing and general appearance respectfully. For data visualizations explain the information presented. Write as if describing to someone who cannot see the image including important context for understanding. Balance thoroughness with clarity and provide descriptions in natural flowing narrative form. Your description shouldn\'t be longer than 500 characters',
-        });
-      } else if (isFluxModel) {
-        setSettings({
-          aspectRatio: '1:1',
-          promptUpsampling: true,
-          seed: undefined,
-          safetyTolerance: 2,
-          outputFormat: 'png',
-          raw: false,
-        });
-      } else {
-        setSettings({
-          size: '2K',
-          width: 2048,
-          height: 2048,
-          aspectRatio: '4:3',
-          maxImages: 1,
-          enhancePrompt: true,
-          sequentialImageGeneration: 'disabled',
-        });
-      }
+    } else {
+      setSettings(buildDefaultSettings());
     }
-  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel]);
+  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel, isFluxReduxModel]);
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
@@ -208,9 +192,9 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
       }
     } else {
       // For single selection, update local settings
-      const newSettings = { ...settings, [key]: value };
-      setSettings(newSettings);
-      if (onSettingsChange) {
+    const newSettings = { ...settings, [key]: value };
+    setSettings(newSettings);
+    if (onSettingsChange) {
         // Use the nodeId from the component scope (prop), not the parameter (which is only for multi-selection)
         console.log(`🔧 handleSettingChange - using nodeId from prop: "${nodeId}"`);
         onSettingsChange(nodeId, newSettings);
@@ -243,6 +227,8 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
         if (node.type === 'imageGenerator') {
           if (node.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
             nodeCost = 11; // Flux cost
+          } else if (node.data?.modelId === 'black-forest-labs/flux-redux-dev') {
+            nodeCost = 15; // Flux Redux cost
           } else {
             nodeCost = 23; // Seedream-4 cost
           }
@@ -426,6 +412,9 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   if (nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra') {
                     nodeCost = 11;
                     nodeName = 'FLUX 1.1 Pro Ultra';
+                  } else if (nodeModelId === 'black-forest-labs/flux-redux-dev') {
+                    nodeCost = 15;
+                    nodeName = 'FLUX.1 Redux [dev]';
                   } else {
                     nodeCost = 23;
                     nodeName = node.data?.modelName || 'Seedream-4';
@@ -444,6 +433,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 
                 const nodeSettings = nodeSettingsMap[node.id] || {};
                 const isNodeFlux = nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra';
+                const isNodeFluxRedux = nodeModelId === 'black-forest-labs/flux-redux-dev';
                 const isNodeVideoGenerator = nodeModelId === 'pixverse/pixverse-v4.5' || node.type === 'videoGenerator';
                 
                 return (
@@ -492,7 +482,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   <option value="3:4">3:4</option>
                                   <option value="21:9">21:9</option>
                                   <option value="9:21">9:21</option>
-                                </select>
+              </select>
                                 <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                               </div>
                             </div>
@@ -555,8 +545,8 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                               <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
                                 <span>Strict (0)</span>
                                 <span>Permissive (6)</span>
-                              </div>
-                            </div>
+            </div>
+          </div>
                             {/* Raw Mode */}
                             <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
@@ -590,6 +580,188 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                               />
                             </div>
                           </>
+                        ) : node.type === 'imageGenerator' && isNodeFluxRedux ? (
+                          <>
+                            <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded">
+                              <p className="text-[10px] text-amber-200" style={{ fontWeight: 200 }}>
+                                Requires an image connected to the Redux image* handle.
+                              </p>
+                            </div>
+                            {/* Aspect Ratio */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.aspectRatio || '1:1'}
+                                  onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="1:1">1:1</option>
+                                  <option value="4:3">4:3</option>
+                                  <option value="3:4">3:4</option>
+                                  <option value="16:9">16:9</option>
+                                  <option value="9:16">9:16</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Guidance */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Guidance</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.guidance ?? 3}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                step="0.1"
+                                value={nodeSettings.guidance ?? 3}
+                                onChange={(e) => handleSettingChange('guidance', parseFloat(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((nodeSettings.guidance ?? 3) - 1) / 9) * 100}%, #2a2a2a ${(((nodeSettings.guidance ?? 3) - 1) / 9) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Megapixels */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Megapixels</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.megapixels || '1'}
+                                  onChange={(e) => handleSettingChange('megapixels', e.target.value as NodeSettings['megapixels'], node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="0.5">0.5 MP</option>
+                                  <option value="1">1 MP</option>
+                                  <option value="1.5">1.5 MP</option>
+                                  <option value="2">2 MP</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Outputs */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Outputs per run</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.numOutputs || 1}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="4"
+                                value={nodeSettings.numOutputs || 1}
+                                onChange={(e) => handleSettingChange('numOutputs', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((nodeSettings.numOutputs || 1) - 1) / 3) * 100}%, #2a2a2a ${(((nodeSettings.numOutputs || 1) - 1) / 3) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Output Format */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Format</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.outputFormat || 'webp'}
+                                  onChange={(e) => handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg' | 'webp', node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="webp">webp</option>
+                                  <option value="png">png</option>
+                                  <option value="jpeg">jpeg</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
+                            </div>
+                            {/* Output Quality */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Quality</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.outputQuality ?? 80}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="10"
+                                max="100"
+                                value={nodeSettings.outputQuality ?? 80}
+                                onChange={(e) => handleSettingChange('outputQuality', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((nodeSettings.outputQuality ?? 80) / 100) * 100}%, #2a2a2a ${((nodeSettings.outputQuality ?? 80) / 100) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Inference Steps */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Inference Steps</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.numInferenceSteps ?? 28}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="50"
+                                value={nodeSettings.numInferenceSteps ?? 28}
+                                onChange={(e) => handleSettingChange('numInferenceSteps', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((nodeSettings.numInferenceSteps ?? 28) / 50) * 100}%, #2a2a2a ${((nodeSettings.numInferenceSteps ?? 28) / 50) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Seed */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed (Optional)</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <input
+                                type="number"
+                                value={nodeSettings.seed ?? ''}
+                                onChange={(e) => handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined, node.id)}
+                                placeholder="Leave empty for random"
+                                className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a]"
+                              />
+                            </div>
+                            {/* Safety */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Safety Checker</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={nodeSettings.disableSafetyChecker === true}
+                                  onChange={(e) => handleSettingChange('disableSafetyChecker', e.target.checked, node.id)}
+                                />
+                                <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Disable safety checker</span>
+                              </label>
+                            </div>
+                          </>
                         ) : node.type === 'imageGenerator' ? (
                           /* Seedream-4 Settings - Full Settings */
                           <>
@@ -604,15 +776,26 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   value={nodeSettings.size || '2K'}
                                   onChange={(e) => {
                                     const newSize = e.target.value as '1K' | '2K' | '4K';
-                                    handleSettingChange('size', newSize, node.id);
                                     const sizeMap: Record<string, { width: number; height: number }> = {
                                       '1K': { width: 1024, height: 1024 },
                                       '2K': { width: 2048, height: 2048 },
                                       '4K': { width: 4096, height: 4096 },
                                     };
-                                    if (sizeMap[newSize]) {
-                                      handleSettingChange('width', sizeMap[newSize].width, node.id);
-                                      handleSettingChange('height', sizeMap[newSize].height, node.id);
+                                    
+                                    // Update all three settings in a single batch
+                                    const currentSettings = nodeSettingsMap[node.id] || {};
+                                    const newSettings = {
+                                      ...currentSettings,
+                                      size: newSize,
+                                      ...(sizeMap[newSize] ? {
+                                        width: sizeMap[newSize].width,
+                                        height: sizeMap[newSize].height,
+                                      } : {}),
+                                    };
+                                    
+                                    // Notify parent in a single update
+                                    if (onSettingsChange) {
+                                      onSettingsChange(node.id, newSettings);
                                     }
                                   }}
                                   className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
@@ -625,11 +808,11 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                               </div>
                             </div>
                             {/* Width */}
-                            <div>
+          <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Width</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
-                              </div>
+              </div>
                               <input
                                 type="number"
                                 value={nodeSettings.width || 2048}
@@ -1128,14 +1311,14 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   <span>10</span>
                 </div>
               </div>
-              {/* Quality */}
-              <div>
+          {/* Quality */}
+          <div>
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Quality</label>
                   <Info size={10} className="text-gray-500 cursor-help" />
-                </div>
-                <div className="relative">
-                  <select
+            </div>
+            <div className="relative">
+              <select
                     value={settings.quality || '720p'}
                     onChange={(e) => handleSettingChange('quality', e.target.value)}
                     className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
@@ -1449,6 +1632,188 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 />
               </div>
             </>
+          ) : isFluxReduxModel ? (
+            <>
+              <div className="p-2 bg-amber-500/10 border border-amber-500/30 rounded">
+                <p className="text-[10px] text-amber-200" style={{ fontWeight: 200 }}>
+                  Connect an image to the Redux image* handle to use Redux image editing.
+                </p>
+              </div>
+              {/* Aspect Ratio */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Aspect Ratio</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.aspectRatio || '1:1'}
+                    onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="1:1">1:1</option>
+                    <option value="4:3">4:3</option>
+                    <option value="3:4">3:4</option>
+                    <option value="16:9">16:9</option>
+                    <option value="9:16">9:16</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Guidance */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Guidance</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.guidance ?? 3}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.1"
+                  value={settings.guidance ?? 3}
+                  onChange={(e) => handleSettingChange('guidance', parseFloat(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.guidance ?? 3) - 1) / 9) * 100}%, #2a2a2a ${(((settings.guidance ?? 3) - 1) / 9) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Megapixels */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Megapixels</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.megapixels || '1'}
+                    onChange={(e) => handleSettingChange('megapixels', e.target.value as NodeSettings['megapixels'])}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="0.5">0.5 MP</option>
+                    <option value="1">1 MP</option>
+                    <option value="1.5">1.5 MP</option>
+                    <option value="2">2 MP</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Outputs per run */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Outputs per run</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.numOutputs || 1}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="4"
+                  value={settings.numOutputs || 1}
+                  onChange={(e) => handleSettingChange('numOutputs', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${(((settings.numOutputs || 1) - 1) / 3) * 100}%, #2a2a2a ${(((settings.numOutputs || 1) - 1) / 3) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Output Format */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Format</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.outputFormat || 'webp'}
+                    onChange={(e) => handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg' | 'webp')}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="webp">webp</option>
+                    <option value="png">png</option>
+                    <option value="jpeg">jpeg</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
+              </div>
+              {/* Output Quality */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Quality</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.outputQuality ?? 80}</span>
+                </div>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  value={settings.outputQuality ?? 80}
+                  onChange={(e) => handleSettingChange('outputQuality', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((settings.outputQuality ?? 80) / 100) * 100}%, #2a2a2a ${((settings.outputQuality ?? 80) / 100) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Inference Steps */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Inference Steps</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.numInferenceSteps ?? 28}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  value={settings.numInferenceSteps ?? 28}
+                  onChange={(e) => handleSettingChange('numInferenceSteps', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #8b5cf6 0%, #8b5cf6 ${((settings.numInferenceSteps ?? 28) / 50) * 100}%, #2a2a2a ${((settings.numInferenceSteps ?? 28) / 50) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Seed */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed (Optional)</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <input
+                  type="number"
+                  value={settings.seed ?? ''}
+                  onChange={(e) => handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder="Leave empty for random"
+                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a]"
+                />
+              </div>
+              {/* Safety */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Safety Checker</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.disableSafetyChecker === true}
+                    onChange={(e) => handleSettingChange('disableSafetyChecker', e.target.checked)}
+                  />
+                  <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Disable safety checker</span>
+                </label>
+              </div>
+            </>
           ) : (
             <>
               {/* Size - Seedream-4 */}
@@ -1462,16 +1827,29 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     value={settings.size || '2K'}
                     onChange={(e) => {
                       const newSize = e.target.value as '1K' | '2K' | '4K';
-                      handleSettingChange('size', newSize);
                       // Auto-update width/height based on size
                       const sizeMap: Record<string, { width: number; height: number }> = {
                         '1K': { width: 1024, height: 1024 },
                         '2K': { width: 2048, height: 2048 },
                         '4K': { width: 4096, height: 4096 },
                       };
-                      if (sizeMap[newSize]) {
-                        handleSettingChange('width', sizeMap[newSize].width);
-                        handleSettingChange('height', sizeMap[newSize].height);
+                      
+                      // Update all three settings in a single batch
+                      const newSettings = {
+                        ...settings,
+                        size: newSize,
+                        ...(sizeMap[newSize] ? {
+                          width: sizeMap[newSize].width,
+                          height: sizeMap[newSize].height,
+                        } : {}),
+                      };
+                      
+                      // Update local state
+                      setSettings(newSettings);
+                      
+                      // Notify parent in a single update
+                      if (onSettingsChange) {
+                        onSettingsChange(nodeId, newSettings);
                       }
                     }}
                     className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"

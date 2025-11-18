@@ -62,6 +62,10 @@ const initialNodes: Node[] = [];
 // Initial edges - Start with no connections
 const initialEdges: Edge[] = [];
 
+const SEEDREAM_MODEL_ID = 'bytedance/seedream-4';
+const FLUX_MODEL_ID = 'black-forest-labs/flux-1.1-pro-ultra';
+const FLUX_REDUX_MODEL_ID = 'black-forest-labs/flux-redux-dev';
+
 // Task interface
 interface Task {
   id: string;
@@ -133,6 +137,10 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
     // Get source and target nodes
     const sourceNode = nodes.find(n => n.id === connection.source);
     const targetNode = nodes.find(n => n.id === connection.target);
+    
+    if (connection.targetHandle === 'reduxImage') {
+      return sourceNode?.type === 'imageGenerator';
+    }
     
     // If source is a Prompt node (text output)
     if (sourceNode?.type === 'promptInput') {
@@ -645,15 +653,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
     const connectedEdges = currentEdges.filter((edge) => edge.target === nodeId);
     const promptEdge = connectedEdges.find((edge) => !edge.targetHandle || edge.targetHandle === 'prompt');
     const imagePromptEdge = connectedEdges.find((edge) => edge.targetHandle === 'imagePrompt');
-
-    if (!promptEdge) {
-      EXECUTION_IN_PROGRESS.delete(nodeId);
-      GLOBAL_GENERATING_NODES.delete(nodeId);
-      generatingNodes.current.delete(nodeId);
-      LAST_CALL_TIMESTAMPS.delete(nodeId);
-      alert('Please connect a Prompt node to the input before running the model.');
-      return;
-    }
+    const reduxImageEdge = connectedEdges.find((edge) => edge.targetHandle === 'reduxImage');
 
     const imageNode = currentNode;
         if (!imageNode) {
@@ -674,56 +674,29 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
       return;
     }
 
-    // Get prompt text from connected prompt node
-    // Support both PromptInputNode (data.value) and ImageDescriberNode (data.description)
-    const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
-    if (!promptSourceNode) {
-      EXECUTION_IN_PROGRESS.delete(nodeId);
-      GLOBAL_GENERATING_NODES.delete(nodeId);
-      generatingNodes.current.delete(nodeId);
-      LAST_CALL_TIMESTAMPS.delete(nodeId);
-          alert('Connected prompt node not found.');
-      return;
-    }
-
-    // Get text from different node types
-    let promptText = '';
-    if (promptSourceNode.type === 'imageDescriber') {
-      // Image Describer stores text in data.description
-      promptText = promptSourceNode.data?.description || '';
-    } else if (promptSourceNode.type === 'promptInput') {
-      // Prompt Input stores text in data.value
-      promptText = promptSourceNode.data?.value || '';
-    } else {
-      // Fallback: try both
-      promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
-    }
-
-        if (!promptText.trim()) {
-      EXECUTION_IN_PROGRESS.delete(nodeId);
-      GLOBAL_GENERATING_NODES.delete(nodeId);
-      generatingNodes.current.delete(nodeId);
-      LAST_CALL_TIMESTAMPS.delete(nodeId);
-      if (promptSourceNode.type === 'imageDescriber') {
-        alert('The connected Image Describer has no description yet. Please run the Image Describer first to generate a description.');
-      } else {
-          alert('The connected prompt is empty. Please enter some text first.');
-      }
-      return;
-    }
-
     // Get image prompt URL from connected image generator node (if connected)
     let imagePromptUrl: string | undefined = undefined;
-    if (imagePromptEdge) {
-      const imagePromptSourceNode = currentNodes.find((node) => node.id === imagePromptEdge.source);
+    const imageInputEdge = reduxImageEdge || imagePromptEdge;
+    if (imageInputEdge) {
+      const imagePromptSourceNode = currentNodes.find((node) => node.id === imageInputEdge.source);
       if (imagePromptSourceNode && imagePromptSourceNode.type === 'imageGenerator') {
-        imagePromptUrl = imagePromptSourceNode.data?.imageUrl;
+        const sourceImages = imagePromptSourceNode.data?.imageUrls;
+        if (Array.isArray(sourceImages) && sourceImages.length > 0) {
+          const sourceIndex = imagePromptSourceNode.data?.currentImageIndex !== undefined
+            ? imagePromptSourceNode.data.currentImageIndex
+            : sourceImages.length - 1;
+          imagePromptUrl = sourceImages[sourceIndex] || sourceImages[sourceImages.length - 1];
+        } else if (imagePromptSourceNode.data?.imageUrl) {
+          imagePromptUrl = imagePromptSourceNode.data.imageUrl;
+        }
         console.log(`🖼️ [${callId}] Found image prompt from node ${imagePromptSourceNode.id}: ${imagePromptUrl}`);
       }
     }
 
         // Get model ID from node data
-        const modelId = imageNode.data?.modelId || 'bytedance/seedream-4';
+        const modelId = imageNode.data?.modelId || SEEDREAM_MODEL_ID;
+        const isFluxModel = modelId === FLUX_MODEL_ID;
+        const isFluxReduxModel = modelId === FLUX_REDUX_MODEL_ID;
         
         console.log(`🔍 [${callId}] Node data:`, {
           nodeId,
@@ -733,7 +706,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
         });
 
         // Get settings for this node (with defaults) - use REF to avoid stale closure
-        const defaultSettings = modelId === 'black-forest-labs/flux-1.1-pro-ultra' 
+        const defaultSettings = isFluxModel
           ? {
               aspectRatio: '1:1',
               promptUpsampling: true,
@@ -742,20 +715,97 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
               outputFormat: 'png',
               raw: false,
             }
-          : {
+          : isFluxReduxModel
+            ? {
+                aspectRatio: '1:1',
+                guidance: 3,
+                megapixels: '1',
+                numOutputs: 1,
+                outputFormat: 'webp',
+                outputQuality: 80,
+                numInferenceSteps: 28,
+                disableSafetyChecker: false,
+                seed: undefined,
+              }
+            : {
               // Seedream-4 default settings
-              size: '2K',
-              width: 2048,
-              height: 2048,
-              aspectRatio: '4:3',
-              maxImages: 1,
-              enhancePrompt: true,
-              sequentialImageGeneration: 'disabled',
-            };
+                size: '2K',
+                width: 2048,
+                height: 2048,
+                aspectRatio: '4:3',
+                maxImages: 1,
+                enhancePrompt: true,
+                sequentialImageGeneration: 'disabled',
+              };
 
         const settings = nodeSettingsRef.current[nodeId] || defaultSettings;
 
-        console.log(`🎨 [${callId}] Generating image with prompt: "${promptText}"`);
+        let promptText = '';
+        if (isFluxReduxModel) {
+          if (!imagePromptUrl) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Redux nodes require a generated image connected to the Redux image* handle.');
+            return;
+          }
+        } else {
+          if (!promptEdge) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Please connect a prompt node to this image generator.');
+            return;
+          }
+
+          const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
+          if (!promptSourceNode) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Connected prompt node not found.');
+            return;
+          }
+
+          if (promptSourceNode.type === 'imageDescriber') {
+            promptText = promptSourceNode.data?.description || '';
+          } else if (promptSourceNode.type === 'promptInput') {
+            promptText = promptSourceNode.data?.value || '';
+          } else {
+            promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
+          }
+
+          if (!promptText.trim()) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            if (promptSourceNode.type === 'imageDescriber') {
+              alert('The connected Image Describer has no description yet. Please run the Image Describer first to generate a description.');
+            } else {
+              alert('The connected prompt is empty. Please enter some text first.');
+            }
+            return;
+          }
+        }
+
+        if (isFluxReduxModel && !imagePromptUrl) {
+          EXECUTION_IN_PROGRESS.delete(nodeId);
+          GLOBAL_GENERATING_NODES.delete(nodeId);
+          generatingNodes.current.delete(nodeId);
+          LAST_CALL_TIMESTAMPS.delete(nodeId);
+          alert('Redux nodes require a generated image connected to the Redux image* handle.');
+          return;
+        }
+
+        console.log(
+          `🎨 [${callId}] Generating image${
+            isFluxReduxModel ? ' (Redux image remix)' : ` with prompt: "${promptText}"`
+          }`
+        );
         console.log(`📊 [${callId}] Using model: ${modelId}`);
         console.log(`📊 [${callId}] Node modelId from data: ${imageNode.data?.modelId}`);
         console.log(`📊 [${callId}] Using settings:`, settings);
@@ -780,10 +830,13 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
         // Only include parameters relevant to the selected model
         const requestBody: any = {
           modelId: modelId,
-          prompt: promptText,
         };
 
-        if (modelId === 'black-forest-labs/flux-1.1-pro-ultra') {
+        if (!isFluxReduxModel) {
+          requestBody.prompt = promptText;
+        }
+
+        if (isFluxModel) {
           // Flux-specific parameters only
           requestBody.aspectRatio = settings.aspectRatio;
           requestBody.promptUpsampling = settings.promptUpsampling;
@@ -793,11 +846,24 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           if (settings.seed !== undefined) {
             requestBody.seed = settings.seed;
           }
-          // Add image prompt if connected
           if (imagePromptUrl) {
             requestBody.imagePrompt = imagePromptUrl;
             console.log(`🖼️ [${callId}] Adding image prompt to request: ${imagePromptUrl}`);
           }
+        } else if (isFluxReduxModel) {
+          requestBody.redux_image = imagePromptUrl;
+          requestBody.aspect_ratio = settings.aspectRatio || '1:1';
+          requestBody.num_outputs = settings.numOutputs || 1;
+          requestBody.num_inference_steps = settings.numInferenceSteps || 28;
+          requestBody.guidance = settings.guidance ?? 3;
+          if (settings.seed !== undefined) {
+            requestBody.seed = settings.seed;
+          }
+          requestBody.output_format = settings.outputFormat || 'webp';
+          requestBody.output_quality = settings.outputQuality ?? 80;
+          requestBody.disable_safety_checker = settings.disableSafetyChecker === true;
+          requestBody.megapixels = settings.megapixels || '1';
+          console.log(`🖼️ [${callId}] Adding Redux source image: ${imagePromptUrl}`);
         } else {
           // Seedream-4 parameters only
           requestBody.size = settings.size || '2K';
@@ -840,13 +906,17 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
               currentNodes.map((node) => {
                 if (node.id === nodeId) {
               const existingImageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
-              const newImageUrls = [...existingImageUrls, data.imageUrl];
+              const responseImages: string[] = Array.isArray(data.imageUrls) && data.imageUrls.length > 0
+                ? data.imageUrls
+                : [data.imageUrl];
+              const newImageUrls = [...existingImageUrls, ...responseImages];
+              const latestImage = responseImages[responseImages.length - 1] || data.imageUrl;
                   return {
                     ...node,
                     data: {
                       ...node.data,
                       isGenerating: false,
-                  imageUrl: data.imageUrl, // Keep for backward compatibility
+                  imageUrl: latestImage, // Keep for backward compatibility
                   imageUrls: newImageUrls, // Array of all generated images
                   currentImageIndex: newImageUrls.length - 1, // Show the newest image
                     },
@@ -1303,7 +1373,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           data: {
             label: 'Image Generator',
             modelName: 'Seedream-4',
-            modelId: 'bytedance/seedream-4',
+            modelId: SEEDREAM_MODEL_ID,
             imageUrl: undefined,
             imageUrls: [],
             currentImageIndex: 0,
@@ -1325,7 +1395,30 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           data: {
             label: 'Image Generator',
             modelName: 'FLUX 1.1 Pro Ultra',
-            modelId: 'black-forest-labs/flux-1.1-pro-ultra',
+            modelId: FLUX_MODEL_ID,
+            imageUrl: undefined,
+            imageUrls: [],
+            currentImageIndex: 0,
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+            onImageIndexChange: handleImageIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherGenerations,
+            onRemoveAllGenerations: handleRemoveAllGenerations,
+            onOpenFullscreen: handleOpenFullscreen,
+          },
+        };
+      } else if (type === 'fluxReduxGenerator') {
+        newNode = {
+          id: newNodeId,
+          type: 'imageGenerator',
+          position,
+          data: {
+            label: 'Image Generator',
+            modelName: 'FLUX.1 Redux [dev]',
+            modelId: FLUX_REDUX_MODEL_ID,
             imageUrl: undefined,
             imageUrls: [],
             currentImageIndex: 0,
@@ -1760,9 +1853,19 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
       }
 
       // Restore edges
-      if (workflow.edges && Array.isArray(workflow.edges)) {
-        console.log('✅ Restoring edges:', workflow.edges.length);
-        setEdges(workflow.edges);
+                if (workflow.edges && Array.isArray(workflow.edges)) {
+                  console.log('✅ Restoring edges:', workflow.edges.length);
+                  const nodeMap = new Map<string, any>((workflow.nodes || []).map((n: any) => [n.id, n]));
+                  const normalizedEdges = workflow.edges.map((edge: Edge) => {
+                    if (edge.targetHandle === 'imagePrompt') {
+                      const targetNode = nodeMap.get(edge.target);
+                      if (targetNode?.data?.modelId === FLUX_REDUX_MODEL_ID) {
+                        return { ...edge, targetHandle: 'reduxImage' };
+                      }
+                    }
+                    return edge;
+                  });
+                  setEdges(normalizedEdges);
       } else {
         console.log('⚠️ No edges to restore');
         setEdges([]);
@@ -2469,12 +2572,12 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             };
           } else if (node.type === 'imageGenerator') {
             // Migrate old GPT Image 1 nodes to Seedream-4
-            let modelId = node.data?.modelId || 'bytedance/seedream-4';
+            let modelId = node.data?.modelId || SEEDREAM_MODEL_ID;
             let modelName = node.data?.modelName || 'Seedream-4';
             
             if (modelId === 'openai/gpt-image-1' || !modelId) {
               console.log(`🔄 Migrating old GPT Image 1 node to Seedream-4: ${node.id}`);
-              modelId = 'bytedance/seedream-4';
+              modelId = SEEDREAM_MODEL_ID;
               modelName = 'Seedream-4';
             }
             
@@ -2698,9 +2801,13 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           : selectedNode?.type === 'videoGenerator'
           ? selectedNode?.data?.modelName || 'Pixverse v4.5'
           : selectedNode?.data?.modelName || 'Seedream-4'}
-        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v4.5' : 'bytedance/seedream-4')}
+        modelId={selectedNode?.data?.modelId || (selectedNode?.type === 'videoGenerator' ? 'pixverse/pixverse-v4.5' : SEEDREAM_MODEL_ID)}
         creditCost={selectedNode?.type === 'imageGenerator' 
-          ? (selectedNode?.data?.modelId === 'black-forest-labs/flux-1.1-pro-ultra' ? 11 : 23)
+          ? (selectedNode?.data?.modelId === FLUX_MODEL_ID
+              ? 11
+              : selectedNode?.data?.modelId === FLUX_REDUX_MODEL_ID
+                ? 15
+                : 23)
           : selectedNode?.type === 'imageDescriber' ? 1 
           : selectedNode?.type === 'videoGenerator' ? 50 : 0}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}
