@@ -141,6 +141,14 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
         nodeType: 'fluxReduxGenerator',
         category: 'image',
       },
+      {
+        id: 'flux-canny-pro',
+        label: 'FLUX Canny Pro',
+        badge: 'C',
+        badgeColor: 'text-cyan-400',
+        nodeType: 'fluxCannyGenerator',
+        category: 'image',
+      },
     ];
 
     const modelsByCategory = categories.reduce<Record<string, typeof models>>((acc, category) => {

@@ -26,6 +26,11 @@ router.post('/generate-image', async (req, res) => {
       outputFormat = 'png',
       // Flux Redux parameters (snake_case preferred)
       redux_image,
+      // Flux Canny Pro parameters
+      control_image,
+      steps,
+      prompt_upsampling,
+      safety_tolerance,
       aspect_ratio,
       num_outputs = 1,
       num_inference_steps = 28,
@@ -41,7 +46,8 @@ router.post('/generate-image', async (req, res) => {
     }
 
     const isFluxReduxModel = modelId === 'black-forest-labs/flux-redux-dev';
-    const requiresPrompt = !isFluxReduxModel;
+    const isFluxCannyModel = modelId === 'black-forest-labs/flux-canny-pro';
+    const requiresPrompt = !isFluxReduxModel; // Canny needs prompt, Redux doesn't
 
     // Validate prompt for models that need text input
     if (requiresPrompt && (!prompt || typeof prompt !== 'string' || !prompt.trim())) {
@@ -196,6 +202,83 @@ router.post('/generate-image', async (req, res) => {
       }
 
       modelToRun = 'black-forest-labs/flux-redux-dev';
+    } else if (modelId === 'black-forest-labs/flux-canny-pro') {
+      const sourceImage = control_image || imagePrompt;
+      if (!sourceImage || typeof sourceImage !== 'string' || !sourceImage.trim()) {
+        return res.status(400).json({
+          error: 'FLUX Canny Pro requires a connected control image',
+        });
+      }
+
+      if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+        return res.status(400).json({
+          error: 'FLUX Canny Pro requires a text prompt',
+        });
+      }
+
+      // Validate the source image URL format
+      if (!sourceImage.startsWith('http://') && !sourceImage.startsWith('https://')) {
+        return res.status(400).json({
+          error: 'Invalid control image URL format. Must be a valid HTTP/HTTPS URL.',
+          details: `Received: ${sourceImage}`,
+        });
+      }
+
+      // Try to validate the URL is accessible
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const headResponse = await fetch(sourceImage, { 
+          method: 'HEAD', 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+          },
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!headResponse.ok) {
+          console.error(`❌ Control image URL returned status ${headResponse.status}: ${sourceImage}`);
+          return res.status(400).json({
+            error: 'Control image URL is not accessible',
+            message: `The connected image URL returned a ${headResponse.status} error. The image may have expired or been deleted. Please regenerate the source image and try again.`,
+            details: `URL: ${sourceImage}`,
+          });
+        }
+        
+        console.log(`✅ Control image URL validated successfully: ${sourceImage}`);
+      } catch (urlError) {
+        if (urlError.name === 'AbortError') {
+          console.warn(`⚠️ Control image URL validation timed out: ${sourceImage}`);
+        } else if (urlError.message && urlError.message.includes('404')) {
+          console.error(`❌ Control image URL not found (404): ${sourceImage}`);
+          return res.status(400).json({
+            error: 'Control image not found',
+            message: 'The connected image URL returned a 404 error. The image may have expired or been deleted. Please regenerate the source image and try again.',
+            details: `URL: ${sourceImage}`,
+          });
+        } else {
+          console.warn(`⚠️ Could not validate control image URL: ${urlError.message}`);
+        }
+      }
+
+      inputParams = {
+        control_image: sourceImage,
+        prompt: prompt,
+        guidance: guidance ?? 30,
+        steps: steps || num_inference_steps || 50,
+        safety_tolerance: safety_tolerance ?? 6,
+        prompt_upsampling: prompt_upsampling === true,
+        output_format: (output_format || outputFormat || 'jpg').toLowerCase(),
+      };
+
+      if (seed !== undefined && seed !== null) {
+        inputParams.seed = seed;
+      }
+
+      modelToRun = 'black-forest-labs/flux-canny-pro';
     } else {
       // Seedream-4 parameters
       inputParams = {
@@ -380,16 +463,25 @@ router.post('/generate-image', async (req, res) => {
               disable_safety_checker,
               seed,
             }
-          : {
-              // Seedream-4
-              size,
-              width,
-              height,
-              aspectRatio,
-              maxImages,
-              enhancePrompt,
-              sequentialImageGeneration,
-            },
+          : modelId === 'black-forest-labs/flux-canny-pro'
+            ? {
+                guidance: guidance ?? 30,
+                steps: steps || num_inference_steps || 50,
+                safety_tolerance: safety_tolerance ?? 6,
+                prompt_upsampling: prompt_upsampling === true,
+                output_format: output_format || outputFormat || 'jpg',
+                seed,
+              }
+            : {
+                // Seedream-4
+                size,
+                width,
+                height,
+                aspectRatio,
+                maxImages,
+                enhancePrompt,
+                sequentialImageGeneration,
+              },
     });
 
   } catch (error) {

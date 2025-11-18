@@ -17,7 +17,7 @@ interface NodeSettings {
   seed?: number;
   safetyTolerance?: number;
   raw?: boolean;
-  outputFormat?: 'png' | 'jpeg' | 'webp';
+  outputFormat?: 'png' | 'jpeg' | 'webp' | 'jpg';
   // Flux Redux settings
   guidance?: number;
   megapixels?: '0.5' | '1' | '1.5' | '2';
@@ -25,6 +25,8 @@ interface NodeSettings {
   numInferenceSteps?: number;
   outputQuality?: number;
   disableSafetyChecker?: boolean;
+  // Flux Canny Pro settings
+  steps?: number; // For Canny Pro (same as numInferenceSteps but different name)
   // Image Describer settings
   modelName?: string;
   modelInstructions?: string;
@@ -95,6 +97,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   const nodeId = propNodeId;
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
   const isFluxReduxModel = modelId === 'black-forest-labs/flux-redux-dev' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'black-forest-labs/flux-redux-dev');
+  const isFluxCannyModel = modelId === 'black-forest-labs/flux-canny-pro' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'black-forest-labs/flux-canny-pro');
   const isVideoGenerator = modelId === 'pixverse/pixverse-v4.5' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'videoGenerator');
   const isMultiSelection = selectedNodes && selectedNodes.length > 1;
   const isImageDescriber = nodeName === 'Image Describer' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'imageDescriber');
@@ -154,6 +157,17 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
         seed: undefined,
       };
     }
+    if (isFluxCannyModel) {
+      return {
+        seed: 41269,
+        seedRandom: true,
+        steps: 50,
+        promptUpsampling: false,
+        guidance: 30,
+        safetyTolerance: 6,
+        outputFormat: 'jpg',
+      };
+    }
     return {
       size: '2K',
       width: 2048,
@@ -176,7 +190,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
     } else {
       setSettings(buildDefaultSettings());
     }
-  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel, isFluxReduxModel]);
+  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel, isFluxReduxModel, isFluxCannyModel]);
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
@@ -415,6 +429,9 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   } else if (nodeModelId === 'black-forest-labs/flux-redux-dev') {
                     nodeCost = 15;
                     nodeName = 'FLUX.1 Redux [dev]';
+                  } else if (nodeModelId === 'black-forest-labs/flux-canny-pro') {
+                    nodeCost = 6;
+                    nodeName = 'FLUX Canny Pro';
                   } else {
                     nodeCost = 23;
                     nodeName = node.data?.modelName || 'Seedream-4';
@@ -434,6 +451,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 const nodeSettings = nodeSettingsMap[node.id] || {};
                 const isNodeFlux = nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra';
                 const isNodeFluxRedux = nodeModelId === 'black-forest-labs/flux-redux-dev';
+                const isNodeFluxCanny = nodeModelId === 'black-forest-labs/flux-canny-pro';
                 const isNodeVideoGenerator = nodeModelId === 'pixverse/pixverse-v4.5' || node.type === 'videoGenerator';
                 
                 return (
@@ -760,6 +778,147 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 />
                                 <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Disable safety checker</span>
                               </label>
+                            </div>
+                          </>
+                        ) : node.type === 'imageGenerator' && isNodeFluxCanny ? (
+                          <>
+                            <div className="p-2 bg-cyan-500/10 border border-cyan-500/30 rounded">
+                              <p className="text-[10px] text-cyan-200" style={{ fontWeight: 200 }}>
+                                Connect a control image to the Control image* handle and a prompt to the Prompt* handle.
+                              </p>
+                            </div>
+                            {/* Seed */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={nodeSettings.seedRandom !== false}
+                                    onChange={(e) => {
+                                      handleSettingChange('seedRandom', e.target.checked, node.id);
+                                      if (e.target.checked) {
+                                        handleSettingChange('seed', Math.floor(Math.random() * 1000000), node.id);
+                                      }
+                                    }}
+                                    className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                                  />
+                                  <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
+                                </label>
+                                <input
+                                  type="number"
+                                  value={nodeSettings.seed || 41269}
+                                  onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0, node.id)}
+                                  disabled={nodeSettings.seedRandom !== false}
+                                  className="flex-1 bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] disabled:opacity-50 disabled:cursor-not-allowed"
+                                  style={{ fontWeight: 200 }}
+                                />
+                              </div>
+                            </div>
+                            {/* Steps */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Steps</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.steps || 50}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="50"
+                                value={nodeSettings.steps || 50}
+                                onChange={(e) => handleSettingChange('steps', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(((nodeSettings.steps || 50) - 1) / 49) * 100}%, #2a2a2a ${(((nodeSettings.steps || 50) - 1) / 49) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Prompt Upsampling */}
+                            <div>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={nodeSettings.promptUpsampling === true}
+                                  onChange={(e) => handleSettingChange('promptUpsampling', e.target.checked, node.id)}
+                                  className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Prompt Upsampling</span>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                              </label>
+                            </div>
+                            {/* Guidance */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Guidance</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.guidance ?? 30}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="30"
+                                value={nodeSettings.guidance ?? 30}
+                                onChange={(e) => handleSettingChange('guidance', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(((nodeSettings.guidance ?? 30) - 1) / 29) * 100}%, #2a2a2a ${(((nodeSettings.guidance ?? 30) - 1) / 29) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                            </div>
+                            {/* Safety Tolerance */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Safety Tolerance</label>
+                                  <Info size={10} className="text-gray-500 cursor-help" />
+                                </div>
+                                <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.safetyTolerance || 6}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min="0"
+                                max="6"
+                                value={nodeSettings.safetyTolerance || 6}
+                                onChange={(e) => handleSettingChange('safetyTolerance', parseInt(e.target.value), node.id)}
+                                className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                                style={{
+                                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${((nodeSettings.safetyTolerance || 6) / 6) * 100}%, #2a2a2a ${((nodeSettings.safetyTolerance || 6) / 6) * 100}%, #2a2a2a 100%)`,
+                                }}
+                              />
+                              <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
+                                <span>Strict (0)</span>
+                                <span>Permissive (6)</span>
+                              </div>
+                            </div>
+                            {/* Output Format */}
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Format</label>
+                                <Info size={10} className="text-gray-500 cursor-help" />
+                              </div>
+                              <div className="relative">
+                                <select
+                                  value={nodeSettings.outputFormat || 'jpg'}
+                                  onChange={(e) => handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg' | 'webp' | 'jpg', node.id)}
+                                  className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                                >
+                                  <option value="jpg">jpg</option>
+                                  <option value="png">png</option>
+                                  <option value="webp">webp</option>
+                                  <option value="jpeg">jpeg</option>
+                                </select>
+                                <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                              </div>
                             </div>
                           </>
                         ) : node.type === 'imageGenerator' ? (
@@ -1812,6 +1971,147 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   />
                   <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Disable safety checker</span>
                 </label>
+              </div>
+            </>
+          ) : isFluxCannyModel ? (
+            <>
+              <div className="p-2 bg-cyan-500/10 border border-cyan-500/30 rounded">
+                <p className="text-[10px] text-cyan-200" style={{ fontWeight: 200 }}>
+                  Connect a control image to the Control image* handle and a prompt to the Prompt* handle.
+                </p>
+              </div>
+              {/* Seed */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.seedRandom !== false}
+                      onChange={(e) => {
+                        handleSettingChange('seedRandom', e.target.checked);
+                        if (e.target.checked) {
+                          handleSettingChange('seed', Math.floor(Math.random() * 1000000));
+                        }
+                      }}
+                      className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                    />
+                    <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.seed || 41269}
+                    onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0)}
+                    disabled={settings.seedRandom !== false}
+                    className="flex-1 bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ fontWeight: 200 }}
+                  />
+                </div>
+              </div>
+              {/* Steps */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Steps</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.steps || 50}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="50"
+                  value={settings.steps || 50}
+                  onChange={(e) => handleSettingChange('steps', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(((settings.steps || 50) - 1) / 49) * 100}%, #2a2a2a ${(((settings.steps || 50) - 1) / 49) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Prompt Upsampling */}
+              <div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.promptUpsampling === true}
+                    onChange={(e) => handleSettingChange('promptUpsampling', e.target.checked)}
+                    className="w-3 h-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Prompt Upsampling</span>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                </label>
+              </div>
+              {/* Guidance */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Guidance</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.guidance ?? 30}</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="30"
+                  value={settings.guidance ?? 30}
+                  onChange={(e) => handleSettingChange('guidance', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(((settings.guidance ?? 30) - 1) / 29) * 100}%, #2a2a2a ${(((settings.guidance ?? 30) - 1) / 29) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+              </div>
+              {/* Safety Tolerance */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Safety Tolerance</label>
+                    <Info size={10} className="text-gray-500 cursor-help" />
+                  </div>
+                  <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{settings.safetyTolerance || 6}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="6"
+                  value={settings.safetyTolerance || 6}
+                  onChange={(e) => handleSettingChange('safetyTolerance', parseInt(e.target.value))}
+                  className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
+                  style={{
+                    background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${((settings.safetyTolerance || 6) / 6) * 100}%, #2a2a2a ${((settings.safetyTolerance || 6) / 6) * 100}%, #2a2a2a 100%)`,
+                  }}
+                />
+                <div className="flex justify-between text-[9px] text-gray-500 mt-0.5" style={{ fontWeight: 200 }}>
+                  <span>Strict (0)</span>
+                  <span>Permissive (6)</span>
+                </div>
+              </div>
+              {/* Output Format */}
+              <div>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Output Format</label>
+                  <Info size={10} className="text-gray-500 cursor-help" />
+                </div>
+                <div className="relative">
+                  <select
+                    value={settings.outputFormat || 'jpg'}
+                    onChange={(e) => handleSettingChange('outputFormat', e.target.value as 'png' | 'jpeg' | 'webp' | 'jpg')}
+                    className="w-full bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#3a3a3a] appearance-none cursor-pointer"
+                  >
+                    <option value="jpg">jpg</option>
+                    <option value="png">png</option>
+                    <option value="webp">webp</option>
+                    <option value="jpeg">jpeg</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                </div>
               </div>
             </>
           ) : (

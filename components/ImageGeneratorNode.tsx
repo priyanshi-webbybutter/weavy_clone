@@ -671,6 +671,57 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
             <span style={{ fontSize: '20px', color: '#10b981', fontWeight: '500' }}>Redux image*</span>
           </div>
         </>
+      ) : data.modelId === 'black-forest-labs/flux-canny-pro' ? (
+        <>
+          <Handle
+            id="prompt"
+            type="target"
+            position={Position.Left}
+            style={{
+              background: '#d946ef',
+              width: '12px',
+              height: '12px',
+              border: '2px solid #1a1a1a',
+              left: '-7px',
+              top: '30%',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: '-85px',
+              top: '26%',
+              transform: 'translateY(-50%)',
+              zIndex: 10,
+            }}
+          >
+            <span style={{ fontSize: '20px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
+          </div>
+          <Handle
+            id="controlImage"
+            type="target"
+            position={Position.Left}
+            style={{
+              background: '#06b6d4',
+              width: '12px',
+              height: '12px',
+              border: '2px solid #1a1a1a',
+              left: '-7px',
+              top: '70%',
+            }}
+          />
+          <div
+            style={{
+              position: 'absolute',
+              left: '-150px',
+              top: '66%',
+              transform: 'translateY(-50%)',
+              zIndex: 10,
+            }}
+          >
+            <span style={{ fontSize: '20px', color: '#06b6d4', fontWeight: '500' }}>Control image*</span>
+          </div>
+        </>
       ) : (
         <>
           {/* Input Handle - Prompt (Left Side, Top) */}
