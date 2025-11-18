@@ -98,6 +98,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   const isFluxModel = modelId === 'black-forest-labs/flux-1.1-pro-ultra';
   const isFluxReduxModel = modelId === 'black-forest-labs/flux-redux-dev' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'black-forest-labs/flux-redux-dev');
   const isFluxCannyModel = modelId === 'black-forest-labs/flux-canny-pro' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'black-forest-labs/flux-canny-pro');
+  const isReveEditModel = modelId === 'reve/edit' || (selectedNodes.length === 1 && selectedNodes[0]?.data?.modelId === 'reve/edit');
   const isVideoGenerator = modelId === 'pixverse/pixverse-v4.5' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'videoGenerator');
   const isMultiSelection = selectedNodes && selectedNodes.length > 1;
   const isImageDescriber = nodeName === 'Image Describer' || (selectedNodes.length === 1 && selectedNodes[0]?.type === 'imageDescriber');
@@ -190,7 +191,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
     } else {
       setSettings(buildDefaultSettings());
     }
-  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel, isFluxReduxModel, isFluxCannyModel]);
+  }, [initialSettings, isImageDescriber, isVideoGenerator, isFluxModel, isFluxReduxModel, isFluxCannyModel, isReveEditModel]);
 
   const handleSettingChange = <K extends keyof NodeSettings>(
     key: K,
@@ -432,6 +433,9 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   } else if (nodeModelId === 'black-forest-labs/flux-canny-pro') {
                     nodeCost = 6;
                     nodeName = 'FLUX Canny Pro';
+                  } else if (nodeModelId === 'reve/edit') {
+                    nodeCost = 4;
+                    nodeName = 'Reve Edit';
                   } else {
                     nodeCost = 23;
                     nodeName = node.data?.modelName || 'Seedream-4';
@@ -452,6 +456,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 const isNodeFlux = nodeModelId === 'black-forest-labs/flux-1.1-pro-ultra';
                 const isNodeFluxRedux = nodeModelId === 'black-forest-labs/flux-redux-dev';
                 const isNodeFluxCanny = nodeModelId === 'black-forest-labs/flux-canny-pro';
+                const isNodeReveEdit = nodeModelId === 'reve/edit';
                 const isNodeVideoGenerator = nodeModelId === 'pixverse/pixverse-v4.5' || node.type === 'videoGenerator';
                 
                 return (
@@ -920,6 +925,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                               </div>
                             </div>
+                          </>
+                        ) : node.type === 'imageGenerator' && isNodeReveEdit ? (
+                          <>
+                            {/* Reve Edit has no settings - empty panel */}
                           </>
                         ) : node.type === 'imageGenerator' ? (
                           /* Seedream-4 Settings - Full Settings */
@@ -2113,6 +2122,10 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 </div>
               </div>
+            </>
+          ) : isReveEditModel ? (
+            <>
+              {/* Reve Edit has no settings - empty panel */}
             </>
           ) : (
             <>

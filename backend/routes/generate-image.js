@@ -32,6 +32,9 @@ router.post('/generate-image', async (req, res) => {
       prompt_upsampling,
       safety_tolerance,
       aspect_ratio,
+      // Reve Edit parameters
+      image,
+      version,
       num_outputs = 1,
       num_inference_steps = 28,
       guidance = 3,
@@ -47,7 +50,8 @@ router.post('/generate-image', async (req, res) => {
 
     const isFluxReduxModel = modelId === 'black-forest-labs/flux-redux-dev';
     const isFluxCannyModel = modelId === 'black-forest-labs/flux-canny-pro';
-    const requiresPrompt = !isFluxReduxModel; // Canny needs prompt, Redux doesn't
+    const isReveEditModel = modelId === 'reve/edit';
+    const requiresPrompt = !isFluxReduxModel && !isReveEditModel; // Canny and Reve Edit need prompt, Redux doesn't
 
     // Validate prompt for models that need text input
     if (requiresPrompt && (!prompt || typeof prompt !== 'string' || !prompt.trim())) {
@@ -279,6 +283,75 @@ router.post('/generate-image', async (req, res) => {
       }
 
       modelToRun = 'black-forest-labs/flux-canny-pro';
+    } else if (modelId === 'reve/edit') {
+      const sourceImage = image || imagePrompt;
+      if (!sourceImage || typeof sourceImage !== 'string' || !sourceImage.trim()) {
+        return res.status(400).json({
+          error: 'Reve Edit requires a connected image',
+        });
+      }
+
+      if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+        return res.status(400).json({
+          error: 'Reve Edit requires a text prompt',
+        });
+      }
+
+      // Validate the source image URL format
+      if (!sourceImage.startsWith('http://') && !sourceImage.startsWith('https://')) {
+        return res.status(400).json({
+          error: 'Invalid image URL format. Must be a valid HTTP/HTTPS URL.',
+          details: `Received: ${sourceImage}`,
+        });
+      }
+
+      // Try to validate the URL is accessible
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const headResponse = await fetch(sourceImage, { 
+          method: 'HEAD', 
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+          },
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!headResponse.ok) {
+          console.error(`❌ Image URL returned status ${headResponse.status}: ${sourceImage}`);
+          return res.status(400).json({
+            error: 'Image URL is not accessible',
+            message: `The connected image URL returned a ${headResponse.status} error. The image may have expired or been deleted. Please regenerate the source image and try again.`,
+            details: `URL: ${sourceImage}`,
+          });
+        }
+        
+        console.log(`✅ Image URL validated successfully: ${sourceImage}`);
+      } catch (urlError) {
+        if (urlError.name === 'AbortError') {
+          console.warn(`⚠️ Image URL validation timed out: ${sourceImage}`);
+        } else if (urlError.message && urlError.message.includes('404')) {
+          console.error(`❌ Image URL not found (404): ${sourceImage}`);
+          return res.status(400).json({
+            error: 'Image not found',
+            message: 'The connected image URL returned a 404 error. The image may have expired or been deleted. Please regenerate the source image and try again.',
+            details: `URL: ${sourceImage}`,
+          });
+        } else {
+          console.warn(`⚠️ Could not validate image URL: ${urlError.message}`);
+        }
+      }
+
+      inputParams = {
+        image: sourceImage,
+        prompt: prompt,
+        version: version || 'latest',
+      };
+
+      modelToRun = 'reve/edit';
     } else {
       // Seedream-4 parameters
       inputParams = {
@@ -471,6 +544,10 @@ router.post('/generate-image', async (req, res) => {
                 prompt_upsampling: prompt_upsampling === true,
                 output_format: output_format || outputFormat || 'jpg',
                 seed,
+              }
+          : modelId === 'reve/edit'
+            ? {
+                version: version || 'latest',
               }
             : {
                 // Seedream-4

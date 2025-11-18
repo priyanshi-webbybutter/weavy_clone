@@ -66,6 +66,7 @@ const SEEDREAM_MODEL_ID = 'bytedance/seedream-4';
 const FLUX_MODEL_ID = 'black-forest-labs/flux-1.1-pro-ultra';
 const FLUX_REDUX_MODEL_ID = 'black-forest-labs/flux-redux-dev';
 const FLUX_CANNY_PRO_MODEL_ID = 'black-forest-labs/flux-canny-pro';
+const REVE_EDIT_MODEL_ID = 'reve/edit';
 
 // Task interface
 interface Task {
@@ -147,6 +148,10 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
       return sourceNode?.type === 'imageGenerator';
     }
     
+    if (connection.targetHandle === 'editImage') {
+      return sourceNode?.type === 'imageGenerator';
+    }
+    
     // If source is a Prompt node (text output)
     if (sourceNode?.type === 'promptInput') {
       // Only allow connections to handles that accept text/prompt
@@ -166,6 +171,15 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
         const targetModelId = targetNode.data?.modelId;
         if (targetModelId === 'black-forest-labs/flux-canny-pro') {
           // Canny: only 'prompt' accepts text (controlImage accepts images)
+          const textAcceptingHandles = ['prompt'];
+          if (connection.targetHandle) {
+            return textAcceptingHandles.includes(connection.targetHandle);
+          }
+          return false;
+        }
+        // Check if it's a Reve Edit model (needs prompt)
+        if (targetModelId === 'reve/edit') {
+          // Reve Edit: only 'prompt' accepts text (editImage accepts images)
           const textAcceptingHandles = ['prompt'];
           if (connection.targetHandle) {
             return textAcceptingHandles.includes(connection.targetHandle);
@@ -670,6 +684,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
     const imagePromptEdge = connectedEdges.find((edge) => edge.targetHandle === 'imagePrompt');
     const reduxImageEdge = connectedEdges.find((edge) => edge.targetHandle === 'reduxImage');
     const controlImageEdge = connectedEdges.find((edge) => edge.targetHandle === 'controlImage');
+    const editImageEdge = connectedEdges.find((edge) => edge.targetHandle === 'editImage');
 
     const imageNode = currentNode;
         if (!imageNode) {
@@ -692,7 +707,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
 
     // Get image prompt URL from connected image generator node (if connected)
     let imagePromptUrl: string | undefined = undefined;
-    const imageInputEdge = reduxImageEdge || controlImageEdge || imagePromptEdge;
+    const imageInputEdge = reduxImageEdge || controlImageEdge || editImageEdge || imagePromptEdge;
     if (imageInputEdge) {
       const imagePromptSourceNode = currentNodes.find((node) => node.id === imageInputEdge.source);
       if (imagePromptSourceNode && imagePromptSourceNode.type === 'imageGenerator') {
@@ -714,6 +729,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
         const isFluxModel = modelId === FLUX_MODEL_ID;
         const isFluxReduxModel = modelId === FLUX_REDUX_MODEL_ID;
         const isFluxCannyModel = modelId === FLUX_CANNY_PRO_MODEL_ID;
+        const isReveEditModel = modelId === REVE_EDIT_MODEL_ID;
         
         console.log(`🔍 [${callId}] Node data:`, {
           nodeId,
@@ -793,6 +809,47 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             generatingNodes.current.delete(nodeId);
             LAST_CALL_TIMESTAMPS.delete(nodeId);
             alert('Canny Pro nodes require both a control image and a prompt. Please connect both a control image and a prompt node.');
+            return;
+          }
+          const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
+          if (!promptSourceNode) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Connected prompt node not found.');
+            return;
+          }
+          if (promptSourceNode.type === 'imageDescriber') {
+            promptText = promptSourceNode.data?.description || '';
+          } else if (promptSourceNode.type === 'promptInput') {
+            promptText = promptSourceNode.data?.value || '';
+          } else {
+            promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
+          }
+          if (!promptText.trim()) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('The connected prompt is empty. Please enter some text first.');
+            return;
+          }
+        } else if (isReveEditModel) {
+          if (!imagePromptUrl) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Reve Edit nodes require an image connected to the Image* handle.');
+            return;
+          }
+          if (!promptEdge) {
+            EXECUTION_IN_PROGRESS.delete(nodeId);
+            GLOBAL_GENERATING_NODES.delete(nodeId);
+            generatingNodes.current.delete(nodeId);
+            LAST_CALL_TIMESTAMPS.delete(nodeId);
+            alert('Reve Edit nodes require both an image and a prompt. Please connect both an image and a prompt node.');
             return;
           }
           const promptSourceNode = currentNodes.find((node) => node.id === promptEdge.source);
@@ -919,6 +976,11 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             requestBody.seed = settings.seed;
           }
           console.log(`🖼️ [${callId}] Adding Canny control image: ${imagePromptUrl}`);
+        } else if (isReveEditModel) {
+          requestBody.image = imagePromptUrl;
+          requestBody.prompt = promptText;
+          requestBody.version = 'latest'; // Default version
+          console.log(`🖼️ [${callId}] Adding Reve Edit image: ${imagePromptUrl}`);
         } else if (isFluxModel) {
           // Flux-specific parameters only
           requestBody.aspectRatio = settings.aspectRatio;
@@ -1525,6 +1587,29 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             label: 'Image Generator',
             modelName: 'FLUX Canny Pro',
             modelId: FLUX_CANNY_PRO_MODEL_ID,
+            imageUrl: undefined,
+            imageUrls: [],
+            currentImageIndex: 0,
+            isGenerating: false,
+            onRunModel: handleRunModel,
+            onDelete: handleDeleteNode,
+            onDuplicate: handleDuplicateNode,
+            onImageIndexChange: handleImageIndexChange,
+            onRemoveCurrentGeneration: handleRemoveCurrentGeneration,
+            onRemoveAllOtherGenerations: handleRemoveAllOtherGenerations,
+            onRemoveAllGenerations: handleRemoveAllGenerations,
+            onOpenFullscreen: handleOpenFullscreen,
+          },
+        };
+      } else if (type === 'reveEditGenerator') {
+        newNode = {
+          id: newNodeId,
+          type: 'imageGenerator',
+          position,
+          data: {
+            label: 'Image Generator',
+            modelName: 'Reve Edit',
+            modelId: REVE_EDIT_MODEL_ID,
             imageUrl: undefined,
             imageUrls: [],
             currentImageIndex: 0,
@@ -2915,7 +3000,9 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
                 ? 15
                 : selectedNode?.data?.modelId === FLUX_CANNY_PRO_MODEL_ID
                   ? 6
-                  : 23)
+                  : selectedNode?.data?.modelId === REVE_EDIT_MODEL_ID
+                    ? 4
+                    : 23)
           : selectedNode?.type === 'imageDescriber' ? 1 
           : selectedNode?.type === 'videoGenerator' ? 50 : 0}
         initialSettings={selectedNode?.id ? nodeSettings[selectedNode.id] : undefined}

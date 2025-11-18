@@ -149,6 +149,14 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
         nodeType: 'fluxCannyGenerator',
         category: 'image',
       },
+      {
+        id: 'reve-edit',
+        label: 'Reve Edit',
+        badge: 'E',
+        badgeColor: 'text-green-400',
+        nodeType: 'reveEditGenerator',
+        category: 'edit',
+      },
     ];
 
     const modelsByCategory = categories.reduce<Record<string, typeof models>>((acc, category) => {
