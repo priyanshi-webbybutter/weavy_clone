@@ -24,6 +24,8 @@ function HomePageContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isCreateMenuOpenSidebar, setIsCreateMenuOpenSidebar] = useState(false);
+  const [isCreateMenuOpenHeader, setIsCreateMenuOpenHeader] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch projects
@@ -64,6 +66,26 @@ function HomePageContent() {
     }
   }, [user]);
 
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (isCreateMenuOpenSidebar && !target.closest('.create-menu-container-sidebar')) {
+        setIsCreateMenuOpenSidebar(false);
+      }
+      if (isCreateMenuOpenHeader && !target.closest('.create-menu-container-header')) {
+        setIsCreateMenuOpenHeader(false);
+      }
+    };
+
+    if (isCreateMenuOpenSidebar || isCreateMenuOpenHeader) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isCreateMenuOpenSidebar, isCreateMenuOpenHeader]);
+
   // Filter projects based on search query
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -71,15 +93,19 @@ function HomePageContent() {
   );
 
   // Handle create new project
-  const handleCreateProject = async () => {
+  const handleCreateProject = async (type: 'workflow' | 'canvas' = 'canvas') => {
     try {
       setError(null);
+      setIsCreateMenuOpenSidebar(false);
+      setIsCreateMenuOpenHeader(false);
       const token = localStorage.getItem('auth_token');
       
       if (!token) {
         setError('Not authenticated. Please log in again.');
         return;
       }
+      
+      const projectName = type === 'workflow' ? 'canvas-workflow' : 'canvas';
       
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
@@ -88,7 +114,7 @@ function HomePageContent() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          name: 'Untitled Project',
+          name: projectName,
         }),
       });
 
@@ -138,7 +164,11 @@ function HomePageContent() {
       }
 
       // Navigate to canvas with new project
-      router.push(`/canvas?projectId=${data.project.id}`);
+      if (type === 'workflow') {
+        router.push(`/canvas/canvas-workflow?projectId=${data.project.id}`);
+      } else {
+        router.push(`/canvas/canvas?projectId=${data.project.id}`);
+      }
     } catch (err: any) {
       console.error('Error creating project:', err);
       setError(err.message || 'Failed to create project. Please check your connection and try again.');
@@ -217,14 +247,36 @@ function HomePageContent() {
         </div>
 
         {/* Create New File Button */}
-        <div className="p-4">
+        <div className="p-4 relative create-menu-container-sidebar">
           <button
-            onClick={handleCreateProject}
+            onClick={() => {
+              setIsCreateMenuOpenSidebar(!isCreateMenuOpenSidebar);
+              setIsCreateMenuOpenHeader(false);
+            }}
             className="w-full bg-[#fbbf24] hover:bg-[#f59e0b] text-black font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-5 h-5" />
             Create New File
+            <ChevronDown className="w-4 h-4" />
           </button>
+
+          {/* Dropdown Menu */}
+          {isCreateMenuOpenSidebar && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl z-50 overflow-hidden">
+              <button
+                onClick={() => handleCreateProject('workflow')}
+                className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors"
+              >
+                Make a Workflow
+              </button>
+              <button
+                onClick={() => handleCreateProject('canvas')}
+                className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors border-t border-[#2a2a2a]"
+              >
+                Make a Canvas
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Navigation Menu */}
@@ -265,13 +317,37 @@ function HomePageContent() {
               {user.email?.split('@')[0] || 'User'}'s Workspace
             </h1>
           </div>
-          <button
-            onClick={handleCreateProject}
-            className="bg-[#fbbf24] hover:bg-[#f59e0b] text-black font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Create New File
-          </button>
+          <div className="relative create-menu-container-header">
+            <button
+              onClick={() => {
+                setIsCreateMenuOpenHeader(!isCreateMenuOpenHeader);
+                setIsCreateMenuOpenSidebar(false);
+              }}
+              className="bg-[#fbbf24] hover:bg-[#f59e0b] text-black font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Create New File
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isCreateMenuOpenHeader && (
+              <div className="absolute top-full right-0 mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl z-50 overflow-hidden min-w-[180px]">
+                <button
+                  onClick={() => handleCreateProject('workflow')}
+                  className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Make a Workflow
+                </button>
+                <button
+                  onClick={() => handleCreateProject('canvas')}
+                  className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors border-t border-[#2a2a2a]"
+                >
+                  Make a Canvas
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
