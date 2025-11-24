@@ -1,6 +1,6 @@
 // lib/canvas/types.ts
 
-export type ShapeType = 'rectangle' | 'circle' | 'line' | 'text' | 'arrow' | 'freehand';
+export type ShapeType = 'rectangle' | 'circle' | 'line' | 'text' | 'arrow' | 'freehand' | 'image';
 
 export interface Point {
   x: number;
@@ -63,7 +63,14 @@ export interface FreehandShape extends BaseShape {
   points: Point[];
 }
 
-export type Shape = RectangleShape | CircleShape | LineShape | TextShape | ArrowShape | FreehandShape;
+export interface ImageShape extends BaseShape {
+  type: 'image';
+  width: number;
+  height: number;
+  src: string; // Image source URL or data URL
+}
+
+export type Shape = RectangleShape | CircleShape | LineShape | TextShape | ArrowShape | FreehandShape | ImageShape;
 
 export interface Viewport {
   x: number;

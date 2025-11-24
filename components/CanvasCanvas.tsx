@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
-import { Shape, Point, Tool } from '@/lib/canvas/types';
+import { Shape, Point, Tool, ImageShape } from '@/lib/canvas/types';
 import ColorPicker from './ColorPicker';
 import {
   ChevronDown,
@@ -72,6 +72,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [strokePickerPos, setStrokePickerPos] = useState<{ x: number; y: number } | null>(null);
   const [opacityPos, setOpacityPos] = useState<{ x: number; y: number } | null>(null);
   const [radiusPos, setRadiusPos] = useState<{ x: number; y: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{ start: Point; end: Point } | null>(null);
+  const [isGroupResizing, setIsGroupResizing] = useState(false);
+  const [initialGroupBounds, setInitialGroupBounds] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [isGroupMoving, setIsGroupMoving] = useState(false);
+  const [initialGroupPositions, setInitialGroupPositions] = useState<Map<string, Point>>(new Map());
 
   // Initialize engine
   useEffect(() => {
@@ -80,10 +87,21 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       engineRef.current.setCanvas(canvasRef.current);
       engineRef.current.render();
 
-      // Load saved canvas state
-      if (currentProjectId) {
-        loadCanvasState();
-      }
+      // Load saved canvas state and fit to screen
+      const initializeCanvas = async () => {
+        if (currentProjectId) {
+          await loadCanvasState();
+        }
+        // Fit to screen after loading state (or on initial load)
+        setTimeout(() => {
+          if (engineRef.current) {
+            engineRef.current.fitToScreen();
+            const zoom = engineRef.current.getState().viewport.zoom;
+            setZoomLevel(Math.round(zoom * 100));
+          }
+        }, 100);
+      };
+      initializeCanvas();
     }
 
     return () => {
@@ -353,7 +371,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           setResizeHandle(handle);
           // Store initial bounds for resizing
           let bounds: { x: number; y: number; width: number; height: number };
-          if (selected[0].type === 'rectangle' || selected[0].type === 'text') {
+          if (selected[0].type === 'rectangle' || selected[0].type === 'text' || selected[0].type === 'image') {
             bounds = { x: selected[0].x, y: selected[0].y, width: selected[0].width, height: selected[0].height };
           } else if (selected[0].type === 'circle') {
             bounds = { x: selected[0].x, y: selected[0].y, width: selected[0].radius * 2, height: selected[0].radius * 2 };
@@ -369,6 +387,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           }
           return;
         }
+      } else if (selected.length > 1) {
+        // Check for group resize handle
+        const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
+        if (groupHandle) {
+          setIsGroupResizing(true);
+          setResizeHandle(groupHandle);
+          const groupBounds = engineRef.current.getGroupBounds(selected);
+          if (groupBounds) {
+            setInitialGroupBounds(groupBounds);
+          }
+          return;
+        }
       }
     }
 
@@ -378,8 +408,24 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
 
     if (tool === 'select') {
+      const selected = engineRef.current.getSelectedShapes();
       const shape = engineRef.current.hitTest(point);
+      
       if (shape) {
+        // Check if clicking on a selected shape (for group move)
+        if (selected.length > 1 && selected.includes(shape)) {
+          // Start group move
+          setIsGroupMoving(true);
+          const worldPoint = engineRef.current.screenToWorld(point);
+          const positions = new Map<string, Point>();
+          selected.forEach(s => {
+            positions.set(s.id, { x: s.x, y: s.y });
+          });
+          setInitialGroupPositions(positions);
+          setInitialMouseWorldPos(worldPoint);
+          return;
+        }
+        
         engineRef.current.selectShape(shape.id, e.shiftKey);
         setSelectedShapeId(shape.id);
         setIsDrawing(true); // Start dragging selected shape
@@ -388,8 +434,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         setInitialShapePos({ x: shape.x, y: shape.y });
         setInitialMouseWorldPos(worldPoint);
       } else {
-        engineRef.current.clearSelection();
-        setSelectedShapeId(null);
+        // Start selection box
+        if (!e.shiftKey) {
+          engineRef.current.clearSelection();
+          setSelectedShapeId(null);
+        }
+        setIsSelecting(true);
+        setSelectionBox({ start: point, end: point });
       }
     } else if (tool === 'freehand') {
       const id = `shape-${Date.now()}-${Math.random()}`;
@@ -526,8 +577,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       y: e.clientY - rect.top,
     };
 
-    // Update cursor based on hover
-    if (!isDrawing && !isPanning && !isResizing && tool === 'select' && canvasRef.current) {
+    // Update cursor based on hover (but not when selecting)
+    if (!isDrawing && !isPanning && !isResizing && !isSelecting && tool === 'select' && canvasRef.current) {
       const hoveredShape = engineRef.current.hitTest(point);
       if (hoveredShape && engineRef.current.getSelectedShapes().includes(hoveredShape)) {
         const handle = engineRef.current.getResizeHandleAt(point, hoveredShape);
@@ -540,12 +591,36 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       canvasRef.current.style.cursor = 'default';
     }
 
+    if (isSelecting && selectionBox) {
+      // Update selection box end point as mouse moves
+      setSelectionBox({ ...selectionBox, end: point });
+      return;
+    }
+
     if (isPanning && lastMousePos) {
       const deltaX = point.x - lastMousePos.x;
       const deltaY = point.y - lastMousePos.y;
       engineRef.current.pan(deltaX, deltaY);
       setLastMousePos(point);
       updatePropertiesPanelPosition();
+      return;
+    }
+
+    if (isGroupResizing && resizeHandle && initialGroupBounds && engineRef.current) {
+      const selected = engineRef.current.getSelectedShapes();
+      if (selected.length > 1) {
+        const worldCurrent = engineRef.current.screenToWorld(point);
+        engineRef.current.resizeGroup(selected, resizeHandle, worldCurrent, initialGroupBounds);
+        return;
+      }
+    }
+
+    if (isGroupMoving && initialGroupPositions.size > 0 && initialMouseWorldPos && engineRef.current) {
+      const worldCurrent = engineRef.current.screenToWorld(point);
+      const deltaX = worldCurrent.x - initialMouseWorldPos.x;
+      const deltaY = worldCurrent.y - initialMouseWorldPos.y;
+      const selected = engineRef.current.getSelectedShapes();
+      engineRef.current.moveGroup(selected, deltaX, deltaY);
       return;
     }
 
@@ -641,7 +716,70 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   };
 
   const handleMouseUp = () => {
-    if ((isDrawing || isResizing) && engineRef.current) {
+    // Handle selection box completion
+    if (isSelecting && selectionBox && engineRef.current) {
+      const startWorld = engineRef.current.screenToWorld(selectionBox.start);
+      const endWorld = engineRef.current.screenToWorld(selectionBox.end);
+      
+      const minX = Math.min(startWorld.x, endWorld.x);
+      const maxX = Math.max(startWorld.x, endWorld.x);
+      const minY = Math.min(startWorld.y, endWorld.y);
+      const maxY = Math.max(startWorld.y, endWorld.y);
+      
+      // Find all shapes that intersect with the selection box
+      const allShapes = engineRef.current.getAllShapes();
+      const selectedShapes = allShapes.filter(shape => {
+        let bounds: { x: number; y: number; width: number; height: number };
+        
+        if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
+          bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        } else if (shape.type === 'circle') {
+          bounds = {
+            x: shape.x,
+            y: shape.y,
+            width: shape.radius * 2,
+            height: shape.radius * 2,
+          };
+        } else if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'freehand') {
+          const xs = shape.points.map(p => p.x);
+          const ys = shape.points.map(p => p.y);
+          bounds = {
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys),
+          };
+        } else {
+          return false;
+        }
+        
+        // Check if shape intersects with selection box
+        return !(
+          bounds.x + bounds.width < minX ||
+          bounds.x > maxX ||
+          bounds.y + bounds.height < minY ||
+          bounds.y > maxY
+        );
+      });
+      
+      // Select all intersecting shapes
+      if (selectedShapes.length > 0) {
+        engineRef.current.clearSelection();
+        selectedShapes.forEach(shape => {
+          engineRef.current?.selectShape(shape.id, true);
+        });
+        if (selectedShapes.length === 1) {
+          setSelectedShapeId(selectedShapes[0].id);
+        } else {
+          setSelectedShapeId(null);
+        }
+      }
+      
+      setIsSelecting(false);
+      setSelectionBox(null);
+    }
+    
+    if ((isDrawing || isResizing || isGroupResizing || isGroupMoving) && engineRef.current) {
       engineRef.current.saveState();
       saveCanvasState();
       const zoom = engineRef.current.getState().viewport.zoom;
@@ -649,15 +787,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
     
     // If we just finished drawing a new shape (not moving/resizing), switch to select tool
-    if (isDrawing && tool !== 'select' && !isResizing) {
+    if (isDrawing && tool !== 'select' && !isResizing && !isGroupResizing) {
       setTool('select');
     }
     
     setIsDrawing(false);
     setIsPanning(false);
     setIsResizing(false);
+    setIsGroupResizing(false);
+    setIsGroupMoving(false);
     setResizeHandle(null);
     setInitialShapeBounds(null);
+    setInitialGroupBounds(null);
+    setInitialGroupPositions(new Map());
     setInitialFontSize(null);
     setDragStart(null);
     setInitialShapePos(null);
@@ -771,6 +913,14 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     setIsZoomMenuOpen(false);
   };
 
+  const handleFitToScreen = () => {
+    if (!engineRef.current) return;
+    engineRef.current.fitToScreen();
+    const zoom = engineRef.current.getState().viewport.zoom;
+    setZoomLevel(Math.round(zoom * 100));
+    setIsZoomMenuOpen(false);
+  };
+
   return (
     <div className="w-full h-screen bg-[#0a0a0a] text-white flex">
       {/* Left Sidebar */}
@@ -800,11 +950,81 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             <Hand className="w-5 h-5" />
           </button>
           <button
+            onClick={() => fileInputRef.current?.click()}
             className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
             title="Upload Image"
           >
             <Upload className="w-5 h-5" />
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && engineRef.current && canvasRef.current) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  const dataUrl = event.target?.result as string;
+                  if (dataUrl && engineRef.current) {
+                    // Get image dimensions
+                    const img = new Image();
+                    img.onload = () => {
+                      if (engineRef.current && canvasRef.current) {
+                        // Place image at center of viewport
+                        const canvasRect = canvasRef.current.getBoundingClientRect();
+                        const centerX = canvasRect.width / 2;
+                        const centerY = canvasRect.height / 2;
+                        const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
+                        
+                        // Create image shape with original dimensions (scaled down if too large)
+                        const maxWidth = 400;
+                        const maxHeight = 400;
+                        let width = img.width;
+                        let height = img.height;
+                        
+                        if (width > maxWidth || height > maxHeight) {
+                          const ratio = Math.min(maxWidth / width, maxHeight / height);
+                          width = width * ratio;
+                          height = height * ratio;
+                        }
+                        
+                        const id = `image-${Date.now()}-${Math.random()}`;
+                        const imageShape: ImageShape = {
+                          id,
+                          type: 'image',
+                          x: worldPoint.x - width / 2,
+                          y: worldPoint.y - height / 2,
+                          width,
+                          height,
+                          src: dataUrl,
+                          style: {
+                            opacity: 1,
+                          },
+                        };
+                        
+                        engineRef.current.addShape(imageShape);
+                        engineRef.current.selectShape(id);
+                        engineRef.current.saveState();
+                        saveCanvasState();
+                      }
+                    };
+                    img.onerror = () => {
+                      console.error('Failed to load image');
+                    };
+                    img.src = dataUrl;
+                  }
+                };
+                reader.onerror = () => {
+                  console.error('Failed to read file');
+                };
+                reader.readAsDataURL(file);
+              }
+              // Reset input so same file can be selected again
+              e.target.value = '';
+            }}
+          />
           <div className="relative" data-shapes-menu>
             <button
               className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
@@ -953,6 +1173,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             className="w-full h-full cursor-crosshair"
             style={{ display: 'block' }}
           />
+          {/* Selection Box Overlay */}
+          {isSelecting && selectionBox && (
+            <div
+              className="absolute border-2 border-blue-500 bg-blue-200 bg-opacity-20 pointer-events-none z-10"
+              style={{
+                left: `${Math.min(selectionBox.start.x, selectionBox.end.x)}px`,
+                top: `${Math.min(selectionBox.start.y, selectionBox.end.y)}px`,
+                width: `${Math.abs(selectionBox.end.x - selectionBox.start.x)}px`,
+                height: `${Math.abs(selectionBox.end.y - selectionBox.start.y)}px`,
+                borderStyle: 'dashed',
+              }}
+            />
+          )}
 
           {/* Properties Panel */}
           {propertiesPanelPos && selectedShapeId && engineRef.current && (() => {
@@ -1786,7 +2019,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 <ChevronDown className="w-4 h-4" />
               </button>
               {isZoomMenuOpen && (
-                <div className="absolute bottom-full mb-2 left-0 w-32 bg-[#2a2a2a] border border-[#3a3a3a] rounded shadow-lg py-2 z-50">
+                <div className="absolute bottom-full mb-2 left-0 w-40 bg-[#2a2a2a] border border-[#3a3a3a] rounded shadow-lg py-2 z-50">
+                  <button
+                    onClick={handleFitToScreen}
+                    className="w-full px-4 py-2 text-sm text-left hover:bg-[#3a3a3a] transition-colors text-white border-b border-[#3a3a3a] mb-1"
+                  >
+                    Fit to Screen
+                  </button>
                   {[25, 50, 75, 100, 125, 150, 200].map((zoom) => (
                     <button
                       key={zoom}

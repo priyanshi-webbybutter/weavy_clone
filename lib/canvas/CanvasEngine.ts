@@ -1,6 +1,6 @@
 // lib/canvas/CanvasEngine.ts
 
-import { Shape, Point, Viewport, CanvasState, ShapeType, RectangleShape, CircleShape, TextShape } from './types';
+import { Shape, Point, Viewport, CanvasState, ShapeType, RectangleShape, CircleShape, TextShape, ImageShape, LineShape, ArrowShape, FreehandShape } from './types';
 
 export type ResizeHandle = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight' | 'top' | 'bottom' | 'left' | 'right';
 
@@ -105,6 +105,111 @@ export class CanvasEngine {
     this.render();
   }
 
+  fitToScreen(padding = 50) {
+    if (!this.canvas) return;
+
+    const shapes = this.getAllShapes();
+    if (shapes.length === 0) {
+      // If no shapes, just center the viewport
+      this.state.viewport = { x: 0, y: 0, zoom: 1 };
+      this.render();
+      return;
+    }
+
+    // Calculate bounding box of all shapes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const shape of shapes) {
+      let bounds: { x: number; y: number; width: number; height: number };
+      
+      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
+        if (shape.type === 'text') {
+          const textBounds = this.getTextBounds(shape as TextShape);
+          bounds = {
+            x: shape.x,
+            y: shape.y,
+            width: textBounds.width,
+            height: textBounds.height,
+          };
+        } else {
+          bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        }
+      } else if (shape.type === 'circle') {
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+      } else if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'freehand') {
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
+        bounds = {
+          x: Math.min(...xs) - 5,
+          y: Math.min(...ys) - 5,
+          width: Math.max(...xs) - Math.min(...xs) + 10,
+          height: Math.max(...ys) - Math.min(...ys) + 10,
+        };
+      } else {
+        continue;
+      }
+
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    }
+
+    if (minX === Infinity) {
+      this.state.viewport = { x: 0, y: 0, zoom: 1 };
+      this.render();
+      return;
+    }
+
+    // Add padding to bounds
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+    const contentCenterX = (minX + maxX) / 2;
+    const contentCenterY = (minY + maxY) / 2;
+
+    // Get canvas display dimensions (accounting for devicePixelRatio)
+    const rect = this.canvas.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
+
+    // Calculate zoom to fit content
+    const zoomX = canvasWidth / contentWidth;
+    const zoomY = canvasHeight / contentHeight;
+    const zoom = Math.min(zoomX, zoomY, 1); // Don't zoom in beyond 100%
+
+    // Center the content on screen
+    // viewport.x and viewport.y represent the screen position of world origin (0,0)
+    // To center contentCenterX at screenCenterX:
+    // screenCenterX = (contentCenterX * zoom) + viewport.x
+    // Therefore: viewport.x = screenCenterX - (contentCenterX * zoom)
+    const screenCenterX = canvasWidth / 2;
+    const screenCenterY = canvasHeight / 2;
+    
+    const viewportX = screenCenterX - (contentCenterX * zoom);
+    const viewportY = screenCenterY - (contentCenterY * zoom);
+
+    this.state.viewport = {
+      x: viewportX,
+      y: viewportY,
+      zoom: zoom,
+    };
+
+    this.render();
+  }
+
   // Shape operations
   addShape(shape: Shape) {
     this.saveState();
@@ -168,7 +273,7 @@ export class CanvasEngine {
 
     let bounds: { x: number; y: number; width: number; height: number };
 
-    if (shape.type === 'rectangle') {
+    if (shape.type === 'rectangle' || shape.type === 'image') {
       bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
     } else if (shape.type === 'text') {
       // For text shapes, use actual text bounds only when text is wrapped (clipped)
@@ -265,6 +370,13 @@ export class CanvasEngine {
           point.y >= shape.y &&
           point.y <= shape.y + shape.height
         );
+      case 'image':
+        return (
+          point.x >= shape.x &&
+          point.x <= shape.x + shape.width &&
+          point.y >= shape.y &&
+          point.y <= shape.y + shape.height
+        );
       default:
         return false;
     }
@@ -308,7 +420,7 @@ export class CanvasEngine {
 
     let bounds: { x: number; y: number; width: number; height: number };
 
-    if (shape.type === 'rectangle') {
+    if (shape.type === 'rectangle' || shape.type === 'image') {
       bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
     } else if (shape.type === 'text') {
       // For text shapes, use actual text bounds for handle detection
@@ -327,9 +439,11 @@ export class CanvasEngine {
         height: shape.radius * 2,
       };
     } else {
-      return null; // Only rectangles and circles have resize handles
+      return null; // Only rectangles, images, circles, and text have resize handles
     }
 
+    // For images, only check corner handles
+    const isImageShape = shape.type === 'image';
     const handles: { [key in ResizeHandle]: Point } = {
       topLeft: { x: bounds.x, y: bounds.y },
       topRight: { x: bounds.x + bounds.width, y: bounds.y },
@@ -343,8 +457,13 @@ export class CanvasEngine {
 
     const worldPoint = this.screenToWorld(point);
 
-    for (const handleName in handles) {
-      const handlePos = handles[handleName as ResizeHandle];
+    // Only check corner handles for images
+    const handlesToCheck = isImageShape 
+      ? ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as ResizeHandle[]
+      : (Object.keys(handles) as ResizeHandle[]);
+
+    for (const handleName of handlesToCheck) {
+      const handlePos = handles[handleName];
       if (
         worldPoint.x >= handlePos.x - halfHandleSize &&
         worldPoint.x <= handlePos.x + halfHandleSize &&
@@ -366,7 +485,7 @@ export class CanvasEngine {
     let newHeight = initialBounds.height;
     let newRadius = (shape as CircleShape).radius;
 
-    if (shape.type === 'rectangle' || shape.type === 'text') {
+    if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
       switch (handle) {
         case 'topLeft':
           newWidth = initialBounds.x + initialBounds.width - newWorldPoint.x;
@@ -418,8 +537,105 @@ export class CanvasEngine {
         }
       }
 
-      // For text shapes, handle resizing differently
-      if (shape.type === 'text') {
+      // For images, maintain aspect ratio when resizing from corners
+      if (shape.type === 'image') {
+        const isCornerHandle = handle === 'topLeft' || handle === 'topRight' || 
+                              handle === 'bottomLeft' || handle === 'bottomRight';
+        
+        if (isCornerHandle) {
+          // Calculate aspect ratio from initial bounds
+          const aspectRatio = initialBounds.width / initialBounds.height;
+          
+          // Calculate the distance from the opposite corner to the new mouse position
+          let oppositeX: number, oppositeY: number;
+          if (handle === 'topLeft') {
+            oppositeX = initialBounds.x + initialBounds.width;
+            oppositeY = initialBounds.y + initialBounds.height;
+          } else if (handle === 'topRight') {
+            oppositeX = initialBounds.x;
+            oppositeY = initialBounds.y + initialBounds.height;
+          } else if (handle === 'bottomLeft') {
+            oppositeX = initialBounds.x + initialBounds.width;
+            oppositeY = initialBounds.y;
+          } else { // bottomRight
+            oppositeX = initialBounds.x;
+            oppositeY = initialBounds.y;
+          }
+          
+          // Calculate the delta from opposite corner
+          const deltaX = newWorldPoint.x - oppositeX;
+          const deltaY = newWorldPoint.y - oppositeY;
+          
+          // Determine which dimension to use based on which changed more
+          const absDeltaX = Math.abs(deltaX);
+          const absDeltaY = Math.abs(deltaY);
+          
+          if (absDeltaX / aspectRatio > absDeltaY) {
+            // Use width as primary dimension
+            newWidth = absDeltaX;
+            newHeight = newWidth / aspectRatio;
+          } else {
+            // Use height as primary dimension
+            newHeight = absDeltaY;
+            newWidth = newHeight * aspectRatio;
+          }
+          
+          // Calculate new position based on handle
+          if (handle === 'topLeft') {
+            newX = oppositeX - newWidth;
+            newY = oppositeY - newHeight;
+          } else if (handle === 'topRight') {
+            newX = oppositeX;
+            newY = oppositeY - newHeight;
+          } else if (handle === 'bottomLeft') {
+            newX = oppositeX - newWidth;
+            newY = oppositeY;
+          } else { // bottomRight
+            newX = oppositeX;
+            newY = oppositeY;
+          }
+          
+          // Ensure minimum size
+          if (newWidth < minSize) {
+            newWidth = minSize;
+            newHeight = newWidth / aspectRatio;
+            // Recalculate position
+            if (handle === 'topLeft') {
+              newX = oppositeX - newWidth;
+              newY = oppositeY - newHeight;
+            } else if (handle === 'topRight') {
+              newX = oppositeX;
+              newY = oppositeY - newHeight;
+            } else if (handle === 'bottomLeft') {
+              newX = oppositeX - newWidth;
+              newY = oppositeY;
+            }
+          }
+          if (newHeight < minSize) {
+            newHeight = minSize;
+            newWidth = newHeight * aspectRatio;
+            // Recalculate position
+            if (handle === 'topLeft') {
+              newX = oppositeX - newWidth;
+              newY = oppositeY - newHeight;
+            } else if (handle === 'topRight') {
+              newX = oppositeX;
+              newY = oppositeY - newHeight;
+            } else if (handle === 'bottomLeft') {
+              newX = oppositeX - newWidth;
+              newY = oppositeY;
+            }
+          }
+        }
+        
+        // Update the image shape
+        this.updateShape(shape.id, {
+          x: newX,
+          y: newY,
+          width: newWidth,
+          height: newHeight,
+        }, false);
+      } else if (shape.type === 'text') {
         const textShape = shape as TextShape;
         
         // Determine which dimension is being resized based on the handle
@@ -588,8 +804,8 @@ export class CanvasEngine {
     this.ctx.translate(this.state.viewport.x, this.state.viewport.y);
     this.ctx.scale(this.state.viewport.zoom, this.state.viewport.zoom);
 
-    // Draw grid
-    this.drawGrid();
+    // Draw grid - disabled for plain background
+    // this.drawGrid();
 
     // Draw shapes
     const shapes = Array.from(this.state.shapes.values());
@@ -600,11 +816,18 @@ export class CanvasEngine {
     }
 
     // Draw selection
-    for (const id of this.state.selectedIds) {
-      const shape = this.state.shapes.get(id);
-      if (shape) {
-        this.drawSelection(shape);
-      }
+    const selectedShapes = Array.from(this.state.selectedIds)
+      .map(id => this.state.shapes.get(id))
+      .filter((shape): shape is Shape => shape !== undefined);
+    
+    if (selectedShapes.length === 0) {
+      // No selection
+    } else if (selectedShapes.length === 1) {
+      // Single selection - draw individual selection box
+      this.drawSelection(selectedShapes[0]);
+    } else {
+      // Multiple selections - draw combined bounding box
+      this.drawGroupSelection(selectedShapes);
     }
 
     this.ctx.restore();
@@ -670,24 +893,25 @@ export class CanvasEngine {
     this.ctx.globalAlpha = shape.style.opacity ?? 1;
 
     // Apply rotation
-    if (shape.rotation) {
-      let centerX: number, centerY: number;
-      if (shape.type === 'rectangle' || shape.type === 'text') {
+      if (shape.rotation) {
+      let centerX = shape.x;
+      let centerY = shape.y;
+      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
         centerX = shape.x + shape.width / 2;
         centerY = shape.y + shape.height / 2;
       } else if (shape.type === 'circle') {
         centerX = shape.x + shape.radius;
         centerY = shape.y + shape.radius;
-      } else {
+      } else if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'freehand') {
         // For lines, arrows, freehand - use first point or center of bounding box
         if (shape.points && shape.points.length > 0) {
-          const xs = shape.points.map(p => p.x);
-          const ys = shape.points.map(p => p.y);
+          const xs = shape.points.map((p: Point) => p.x);
+          const ys = shape.points.map((p: Point) => p.y);
           centerX = (Math.min(...xs) + Math.max(...xs)) / 2;
           centerY = (Math.min(...ys) + Math.max(...ys)) / 2;
         } else {
-          centerX = shape.x;
-          centerY = shape.y;
+          centerX = (shape as LineShape | ArrowShape | FreehandShape).x;
+          centerY = (shape as LineShape | ArrowShape | FreehandShape).y;
         }
       }
       this.ctx.translate(centerX, centerY);
@@ -745,9 +969,40 @@ export class CanvasEngine {
       case 'text':
         this.drawTextWithWrapping(shape as TextShape);
         break;
+
+      case 'image':
+        this.drawImage(shape as ImageShape);
+        break;
     }
 
     this.ctx.restore();
+  }
+
+  private drawImage(shape: ImageShape) {
+    if (!this.ctx) return;
+
+    const img = new Image();
+    img.onload = () => {
+      if (!this.ctx) return;
+      this.ctx.save();
+      this.ctx.globalAlpha = shape.style.opacity ?? 1;
+      this.ctx.drawImage(img, shape.x, shape.y, shape.width, shape.height);
+      this.ctx.restore();
+      // Re-render after image loads
+      this.render();
+    };
+    img.onerror = () => {
+      console.error('Failed to load image:', shape.src);
+    };
+    img.src = shape.src;
+    
+    // Draw immediately if image is already loaded
+    if (img.complete) {
+      this.ctx.save();
+      this.ctx.globalAlpha = shape.style.opacity ?? 1;
+      this.ctx.drawImage(img, shape.x, shape.y, shape.width, shape.height);
+      this.ctx.restore();
+    }
   }
 
   private drawPath(points: Point[]) {
@@ -959,17 +1214,10 @@ export class CanvasEngine {
 
     this.ctx.save();
     
-    // Use light blue for text shapes, purple for others
-    const isTextShape = shape.type === 'text';
-    this.ctx.strokeStyle = isTextShape ? '#87CEEB' : '#8b5cf6'; // Light blue for text, purple for others
+    // Use consistent purple dashed style for all shapes
+    this.ctx.strokeStyle = '#8b5cf6'; // Purple for all shapes
     this.ctx.lineWidth = 2 / this.state.viewport.zoom;
-    
-    // Solid line for text, dashed for others
-    if (!isTextShape) {
-      this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
-    } else {
-      this.ctx.setLineDash([]);
-    }
+    this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
 
     let bounds: { x: number; y: number; width: number; height: number };
 
@@ -998,14 +1246,17 @@ export class CanvasEngine {
       case 'line':
       case 'arrow':
       case 'freehand':
-        const xs = shape.points.map(p => p.x);
-        const ys = shape.points.map(p => p.y);
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
         bounds = {
           x: Math.min(...xs) - 5,
           y: Math.min(...ys) - 5,
           width: Math.max(...xs) - Math.min(...xs) + 10,
           height: Math.max(...ys) - Math.min(...ys) + 10,
         };
+        break;
+      case 'image':
+        bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
         break;
       default:
         return;
@@ -1014,26 +1265,337 @@ export class CanvasEngine {
     this.ctx.strokeRect(bounds.x - 2, bounds.y - 2, bounds.width + 4, bounds.height + 4);
     this.ctx.restore();
 
-    // Draw resize handles for rectangles, circles, and text
-    if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'text') {
-      this.drawResizeHandles(bounds, isTextShape);
+    // Draw resize handles for rectangles, circles, text, and images
+    if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'text' || shape.type === 'image') {
+      const isImageShape = shape.type === 'image';
+      this.drawResizeHandles(bounds, false, isImageShape); // Use consistent style for all shapes
     }
   }
 
-  private drawResizeHandles(bounds: { x: number; y: number; width: number; height: number }, isTextShape = false) {
+  private drawGroupSelection(shapes: Shape[]) {
+    if (!this.ctx || shapes.length === 0) return;
+
+    // Calculate combined bounding box for all selected shapes
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const shape of shapes) {
+      let bounds: { x: number; y: number; width: number; height: number };
+      
+      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
+        if (shape.type === 'text') {
+          const textBounds = this.getTextBounds(shape as TextShape);
+          bounds = {
+            x: shape.x,
+            y: shape.y,
+            width: textBounds.width,
+            height: textBounds.height,
+          };
+        } else {
+          bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        }
+      } else if (shape.type === 'circle') {
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+      } else if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'freehand') {
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
+        bounds = {
+          x: Math.min(...xs) - 5,
+          y: Math.min(...ys) - 5,
+          width: Math.max(...xs) - Math.min(...xs) + 10,
+          height: Math.max(...ys) - Math.min(...ys) + 10,
+        };
+      } else {
+        continue;
+      }
+
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    }
+
+    if (minX === Infinity) return;
+
+    const groupBounds = {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+
+    // Draw group selection box
+    this.ctx.save();
+    this.ctx.strokeStyle = '#8b5cf6'; // Purple for all shapes
+    this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+    this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
+    this.ctx.strokeRect(groupBounds.x - 2, groupBounds.y - 2, groupBounds.width + 4, groupBounds.height + 4);
+    this.ctx.restore();
+
+    // Draw resize handles for group selection
+    this.drawResizeHandles(groupBounds, false, false);
+  }
+
+  getGroupBounds(shapes: Shape[]): { x: number; y: number; width: number; height: number } | null {
+    if (shapes.length === 0) return null;
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const shape of shapes) {
+      let bounds: { x: number; y: number; width: number; height: number };
+      
+      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
+        if (shape.type === 'text') {
+          const textBounds = this.getTextBounds(shape as TextShape);
+          bounds = {
+            x: shape.x,
+            y: shape.y,
+            width: textBounds.width,
+            height: textBounds.height,
+          };
+        } else {
+          bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        }
+      } else if (shape.type === 'circle') {
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+      } else if (shape.type === 'line' || shape.type === 'arrow' || shape.type === 'freehand') {
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
+        bounds = {
+          x: Math.min(...xs) - 5,
+          y: Math.min(...ys) - 5,
+          width: Math.max(...xs) - Math.min(...xs) + 10,
+          height: Math.max(...ys) - Math.min(...ys) + 10,
+        };
+      } else {
+        continue;
+      }
+
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.width);
+      maxY = Math.max(maxY, bounds.y + bounds.height);
+    }
+
+    if (minX === Infinity) return null;
+
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  }
+
+  getGroupResizeHandleAt(point: Point, shapes: Shape[]): ResizeHandle | null {
+    if (!this.canvas || !this.ctx || shapes.length === 0) return null;
+
+    const groupBounds = this.getGroupBounds(shapes);
+    if (!groupBounds) return null;
+
+    const handleSizeWorld = this.HANDLE_SIZE / this.state.viewport.zoom;
+    const halfHandleSize = handleSizeWorld / 2;
+
+    const handles: { [key in ResizeHandle]: Point } = {
+      topLeft: { x: groupBounds.x, y: groupBounds.y },
+      topRight: { x: groupBounds.x + groupBounds.width, y: groupBounds.y },
+      bottomLeft: { x: groupBounds.x, y: groupBounds.y + groupBounds.height },
+      bottomRight: { x: groupBounds.x + groupBounds.width, y: groupBounds.y + groupBounds.height },
+      top: { x: groupBounds.x + groupBounds.width / 2, y: groupBounds.y },
+      bottom: { x: groupBounds.x + groupBounds.width / 2, y: groupBounds.y + groupBounds.height },
+      left: { x: groupBounds.x, y: groupBounds.y + groupBounds.height / 2 },
+      right: { x: groupBounds.x + groupBounds.width, y: groupBounds.y + groupBounds.height / 2 },
+    };
+
+    const worldPoint = this.screenToWorld(point);
+
+    for (const handleName of Object.keys(handles) as ResizeHandle[]) {
+      const handlePos = handles[handleName];
+      if (
+        worldPoint.x >= handlePos.x - halfHandleSize &&
+        worldPoint.x <= handlePos.x + halfHandleSize &&
+        worldPoint.y >= handlePos.y - halfHandleSize &&
+        worldPoint.y <= handlePos.y + halfHandleSize
+      ) {
+        return handleName as ResizeHandle;
+      }
+    }
+    return null;
+  }
+
+  resizeGroup(shapes: Shape[], handle: ResizeHandle, newWorldPoint: Point, initialBounds: { x: number, y: number, width: number, height: number }) {
+    const minSize = 10 / this.state.viewport.zoom;
+    
+    let newX = initialBounds.x;
+    let newY = initialBounds.y;
+    let newWidth = initialBounds.width;
+    let newHeight = initialBounds.height;
+
+    // Calculate new group bounds based on handle
+    switch (handle) {
+      case 'topLeft':
+        newWidth = initialBounds.x + initialBounds.width - newWorldPoint.x;
+        newHeight = initialBounds.y + initialBounds.height - newWorldPoint.y;
+        newX = newWorldPoint.x;
+        newY = newWorldPoint.y;
+        break;
+      case 'topRight':
+        newWidth = newWorldPoint.x - initialBounds.x;
+        newHeight = initialBounds.y + initialBounds.height - newWorldPoint.y;
+        newY = newWorldPoint.y;
+        break;
+      case 'bottomLeft':
+        newWidth = initialBounds.x + initialBounds.width - newWorldPoint.x;
+        newHeight = newWorldPoint.y - initialBounds.y;
+        newX = newWorldPoint.x;
+        break;
+      case 'bottomRight':
+        newWidth = newWorldPoint.x - initialBounds.x;
+        newHeight = newWorldPoint.y - initialBounds.y;
+        break;
+      case 'top':
+        newHeight = initialBounds.y + initialBounds.height - newWorldPoint.y;
+        newY = newWorldPoint.y;
+        break;
+      case 'bottom':
+        newHeight = newWorldPoint.y - initialBounds.y;
+        break;
+      case 'left':
+        newWidth = initialBounds.x + initialBounds.width - newWorldPoint.x;
+        newX = newWorldPoint.x;
+        break;
+      case 'right':
+        newWidth = newWorldPoint.x - initialBounds.x;
+        break;
+    }
+
+    // Ensure minimum size
+    if (newWidth < minSize) {
+      newWidth = minSize;
+      if (handle === 'topLeft' || handle === 'bottomLeft' || handle === 'left') {
+        newX = initialBounds.x + initialBounds.width - minSize;
+      }
+    }
+    if (newHeight < minSize) {
+      newHeight = minSize;
+      if (handle === 'topLeft' || handle === 'topRight' || handle === 'top') {
+        newY = initialBounds.y + initialBounds.height - minSize;
+      }
+    }
+
+    // Calculate scale factors
+    const scaleX = newWidth / initialBounds.width;
+    const scaleY = newHeight / initialBounds.height;
+    const offsetX = newX - initialBounds.x;
+    const offsetY = newY - initialBounds.y;
+
+    // Apply transformation to all shapes
+    for (const shape of shapes) {
+      // Calculate shape's position relative to group bounds
+      let shapeBounds: { x: number; y: number; width: number; height: number };
+      
+      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
+        if (shape.type === 'text') {
+          const textBounds = this.getTextBounds(shape as TextShape);
+          shapeBounds = {
+            x: shape.x,
+            y: shape.y,
+            width: textBounds.width,
+            height: textBounds.height,
+          };
+        } else {
+          shapeBounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        }
+      } else if (shape.type === 'circle') {
+        shapeBounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+      } else {
+        continue; // Skip lines, arrows, freehand for now
+      }
+
+      const relX = shapeBounds.x - initialBounds.x;
+      const relY = shapeBounds.y - initialBounds.y;
+
+      // Apply scale and offset
+      if (shape.type === 'rectangle' || shape.type === 'image') {
+        this.updateShape(shape.id, {
+          x: initialBounds.x + relX * scaleX + offsetX,
+          y: initialBounds.y + relY * scaleY + offsetY,
+          width: shapeBounds.width * scaleX,
+          height: shapeBounds.height * scaleY,
+        }, false);
+      } else if (shape.type === 'text') {
+        const textShape = shape as TextShape;
+        const newFontSize = (textShape.style.fontSize || 16) * Math.min(scaleX, scaleY);
+        this.updateShape(shape.id, {
+          x: initialBounds.x + relX * scaleX + offsetX,
+          y: initialBounds.y + relY * scaleY + offsetY,
+          width: shapeBounds.width * scaleX,
+          height: shapeBounds.height * scaleY,
+          style: {
+            ...textShape.style,
+            fontSize: newFontSize,
+          },
+        }, false);
+      } else if (shape.type === 'circle') {
+        const newRadius = (shape.radius * Math.min(scaleX, scaleY));
+        this.updateShape(shape.id, {
+          x: initialBounds.x + relX * scaleX + offsetX,
+          y: initialBounds.y + relY * scaleY + offsetY,
+          radius: newRadius,
+        }, false);
+      }
+    }
+  }
+
+  moveGroup(shapes: Shape[], deltaX: number, deltaY: number) {
+    for (const shape of shapes) {
+      this.updateShape(shape.id, {
+        x: shape.x + deltaX,
+        y: shape.y + deltaY,
+      }, false);
+    }
+  }
+
+  private drawResizeHandles(bounds: { x: number; y: number; width: number; height: number }, isTextShape = false, cornersOnly = false) {
     if (!this.ctx) return;
 
     const handleSize = this.HANDLE_SIZE / this.state.viewport.zoom;
     const halfHandleSize = handleSize / 2;
 
     this.ctx.save();
-    // Use light blue for text shapes, purple for others
-    this.ctx.fillStyle = isTextShape ? '#87CEEB' : '#8b5cf6';
+    // Use consistent purple color for all shapes
+    this.ctx.fillStyle = '#8b5cf6';
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 1 / this.state.viewport.zoom;
     this.ctx.setLineDash([]); // Clear dashed line for handles
 
-    const handles = [
+    // For images, only show corner handles
+    const handles = cornersOnly ? [
+      { x: bounds.x, y: bounds.y }, // topLeft
+      { x: bounds.x + bounds.width, y: bounds.y }, // topRight
+      { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
+      { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
+    ] : [
       { x: bounds.x, y: bounds.y }, // topLeft
       { x: bounds.x + bounds.width, y: bounds.y }, // topRight
       { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
