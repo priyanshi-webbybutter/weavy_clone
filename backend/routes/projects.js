@@ -165,7 +165,63 @@ router.post('/projects', async (req, res) => {
   }
 });
 
-// PUT /api/projects/:id - Update project
+// GET /api/projects/:id - Fetch a single project by ID
+router.get('/projects/:id', async (req, res) => {
+  try {
+    const { user, supabaseClient } = await getAuthenticatedUser(req);
+    
+    if (!user || !supabaseClient) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Valid authentication token required',
+      });
+    }
+
+    const { id } = req.params;
+
+    console.log('📂 Fetching project:', id, 'for user:', user.id);
+
+    const { data, error } = await supabaseClient
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('❌ Error fetching project:', error);
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({
+          error: 'Project not found or access denied',
+        });
+      }
+      return res.status(500).json({
+        error: 'Failed to fetch project',
+        message: error.message,
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        error: 'Project not found or access denied',
+      });
+    }
+
+    console.log('✅ Project fetched:', data.id);
+
+    res.json({
+      success: true,
+      project: data,
+    });
+  } catch (error) {
+    console.error('❌ Error in GET /api/projects/:id:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+});
+
+// PUT /api/projects/:id - Update project (full update)
 router.put('/projects/:id', async (req, res) => {
   try {
     const { user, supabaseClient } = await getAuthenticatedUser(req);
@@ -232,6 +288,80 @@ router.put('/projects/:id', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error in PUT /api/projects/:id:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+});
+
+// PATCH /api/projects/:id - Partially update project
+router.patch('/projects/:id', async (req, res) => {
+  try {
+    const { user, supabaseClient } = await getAuthenticatedUser(req);
+    
+    if (!user || !supabaseClient) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Valid authentication token required',
+      });
+    }
+
+    const { id } = req.params;
+    const { name, description } = req.body;
+
+    // Validate at least one field to update
+    if (name === undefined && description === undefined) {
+      return res.status(400).json({
+        error: 'At least one field (name or description) must be provided',
+      });
+    }
+
+    if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0)) {
+      return res.status(400).json({
+        error: 'Project name must be a non-empty string',
+      });
+    }
+
+    console.log('✏️ Partially updating project:', id, 'for user:', user.id);
+
+    const updateData = {};
+    if (name !== undefined) {
+      updateData.name = name.trim();
+    }
+    if (description !== undefined) {
+      updateData.description = description?.trim() || null;
+    }
+
+    const { data, error } = await supabaseClient
+      .from('projects')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error updating project:', error);
+      return res.status(500).json({
+        error: 'Failed to update project',
+        message: error.message,
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        error: 'Project not found or access denied',
+      });
+    }
+
+    console.log('✅ Project updated:', data.id);
+
+    res.json({
+      success: true,
+      project: data,
+    });
+  } catch (error) {
+    console.error('❌ Error in PATCH /api/projects/:id:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: error.message,

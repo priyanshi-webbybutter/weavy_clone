@@ -817,7 +817,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             GLOBAL_GENERATING_NODES.delete(nodeId);
             generatingNodes.current.delete(nodeId);
             LAST_CALL_TIMESTAMPS.delete(nodeId);
-            alert('Connected prompt node not found.');
+          alert('Connected prompt node not found.');
             return;
           }
           if (promptSourceNode.type === 'imageDescriber') {
@@ -904,7 +904,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             promptText = promptSourceNode.data?.value || promptSourceNode.data?.description || '';
           }
 
-          if (!promptText.trim()) {
+        if (!promptText.trim()) {
             EXECUTION_IN_PROGRESS.delete(nodeId);
             GLOBAL_GENERATING_NODES.delete(nodeId);
             generatingNodes.current.delete(nodeId);
@@ -912,7 +912,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             if (promptSourceNode.type === 'imageDescriber') {
               alert('The connected Image Describer has no description yet. Please run the Image Describer first to generate a description.');
             } else {
-              alert('The connected prompt is empty. Please enter some text first.');
+          alert('The connected prompt is empty. Please enter some text first.');
             }
             return;
           }

@@ -166,7 +166,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
         promptUpsampling: false,
         guidance: 30,
         safetyTolerance: 6,
-        outputFormat: 'jpg',
+      outputFormat: 'jpg',
       };
     }
     return {
@@ -571,7 +571,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
             </div>
           </div>
                             {/* Raw Mode */}
-                            <div>
+          <div>
                               <div className="flex items-center gap-1.5 mb-1.5">
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Raw Mode</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
@@ -798,7 +798,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <label className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Seed</label>
                                 <Info size={10} className="text-gray-500 cursor-help" />
                               </div>
-                              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                                 <label className="flex items-center gap-1.5 cursor-pointer">
                                   <input
                                     type="checkbox"
@@ -821,7 +821,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   className="flex-1 bg-[#1a1a1a] text-white text-[10px] border border-[#2a2a2a] rounded px-2 py-1.5 focus:outline-none focus:border-[#3a3a3a] disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{ fontWeight: 200 }}
                                 />
-                              </div>
+              </div>
                             </div>
                             {/* Steps */}
                             <div>
@@ -831,15 +831,15 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   <Info size={10} className="text-gray-500 cursor-help" />
                                 </div>
                                 <span className="text-white text-[10px]" style={{ fontWeight: 200 }}>{nodeSettings.steps || 50}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="1"
+            </div>
+            <input
+              type="range"
+              min="1"
                                 max="50"
                                 value={nodeSettings.steps || 50}
                                 onChange={(e) => handleSettingChange('steps', parseInt(e.target.value), node.id)}
                                 className="w-full h-1 bg-[#2a2a2a] rounded appearance-none cursor-pointer slider"
-                                style={{
+              style={{
                                   background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(((nodeSettings.steps || 50) - 1) / 49) * 100}%, #2a2a2a ${(((nodeSettings.steps || 50) - 1) / 49) * 100}%, #2a2a2a 100%)`,
                                 }}
                               />

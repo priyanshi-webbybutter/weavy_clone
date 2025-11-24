@@ -17,6 +17,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
+const parseResponseBody = async (response: Response) => {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -76,10 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const data = await parseResponseBody(response);
 
       if (!response.ok) {
-        return { error: { message: data.error || 'Signup failed' } };
+        const message = data.message || data.error || data.raw || 'Signup failed';
+        return { error: { message } };
       }
 
       // Store session if available
@@ -105,10 +116,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      const data = await parseResponseBody(response);
 
       if (!response.ok) {
-        return { error: { message: data.error || 'Login failed' } };
+        const message = data.message || data.error || data.raw || 'Login failed';
+        return { error: { message } };
       }
 
       // Store session
@@ -144,14 +156,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }),
       });
 
-      const data = await response.json();
+      const data = await parseResponseBody(response);
       console.log('📦 Backend response:', { ok: response.ok, data });
 
       if (!response.ok) {
         console.error('❌ Backend error response:', data);
         return { 
           error: { 
-            message: data.error || data.message || 'Google OAuth failed',
+            message: data.message || data.error || data.raw || 'Google OAuth failed',
             error: data.error,
             code: data.code
           } 
