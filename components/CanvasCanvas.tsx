@@ -272,7 +272,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
   }, [currentProjectId, user]);
 
-  // Load canvas state from backend
+  // Load canvas state from backend (or localStorage as fallback)
   const loadCanvasState = async () => {
     if (!currentProjectId) return;
 
@@ -280,22 +280,72 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       const token = localStorage.getItem('auth_token');
       if (!token) return;
 
-      const saved = localStorage.getItem(`canvas-${currentProjectId}`);
-      if (saved && engineRef.current) {
-        engineRef.current.deserialize(saved);
-        const zoom = engineRef.current.getState().viewport.zoom;
-        setZoomLevel(Math.round(zoom * 100));
+      // Try to load from backend first
+      let canvasLoaded = false;
+      try {
+        const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
 
-        // Migrate any existing base64 images to Supabase Storage
-        await migrateBase64Images();
+        if (response.ok) {
+          const data = await response.json();
+          if (data.workflow?.canvas_state && engineRef.current) {
+            const serialized = JSON.stringify(data.workflow.canvas_state);
+            engineRef.current.deserialize(serialized);
+            const zoom = engineRef.current.getState().viewport.zoom;
+            setZoomLevel(Math.round(zoom * 100));
+            canvasLoaded = true;
+            console.log('Canvas loaded from backend');
+
+            // Also update localStorage for quick access next time
+            localStorage.setItem(`canvas-${currentProjectId}`, serialized);
+          }
+        }
+      } catch (fetchError) {
+        console.error('Error fetching canvas from backend:', fetchError);
       }
+
+      // Fallback to localStorage if backend didn't have canvas state
+      if (!canvasLoaded) {
+        const saved = localStorage.getItem(`canvas-${currentProjectId}`);
+        if (saved && engineRef.current) {
+          engineRef.current.deserialize(saved);
+          const zoom = engineRef.current.getState().viewport.zoom;
+          setZoomLevel(Math.round(zoom * 100));
+          console.log('Canvas loaded from localStorage');
+        }
+      }
+
+      // Migrate any existing base64 images to Supabase Storage
+      await migrateBase64Images();
     } catch (error) {
       console.error('Error loading canvas state:', error);
     }
   };
 
-  // Save canvas state to backend
+  // Save canvas state to localStorage (for quick local persistence)
+  const saveCanvasStateLocal = async () => {
+    // Don't save while uploading - wait for upload to complete with Supabase URL
+    if (uploadingImageId) return;
+
+    if (!currentProjectId || !engineRef.current) return;
+
+    try {
+      const serialized = engineRef.current.serialize();
+      localStorage.setItem(`canvas-${currentProjectId}`, serialized);
+    } catch (error) {
+      console.error('Error saving canvas state locally:', error);
+    }
+  };
+
+  // Save canvas state to backend (for persistence across devices)
   const saveCanvasState = async () => {
+    // Don't save while uploading - wait for upload to complete with Supabase URL
+    if (uploadingImageId) return;
+
     if (!currentProjectId || !engineRef.current) return;
 
     try {
@@ -303,7 +353,28 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       if (!token) return;
 
       const serialized = engineRef.current.serialize();
+
+      // Save to localStorage for quick access
       localStorage.setItem(`canvas-${currentProjectId}`, serialized);
+
+      // Save to backend for persistence
+      const canvasData = JSON.parse(serialized);
+      const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          canvas_state: canvasData,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to save canvas to backend');
+      } else {
+        console.log('Canvas saved to backend successfully');
+      }
     } catch (error) {
       console.error('Error saving canvas state:', error);
     }

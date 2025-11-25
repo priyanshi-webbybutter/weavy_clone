@@ -115,6 +115,7 @@ function HomePageContent() {
         },
         body: JSON.stringify({
           name: projectName,
+          type: type,
         }),
       });
 
@@ -175,9 +176,13 @@ function HomePageContent() {
     }
   };
 
-  // Handle project click
-  const handleProjectClick = (projectId: string) => {
-    router.push(`/canvas?projectId=${projectId}`);
+  // Handle project click - route based on project type
+  const handleProjectClick = (projectId: string, projectType?: string) => {
+    if (projectType === 'canvas') {
+      router.push(`/canvas/canvas?projectId=${projectId}`);
+    } else {
+      router.push(`/canvas/canvas-workflow?projectId=${projectId}`);
+    }
   };
 
   // Format date
@@ -417,7 +422,7 @@ function HomePageContent() {
               {filteredProjects.map((project) => (
                 <button
                   key={project.id}
-                  onClick={() => handleProjectClick(project.id)}
+                  onClick={() => handleProjectClick(project.id, project.type)}
                   className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left group"
                 >
                   <div className="aspect-video bg-[#0a0a0a] rounded mb-3 flex items-center justify-center overflow-hidden">
@@ -439,7 +444,7 @@ function HomePageContent() {
               {filteredProjects.map((project) => (
                 <button
                   key={project.id}
-                  onClick={() => handleProjectClick(project.id)}
+                  onClick={() => handleProjectClick(project.id, project.type)}
                   className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left flex items-center gap-4"
                 >
                   <div className="w-12 h-12 bg-[#0a0a0a] rounded flex items-center justify-center flex-shrink-0">

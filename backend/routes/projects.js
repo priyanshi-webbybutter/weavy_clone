@@ -118,7 +118,7 @@ router.post('/projects', async (req, res) => {
 
     console.log('✅ Authenticated user:', user.id);
 
-    const { name, description } = req.body;
+    const { name, description, type } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({
@@ -126,7 +126,10 @@ router.post('/projects', async (req, res) => {
       });
     }
 
-    console.log('📝 Creating project for user:', user.id, 'Name:', name);
+    // Validate type if provided
+    const projectType = type === 'canvas' ? 'canvas' : 'workflow';
+
+    console.log('📝 Creating project for user:', user.id, 'Name:', name, 'Type:', projectType);
 
     const { data, error } = await supabaseClient
       .from('projects')
@@ -134,6 +137,7 @@ router.post('/projects', async (req, res) => {
         user_id: user.id,
         name: name.trim(),
         description: description?.trim() || null,
+        type: projectType,
       })
       .select()
       .single();
@@ -474,6 +478,7 @@ router.get('/workflows/:projectId', async (req, res) => {
           nodes: [],
           edges: [],
           node_settings: {},
+          canvas_state: null,
         },
       });
     }
@@ -484,6 +489,7 @@ router.get('/workflows/:projectId', async (req, res) => {
       nodesCount: Array.isArray(data.nodes) ? data.nodes.length : 0,
       edgesCount: Array.isArray(data.edges) ? data.edges.length : 0,
       hasSettings: !!data.node_settings,
+      hasCanvasState: !!data.canvas_state,
       nodesPreview: Array.isArray(data.nodes) ? data.nodes.slice(0, 2).map(n => ({
         id: n?.id,
         type: n?.type,
@@ -498,6 +504,7 @@ router.get('/workflows/:projectId', async (req, res) => {
         nodes: data.nodes || [],
         edges: data.edges || [],
         node_settings: data.node_settings || {},
+        canvas_state: data.canvas_state || null,
       },
     });
   } catch (error) {
@@ -522,31 +529,50 @@ router.post('/workflows/:projectId', async (req, res) => {
     }
 
     const { projectId } = req.params;
-    const { nodes, edges, node_settings } = req.body;
+    const { nodes, edges, node_settings, canvas_state } = req.body;
 
-    // Validate input
-    if (!Array.isArray(nodes)) {
+    console.log('📥 Received workflow save request:', {
+      hasNodes: nodes !== undefined,
+      hasEdges: edges !== undefined,
+      hasNodeSettings: node_settings !== undefined,
+      hasCanvasState: canvas_state !== undefined,
+    });
+
+    // Validate input - nodes and edges can be optional if only saving canvas_state
+    if (nodes !== undefined && !Array.isArray(nodes)) {
       return res.status(400).json({
         error: 'nodes must be an array',
       });
     }
 
-    if (!Array.isArray(edges)) {
+    if (edges !== undefined && !Array.isArray(edges)) {
       return res.status(400).json({
         error: 'edges must be an array',
       });
     }
 
+    // Ensure at least one field is provided
+    if (nodes === undefined && edges === undefined && node_settings === undefined && canvas_state === undefined) {
+      return res.status(400).json({
+        error: 'At least one field (nodes, edges, node_settings, or canvas_state) must be provided',
+      });
+    }
+
     console.log('💾 Saving workflow for project:', projectId, 'user:', user.id);
-    console.log(`   Nodes: ${nodes.length}, Edges: ${edges.length}`);
-    
-    // Log image/video counts for debugging
-    const imageNodes = nodes.filter(n => n.data?.imageUrls?.length || n.data?.imageUrl);
-    const videoNodes = nodes.filter(n => n.data?.videoUrls?.length || n.data?.videoUrl);
-    console.log(`   Image nodes: ${imageNodes.length}, Video nodes: ${videoNodes.length}`);
-    
+    if (nodes) {
+      console.log(`   Nodes: ${nodes.length}, Edges: ${edges?.length || 0}`);
+
+      // Log image/video counts for debugging
+      const imageNodes = nodes.filter(n => n.data?.imageUrls?.length || n.data?.imageUrl);
+      const videoNodes = nodes.filter(n => n.data?.videoUrls?.length || n.data?.videoUrl);
+      console.log(`   Image nodes: ${imageNodes.length}, Video nodes: ${videoNodes.length}`);
+    }
+    if (canvas_state) {
+      console.log(`   Canvas state: present`);
+    }
+
     // Check payload size
-    const payloadSize = JSON.stringify({ nodes, edges, node_settings }).length;
+    const payloadSize = JSON.stringify({ nodes, edges, node_settings, canvas_state }).length;
     console.log(`   Payload size: ${(payloadSize / 1024).toFixed(2)} KB`);
 
     // First verify the project belongs to the user (RLS will handle this)
@@ -570,14 +596,16 @@ router.post('/workflows/:projectId', async (req, res) => {
       .single();
 
     if (existingWorkflow) {
-      // Update existing workflow
+      // Update existing workflow - only update fields that are provided
+      const updateData = {};
+      if (nodes !== undefined) updateData.nodes = nodes;
+      if (edges !== undefined) updateData.edges = edges;
+      if (node_settings !== undefined) updateData.node_settings = node_settings;
+      if (canvas_state !== undefined) updateData.canvas_state = canvas_state;
+
       const { data, error } = await supabaseClient
         .from('workflows')
-        .update({
-          nodes: nodes,
-          edges: edges,
-          node_settings: node_settings || {},
-        })
+        .update(updateData)
         .eq('id', existingWorkflow.id)
         .select()
         .single();
@@ -598,9 +626,10 @@ router.post('/workflows/:projectId', async (req, res) => {
         .insert({
           project_id: projectId,
           user_id: user.id,
-          nodes: nodes,
-          edges: edges,
+          nodes: nodes || [],
+          edges: edges || [],
           node_settings: node_settings || {},
+          canvas_state: canvas_state || null,
         })
         .select()
         .single();
