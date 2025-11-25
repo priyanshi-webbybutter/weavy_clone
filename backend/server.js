@@ -6,6 +6,7 @@ const describeImageRoute = require('./routes/describe-image');
 const generateVideoRoute = require('./routes/generate-video');
 const authRoute = require('./routes/auth');
 const projectsRoute = require('./routes/projects');
+const uploadCanvasImageRoute = require('./routes/upload-canvas-image');
 
 // Load environment variables
 dotenv.config();
@@ -25,7 +26,8 @@ app.use(cors({
 // Handle preflight requests
 app.options('*', cors());
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -39,6 +41,7 @@ app.use('/api', describeImageRoute);
 app.use('/api', generateVideoRoute);
 app.use('/api', authRoute);
 app.use('/api', projectsRoute);
+app.use('/api', uploadCanvasImageRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
@@ -89,4 +92,6 @@ app.listen(PORT, () => {
   console.log(`   - POST /api/workflows/:projectId - Save workflow`);
   console.log(`   - POST /api/generations - Save generation history`);
   console.log(`   - GET /api/generations/:workflowId - Get generation history`);
+  console.log(`🖼️ Canvas image upload:`);
+  console.log(`   - POST /api/upload-canvas-image - Upload image to Supabase Storage`);
 });

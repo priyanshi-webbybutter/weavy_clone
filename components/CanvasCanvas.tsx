@@ -20,6 +20,8 @@ import {
   Link,
   Download,
   Minus,
+  Crop,
+  Copy,
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -81,6 +83,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [initialGroupFontSizes, setInitialGroupFontSizes] = useState<Map<string, number>>(new Map());
   const [isGroupMoving, setIsGroupMoving] = useState(false);
   const [initialGroupPositions, setInitialGroupPositions] = useState<Map<string, Point>>(new Map());
+  const [isCropping, setIsCropping] = useState(false);
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [croppingImageId, setCroppingImageId] = useState<string | null>(null);
+  const [cropDragging, setCropDragging] = useState<'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w' | null>(null);
+  const [cropDragStart, setCropDragStart] = useState<Point | null>(null);
+  const [initialCropRect, setInitialCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+  const [isMigratingImages, setIsMigratingImages] = useState(false);
+  const [migrationProgress, setMigrationProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Initialize engine
   useEffect(() => {
@@ -148,8 +159,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     // Position panel above the shape with a small gap, centered horizontally
     const canvasRect = canvasRef.current.getBoundingClientRect();
-    const panelHeight = 48; // Approximate height of the properties panel
-    const gap = 8; // Small gap between panel and shape
+    const panelHeight = 90; // Approximate height of the properties panel
+    const gap = 40; // Gap between panel and shape
     
     // For text shapes, add significant extra gap to ensure text content is fully visible below panel
     const isTextShape = shape.type === 'text';
@@ -173,9 +184,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     updatePropertiesPanelPosition();
   }, [selectedShapeId]);
 
-  // Update panel position on render (when shape moves/resizes)
+  // Update panel position smoothly during interactions
   useEffect(() => {
-    if (engineRef.current && selectedShapeId) {
+    if (engineRef.current && selectedShapeId && (isDrawing || isResizing || isGroupResizing || isGroupMoving || isPanning)) {
       let animationFrameId: number;
       const update = () => {
         updatePropertiesPanelPosition();
@@ -184,7 +195,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       animationFrameId = requestAnimationFrame(update);
       return () => cancelAnimationFrame(animationFrameId);
     }
-  }, [selectedShapeId]);
+  }, [selectedShapeId, isDrawing, isResizing, isGroupResizing, isGroupMoving, isPanning]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -264,7 +275,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Load canvas state from backend
   const loadCanvasState = async () => {
     if (!currentProjectId) return;
-    
+
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) return;
@@ -274,6 +285,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         engineRef.current.deserialize(saved);
         const zoom = engineRef.current.getState().viewport.zoom;
         setZoomLevel(Math.round(zoom * 100));
+
+        // Migrate any existing base64 images to Supabase Storage
+        await migrateBase64Images();
       }
     } catch (error) {
       console.error('Error loading canvas state:', error);
@@ -283,7 +297,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Save canvas state to backend
   const saveCanvasState = async () => {
     if (!currentProjectId || !engineRef.current) return;
-    
+
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) return;
@@ -293,6 +307,82 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     } catch (error) {
       console.error('Error saving canvas state:', error);
     }
+  };
+
+  // Migrate existing base64 images to Supabase Storage
+  const migrateBase64Images = async () => {
+    if (!engineRef.current || !currentProjectId) return;
+
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
+
+    const shapes = engineRef.current.getState().shapes;
+    const base64Images: Array<{ id: string; src: string }> = [];
+
+    // Find all images with base64 data URLs
+    shapes.forEach((shape, id) => {
+      if (shape.type === 'image') {
+        const imageShape = shape as ImageShape;
+        if (imageShape.src.startsWith('data:image/')) {
+          base64Images.push({ id, src: imageShape.src });
+        }
+      }
+    });
+
+    if (base64Images.length === 0) {
+      console.log('No base64 images to migrate');
+      return;
+    }
+
+    console.log(`Found ${base64Images.length} base64 images to migrate`);
+    setIsMigratingImages(true);
+    setMigrationProgress({ current: 0, total: base64Images.length });
+
+    let migratedCount = 0;
+    let hasUpdates = false;
+
+    for (const { id, src } of base64Images) {
+      try {
+        console.log(`Migrating image ${id}...`);
+
+        const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageData: src,
+            projectId: currentProjectId,
+          }),
+        });
+
+        if (response.ok) {
+          const { url } = await response.json();
+          if (engineRef.current) {
+            engineRef.current.updateShape(id, { src: url });
+            hasUpdates = true;
+            console.log(`Successfully migrated image ${id}`);
+          }
+        } else {
+          console.error(`Failed to migrate image ${id}`);
+        }
+      } catch (error) {
+        console.error(`Error migrating image ${id}:`, error);
+      }
+
+      migratedCount++;
+      setMigrationProgress({ current: migratedCount, total: base64Images.length });
+    }
+
+    if (hasUpdates && engineRef.current) {
+      engineRef.current.saveState();
+      await saveCanvasState();
+      console.log('Migration complete - canvas saved');
+    }
+
+    setIsMigratingImages(false);
+    setMigrationProgress(null);
   };
 
   const handleSave = async () => {
@@ -353,6 +443,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return;
+
+    // Don't handle canvas interactions in crop mode
+    if (isCropping) return;
 
     const rect = canvasRef.current.getBoundingClientRect();
     const point: Point = {
@@ -889,6 +982,87 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     updatePropertiesPanelPosition();
   };
 
+  // Crop handlers
+  const handleCropMouseDown = (e: React.MouseEvent, handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w') => {
+    e.stopPropagation();
+    if (!cropRect) return;
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setCropDragging(handle);
+    setCropDragStart({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setInitialCropRect({ ...cropRect });
+  };
+
+  const handleCropMouseMove = (e: React.MouseEvent) => {
+    if (!cropDragging || !cropDragStart || !initialCropRect || !engineRef.current || !canvasRef.current) return;
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const currentPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+    // Convert screen delta to world delta
+    const startWorld = engineRef.current.screenToWorld(cropDragStart);
+    const currentWorld = engineRef.current.screenToWorld(currentPoint);
+    const deltaX = currentWorld.x - startWorld.x;
+    const deltaY = currentWorld.y - startWorld.y;
+
+    const newCropRect = { ...initialCropRect };
+
+    if (cropDragging === 'move') {
+      newCropRect.x = initialCropRect.x + deltaX;
+      newCropRect.y = initialCropRect.y + deltaY;
+    } else if (cropDragging === 'nw') {
+      newCropRect.x = initialCropRect.x + deltaX;
+      newCropRect.y = initialCropRect.y + deltaY;
+      newCropRect.width = initialCropRect.width - deltaX;
+      newCropRect.height = initialCropRect.height - deltaY;
+    } else if (cropDragging === 'ne') {
+      newCropRect.y = initialCropRect.y + deltaY;
+      newCropRect.width = initialCropRect.width + deltaX;
+      newCropRect.height = initialCropRect.height - deltaY;
+    } else if (cropDragging === 'sw') {
+      newCropRect.x = initialCropRect.x + deltaX;
+      newCropRect.width = initialCropRect.width - deltaX;
+      newCropRect.height = initialCropRect.height + deltaY;
+    } else if (cropDragging === 'se') {
+      newCropRect.width = initialCropRect.width + deltaX;
+      newCropRect.height = initialCropRect.height + deltaY;
+    } else if (cropDragging === 'n') {
+      newCropRect.y = initialCropRect.y + deltaY;
+      newCropRect.height = initialCropRect.height - deltaY;
+    } else if (cropDragging === 's') {
+      newCropRect.height = initialCropRect.height + deltaY;
+    } else if (cropDragging === 'e') {
+      newCropRect.width = initialCropRect.width + deltaX;
+    } else if (cropDragging === 'w') {
+      newCropRect.x = initialCropRect.x + deltaX;
+      newCropRect.width = initialCropRect.width - deltaX;
+    }
+
+    // Ensure minimum size
+    if (newCropRect.width < 20) {
+      if (cropDragging.includes('w')) {
+        newCropRect.x = initialCropRect.x + initialCropRect.width - 20;
+      }
+      newCropRect.width = 20;
+    }
+    if (newCropRect.height < 20) {
+      if (cropDragging.includes('n')) {
+        newCropRect.y = initialCropRect.y + initialCropRect.height - 20;
+      }
+      newCropRect.height = 20;
+    }
+
+    setCropRect(newCropRect);
+  };
+
+  const handleCropMouseUp = () => {
+    setCropDragging(null);
+    setCropDragStart(null);
+    setInitialCropRect(null);
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1012,63 +1186,124 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             type="file"
             accept="image/*"
             style={{ display: 'none' }}
-            onChange={(e) => {
+            onChange={async (e) => {
               const file = e.target.files?.[0];
               if (file && engineRef.current && canvasRef.current) {
+                const token = localStorage.getItem('auth_token');
+                if (!token) {
+                  alert('Please log in to upload images');
+                  e.target.value = '';
+                  return;
+                }
+
+                if (!currentProjectId) {
+                  alert('Please save your project first');
+                  e.target.value = '';
+                  return;
+                }
+
                 const reader = new FileReader();
-                reader.onload = (event) => {
+                reader.onload = async (event) => {
                   const dataUrl = event.target?.result as string;
-                  if (dataUrl && engineRef.current) {
-                    // Get image dimensions
-                    const img = new Image();
-                    img.onload = () => {
-                      if (engineRef.current && canvasRef.current) {
-                        // Place image at center of viewport
-                        const canvasRect = canvasRef.current.getBoundingClientRect();
-                        const centerX = canvasRect.width / 2;
-                        const centerY = canvasRect.height / 2;
-                        const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
-                        
-                        // Create image shape with original dimensions (scaled down if too large)
-                        const maxWidth = 400;
-                        const maxHeight = 400;
-                        let width = img.width;
-                        let height = img.height;
-                        
-                        if (width > maxWidth || height > maxHeight) {
-                          const ratio = Math.min(maxWidth / width, maxHeight / height);
-                          width = width * ratio;
-                          height = height * ratio;
-                        }
-                        
-                        const id = `image-${Date.now()}-${Math.random()}`;
-                        const imageShape: ImageShape = {
-                          id,
-                          type: 'image',
-                          x: worldPoint.x - width / 2,
-                          y: worldPoint.y - height / 2,
-                          width,
-                          height,
-                          src: dataUrl,
-                          style: {
-                            opacity: 1,
-                          },
-                        };
-                        
-                        engineRef.current.addShape(imageShape);
-                        engineRef.current.selectShape(id);
+                  if (!dataUrl || !engineRef.current || !canvasRef.current) return;
+
+                  // Get image dimensions first
+                  const img = new Image();
+                  img.onload = async () => {
+                    if (!engineRef.current || !canvasRef.current) return;
+
+                    // Place image at center of viewport
+                    const canvasRect = canvasRef.current.getBoundingClientRect();
+                    const centerX = canvasRect.width / 2;
+                    const centerY = canvasRect.height / 2;
+                    const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
+
+                    // Scale down if too large
+                    const maxWidth = 400;
+                    const maxHeight = 400;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxWidth || height > maxHeight) {
+                      const ratio = Math.min(maxWidth / width, maxHeight / height);
+                      width = width * ratio;
+                      height = height * ratio;
+                    }
+
+                    // Create placeholder shape with loading state
+                    const placeholderId = `image-uploading-${Date.now()}-${Math.random()}`;
+                    const placeholderShape: ImageShape = {
+                      id: placeholderId,
+                      type: 'image',
+                      x: worldPoint.x - width / 2,
+                      y: worldPoint.y - height / 2,
+                      width,
+                      height,
+                      src: dataUrl, // Show local preview while uploading
+                      style: {
+                        opacity: 0.5, // Dim to indicate loading
+                      },
+                    };
+
+                    engineRef.current.addShape(placeholderShape);
+                    engineRef.current.selectShape(placeholderId);
+                    setUploadingImageId(placeholderId);
+
+                    try {
+                      // Upload to Supabase Storage via backend
+                      const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({
+                          imageData: dataUrl,
+                          projectId: currentProjectId,
+                        }),
+                      });
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Upload failed');
+                      }
+
+                      const { url } = await response.json();
+
+                      // Update the shape with the Supabase URL
+                      if (engineRef.current) {
+                        engineRef.current.updateShape(placeholderId, {
+                          src: url,
+                          style: { opacity: 1 },
+                        });
                         engineRef.current.saveState();
                         saveCanvasState();
                       }
-                    };
-                    img.onerror = () => {
-                      console.error('Failed to load image');
-                    };
-                    img.src = dataUrl;
-                  }
+
+                      console.log('Image uploaded successfully:', url);
+                    } catch (uploadError: unknown) {
+                      console.error('Failed to upload image:', uploadError);
+                      // Remove the placeholder on failure
+                      if (engineRef.current) {
+                        engineRef.current.removeShape(placeholderId);
+                      }
+                      const errorMessage = uploadError instanceof Error ? uploadError.message : 'Unknown error';
+                      alert(`Failed to upload image: ${errorMessage}`);
+                    } finally {
+                      setUploadingImageId(null);
+                    }
+                  };
+
+                  img.onerror = () => {
+                    console.error('Failed to load image');
+                    alert('Failed to load the selected image');
+                  };
+                  img.src = dataUrl;
                 };
+
                 reader.onerror = () => {
                   console.error('Failed to read file');
+                  alert('Failed to read the selected file');
                 };
                 reader.readAsDataURL(file);
               }
@@ -1238,6 +1473,31 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             />
           )}
 
+          {/* Image Upload Loading Overlay */}
+          {uploadingImageId && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+              <div className="bg-black/70 text-white px-6 py-4 rounded-lg flex items-center gap-3 shadow-lg">
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-medium">Uploading image...</span>
+              </div>
+            </div>
+          )}
+
+          {/* Migration Progress Overlay */}
+          {isMigratingImages && migrationProgress && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+              <div className="bg-black/70 text-white px-6 py-4 rounded-lg flex flex-col items-center gap-3 shadow-lg">
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-medium">
+                  Migrating images to cloud storage...
+                </span>
+                <span className="text-xs text-gray-300">
+                  {migrationProgress.current} / {migrationProgress.total}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Properties Panel */}
           {propertiesPanelPos && selectedShapeId && engineRef.current && (() => {
             const shape = engineRef.current.getShape(selectedShapeId);
@@ -1246,13 +1506,95 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             const bounds = engineRef.current.getShapeBoundsInScreen(shape);
             if (!bounds) return null;
 
-            const width = shape.type === 'rectangle' || shape.type === 'text' ? Math.round(shape.width) : 
+            const width = shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image' ? Math.round(shape.width) :
                          shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
-            const height = shape.type === 'rectangle' || shape.type === 'text' ? Math.round(shape.height) : 
+            const height = shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image' ? Math.round(shape.height) :
                           shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
             const fillColor = shape.style.fill || '#808080';
             const strokeColor = shape.style.stroke || 'transparent';
             const opacity = shape.style.opacity ?? 1;
+
+            // For image shapes, show image-specific controls
+            if (shape.type === 'image') {
+              return (
+                <div
+                  className="absolute bg-white rounded-lg shadow-md px-3 py-2.5 flex items-center gap-2 z-50"
+                  style={{
+                    left: `${propertiesPanelPos.x}px`,
+                    top: `${propertiesPanelPos.y}px`,
+                    transform: 'translateX(-50%)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Crop Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCropping(true);
+                      setCroppingImageId(selectedShapeId);
+                      // Initialize crop rect to full image bounds
+                      setCropRect({
+                        x: shape.x,
+                        y: shape.y,
+                        width: width,
+                        height: height
+                      });
+                    }}
+                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    title="Crop Image"
+                  >
+                    <Crop className="w-4 h-4" />
+                  </button>
+
+                  {/* Duplicate Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!engineRef.current) return;
+
+                      // Create duplicate with offset position
+                      const imageShape = shape as ImageShape;
+                      const newShape: ImageShape = {
+                        ...imageShape,
+                        id: `shape-${Date.now()}-${Math.random()}`,
+                        x: imageShape.x + 20,
+                        y: imageShape.y + 20,
+                      };
+
+                      engineRef.current.addShape(newShape);
+                      engineRef.current.clearSelection();
+                      engineRef.current.selectShape(newShape.id);
+                      setSelectedShapeId(newShape.id);
+                      saveCanvasState();
+                    }}
+                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    title="Duplicate Image"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+
+                  {/* Download Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const imageShape = shape as ImageShape;
+
+                      // Create a temporary link and trigger download
+                      const link = document.createElement('a');
+                      link.href = imageShape.src;
+                      link.download = `image-${Date.now()}.png`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    title="Download Image"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            }
 
             // For text shapes, show different controls
             if (shape.type === 'text') {
@@ -1812,6 +2154,183 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   <Download className="w-4 h-4" />
                 </button>
               </div>
+            );
+          })()}
+
+          {/* Crop Overlay */}
+          {isCropping && cropRect && croppingImageId && engineRef.current && (() => {
+            const shape = engineRef.current.getShape(croppingImageId);
+            if (!shape || shape.type !== 'image') return null;
+
+            const bounds = engineRef.current.getShapeBoundsInScreen(shape);
+            if (!bounds) return null;
+
+            // Convert crop rect from world to screen coordinates
+            const cropTopLeft = engineRef.current.worldToScreen({ x: cropRect.x, y: cropRect.y });
+            const cropBottomRight = engineRef.current.worldToScreen({
+              x: cropRect.x + cropRect.width,
+              y: cropRect.y + cropRect.height
+            });
+
+            const screenCropRect = {
+              x: cropTopLeft.x,
+              y: cropTopLeft.y,
+              width: cropBottomRight.x - cropTopLeft.x,
+              height: cropBottomRight.y - cropTopLeft.y
+            };
+
+            return (
+              <>
+                {/* Dark overlay outside crop area */}
+                <div
+                  className="absolute inset-0 bg-black bg-opacity-50 pointer-events-none z-40"
+                  style={{
+                    clipPath: `polygon(
+                      0 0,
+                      100% 0,
+                      100% 100%,
+                      0 100%,
+                      0 0,
+                      ${screenCropRect.x}px ${screenCropRect.y}px,
+                      ${screenCropRect.x}px ${screenCropRect.y + screenCropRect.height}px,
+                      ${screenCropRect.x + screenCropRect.width}px ${screenCropRect.y + screenCropRect.height}px,
+                      ${screenCropRect.x + screenCropRect.width}px ${screenCropRect.y}px,
+                      ${screenCropRect.x}px ${screenCropRect.y}px
+                    )`
+                  }}
+                />
+
+                {/* Crop rectangle border with drag area */}
+                <div
+                  className="absolute border-2 border-white z-50 cursor-move"
+                  style={{
+                    left: `${screenCropRect.x}px`,
+                    top: `${screenCropRect.y}px`,
+                    width: `${screenCropRect.width}px`,
+                    height: `${screenCropRect.height}px`,
+                    boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.5)'
+                  }}
+                  onMouseDown={(e) => handleCropMouseDown(e, 'move')}
+                  onMouseMove={handleCropMouseMove}
+                  onMouseUp={handleCropMouseUp}
+                  onMouseLeave={handleCropMouseUp}
+                >
+                  {/* Resize handles */}
+                  {['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].map((handle) => {
+                    const isCorner = handle.length === 2;
+                    const handleSize = 10;
+                    const positions: Record<string, React.CSSProperties> = {
+                      nw: { top: -handleSize/2, left: -handleSize/2, cursor: 'nwse-resize' },
+                      n: { top: -handleSize/2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
+                      ne: { top: -handleSize/2, right: -handleSize/2, cursor: 'nesw-resize' },
+                      e: { top: '50%', right: -handleSize/2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
+                      se: { bottom: -handleSize/2, right: -handleSize/2, cursor: 'nwse-resize' },
+                      s: { bottom: -handleSize/2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
+                      sw: { bottom: -handleSize/2, left: -handleSize/2, cursor: 'nesw-resize' },
+                      w: { top: '50%', left: -handleSize/2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
+                    };
+
+                    return (
+                      <div
+                        key={handle}
+                        className="absolute bg-white border-2 border-blue-500"
+                        style={{
+                          width: `${handleSize}px`,
+                          height: `${handleSize}px`,
+                          ...positions[handle],
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          handleCropMouseDown(e, handle as any);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Crop controls */}
+                <div
+                  className="absolute z-50 flex gap-2"
+                  style={{
+                    left: `${screenCropRect.x + screenCropRect.width / 2}px`,
+                    top: `${screenCropRect.y + screenCropRect.height + 16}px`,
+                    transform: 'translateX(-50%)'
+                  }}
+                >
+                  <button
+                    onClick={async () => {
+                      if (!engineRef.current || !canvasRef.current) return;
+
+                      const imageShape = shape as ImageShape;
+
+                      // Create a temporary canvas to crop the image
+                      const tempCanvas = document.createElement('canvas');
+                      const tempCtx = tempCanvas.getContext('2d');
+                      if (!tempCtx) return;
+
+                      // Load the image
+                      const img = new Image();
+                      img.crossOrigin = 'anonymous';
+                      img.src = imageShape.src;
+
+                      await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                      });
+
+                      // Calculate crop region in image coordinates
+                      const scaleX = img.width / imageShape.width;
+                      const scaleY = img.height / imageShape.height;
+                      const cropX = (cropRect.x - imageShape.x) * scaleX;
+                      const cropY = (cropRect.y - imageShape.y) * scaleY;
+                      const cropW = cropRect.width * scaleX;
+                      const cropH = cropRect.height * scaleY;
+
+                      // Set canvas size to crop dimensions
+                      tempCanvas.width = cropW;
+                      tempCanvas.height = cropH;
+
+                      // Draw cropped portion
+                      tempCtx.drawImage(
+                        img,
+                        cropX, cropY, cropW, cropH,
+                        0, 0, cropW, cropH
+                      );
+
+                      // Convert to data URL
+                      const croppedDataUrl = tempCanvas.toDataURL('image/png');
+
+                      // Update the shape with cropped image
+                      engineRef.current.updateShape(croppingImageId, {
+                        src: croppedDataUrl,
+                        x: cropRect.x,
+                        y: cropRect.y,
+                        width: cropRect.width,
+                        height: cropRect.height
+                      });
+
+                      // Exit crop mode
+                      setIsCropping(false);
+                      setCropRect(null);
+                      setCroppingImageId(null);
+                      saveCanvasState();
+                    }}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    Apply Crop
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsCropping(false);
+                      setCropRect(null);
+                      setCroppingImageId(null);
+                    }}
+                    className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
             );
           })()}
 
