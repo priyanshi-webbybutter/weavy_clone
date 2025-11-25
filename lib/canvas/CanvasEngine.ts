@@ -1133,14 +1133,14 @@ export class CanvasEngine {
   // Draw text with character-by-character wrapping
   private drawTextWithWrapping(shape: TextShape) {
     if (!this.ctx) return;
-    
+
     this.ctx.save();
-    
+
     // Set up clipping region to ensure text stays within bounds
     this.ctx.beginPath();
     this.ctx.rect(shape.x, shape.y, shape.width, shape.height);
     this.ctx.clip();
-    
+
     // Build font string with weight
     const fontSize = shape.style.fontSize || 16;
     const fontFamily = shape.style.fontFamily || 'Arial';
@@ -1150,14 +1150,39 @@ export class CanvasEngine {
       fontWeight = 'normal';
     }
     this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
-    
+
     // Set text alignment
     const textAlign = shape.style.textAlign || 'left';
     this.ctx.textAlign = textAlign as CanvasTextAlign;
-    
+
     const lineHeight = fontSize * 1.2;
     const lines = this.getTextLines(shape);
-    
+
+    // Get text shadow settings
+    const textShadow = shape.style.textShadow;
+    const hasShadow = textShadow?.enabled;
+
+    // Get text border settings
+    const hasTextBorder = shape.style.textBorder;
+    const textBorderColor = shape.style.textBorderColor || '#000000';
+    const textBorderWidth = shape.style.textBorderWidth || 1;
+
+    // Apply shadow if enabled
+    if (hasShadow && textShadow) {
+      // Opacity is stored as 0-100 in UI, convert to 0-1
+      const shadowOpacity = (textShadow.opacity ?? 100) / 100;
+      const shadowColor = textShadow.color || '#000000';
+
+      // Use offsetX/offsetY directly as set by the UI (already calculated from angle)
+      const offsetX = textShadow.offsetX ?? 0;
+      const offsetY = textShadow.offsetY ?? 1;
+
+      this.ctx.shadowColor = this.hexToRgba(shadowColor, shadowOpacity);
+      this.ctx.shadowBlur = textShadow.blur ?? 0;
+      this.ctx.shadowOffsetX = offsetX;
+      this.ctx.shadowOffsetY = offsetY;
+    }
+
     // Draw each line
     let y = shape.y + fontSize;
     for (const line of lines) {
@@ -1174,9 +1199,49 @@ export class CanvasEngine {
           // For justify, we'd need to adjust spacing, but for now use left alignment
           this.ctx.textAlign = 'left';
         }
-        
+
+        // Draw text outline/border if enabled (with shadow applied)
+        if (hasTextBorder && textBorderWidth > 0) {
+          this.ctx.strokeStyle = textBorderColor;
+          this.ctx.lineWidth = textBorderWidth / this.state.viewport.zoom;
+          this.ctx.lineJoin = 'round';
+          this.ctx.miterLimit = 2;
+          this.ctx.strokeText(line, x, y);
+        }
+
+        // Draw outline effect from shadow settings (separate from text border)
+        if (hasShadow && textShadow && textShadow.outlineWidth && textShadow.outlineWidth > 0) {
+          // Save current shadow settings
+          const savedShadowColor = this.ctx.shadowColor;
+          const savedShadowBlur = this.ctx.shadowBlur;
+          const savedShadowOffsetX = this.ctx.shadowOffsetX;
+          const savedShadowOffsetY = this.ctx.shadowOffsetY;
+
+          // Disable shadow for outline stroke
+          this.ctx.shadowColor = 'transparent';
+          this.ctx.shadowBlur = 0;
+          this.ctx.shadowOffsetX = 0;
+          this.ctx.shadowOffsetY = 0;
+
+          // Draw outline
+          const outlineColor = textShadow.color || '#000000';
+          const outlineOpacity = (textShadow.opacity ?? 100) / 100;
+          this.ctx.strokeStyle = this.hexToRgba(outlineColor, outlineOpacity);
+          this.ctx.lineWidth = textShadow.outlineWidth / this.state.viewport.zoom;
+          this.ctx.lineJoin = 'round';
+          this.ctx.miterLimit = 2;
+          this.ctx.strokeText(line, x, y);
+
+          // Restore shadow settings
+          this.ctx.shadowColor = savedShadowColor;
+          this.ctx.shadowBlur = savedShadowBlur;
+          this.ctx.shadowOffsetX = savedShadowOffsetX;
+          this.ctx.shadowOffsetY = savedShadowOffsetY;
+        }
+
+        // Draw fill text
         this.ctx.fillText(line, x, y);
-        
+
         // Restore textAlign for justify
         if (textAlign === 'justify') {
           this.ctx.textAlign = textAlign as CanvasTextAlign;
@@ -1184,8 +1249,27 @@ export class CanvasEngine {
       }
       y += lineHeight;
     }
-    
+
     this.ctx.restore(); // Restore clipping region
+  }
+
+  // Helper to convert hex color to rgba with opacity
+  private hexToRgba(hex: string, opacity: number): string {
+    // Handle shorthand hex
+    let r = 0, g = 0, b = 0;
+    if (hex.length === 4) {
+      r = parseInt(hex[1] + hex[1], 16);
+      g = parseInt(hex[2] + hex[2], 16);
+      b = parseInt(hex[3] + hex[3], 16);
+    } else if (hex.length === 7) {
+      r = parseInt(hex.slice(1, 3), 16);
+      g = parseInt(hex.slice(3, 5), 16);
+      b = parseInt(hex.slice(5, 7), 16);
+    } else {
+      // If not valid hex, return as-is with opacity
+      return hex;
+    }
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   }
 
   private drawArrowhead(start: Point, end: Point) {

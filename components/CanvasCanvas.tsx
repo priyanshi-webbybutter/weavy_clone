@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
-import { Shape, Point, Tool, ImageShape, TextShape } from '@/lib/canvas/types';
+import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape } from '@/lib/canvas/types';
 import ColorPicker from './ColorPicker';
+import ShapeSettingsPanel from './ShapeSettingsPanel';
 import {
   ChevronDown,
   Share2,
@@ -50,6 +51,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [initialShapePos, setInitialShapePos] = useState<Point | null>(null);
   const [initialMouseWorldPos, setInitialMouseWorldPos] = useState<Point | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [selectedShapes, setSelectedShapes] = useState<Shape[]>([]);
+  const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [isTasksMenuOpen, setIsTasksMenuOpen] = useState(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
@@ -176,6 +179,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Helper to update selected shapes state and open settings panel
+  const updateSelectedShapesState = () => {
+    if (!engineRef.current) {
+      setSelectedShapes([]);
+      setIsSettingsPanelOpen(false);
+      return;
+    }
+    const shapes = engineRef.current.getSelectedShapes();
+    setSelectedShapes(shapes);
+    if (shapes.length > 0) {
+      setIsSettingsPanelOpen(true);
+    } else {
+      setIsSettingsPanelOpen(false);
+    }
+  };
 
   // Update properties panel position when shape is selected or moved
   const updatePropertiesPanelPosition = () => {
@@ -544,6 +563,95 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
   };
 
+  // Handle settings change from ShapeSettingsPanel
+  const handleShapeSettingsChange = (shapeId: string, updates: Partial<Shape>) => {
+    if (!engineRef.current) return;
+
+    // Handle delete action
+    if ((updates as any)._delete) {
+      engineRef.current.removeShape(shapeId);
+      engineRef.current.saveState();
+      saveCanvasState();
+      updateSelectedShapesState();
+      updatePropertiesPanelPosition();
+      return;
+    }
+
+    // Get current shape
+    const shape = engineRef.current.getShape(shapeId);
+    if (!shape) return;
+
+    // If updating style, merge with existing style
+    if (updates.style) {
+      updates = {
+        ...updates,
+        style: { ...shape.style, ...updates.style }
+      };
+    }
+
+    // Update shape
+    engineRef.current.updateShape(shapeId, updates);
+    engineRef.current.saveState();
+    engineRef.current.render();
+    saveCanvasState();
+
+    // Update the selectedShapes state to reflect changes
+    updateSelectedShapesState();
+    updatePropertiesPanelPosition();
+  };
+
+  // Handle crop image from settings panel
+  const handleCropImageFromPanel = (shapeId: string) => {
+    const shape = engineRef.current?.getShape(shapeId);
+    if (shape && shape.type === 'image') {
+      const imageShape = shape as ImageShape;
+      setCroppingImageId(shapeId);
+      setIsCropping(true);
+      setCropRect({
+        x: imageShape.x,
+        y: imageShape.y,
+        width: imageShape.width,
+        height: imageShape.height
+      });
+    }
+  };
+
+  // Handle download image from settings panel
+  const handleDownloadImageFromPanel = (shapeId: string) => {
+    const shape = engineRef.current?.getShape(shapeId);
+    if (shape && shape.type === 'image') {
+      const imageShape = shape as ImageShape;
+      const link = document.createElement('a');
+      link.href = imageShape.src;
+      link.download = `image-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  // Handle duplicate shape from settings panel
+  const handleDuplicateShapeFromPanel = (shapeId: string) => {
+    const shape = engineRef.current?.getShape(shapeId);
+    if (!shape || !engineRef.current) return;
+
+    const newId = `shape-${Date.now()}-${Math.random()}`;
+    const newShape = {
+      ...shape,
+      id: newId,
+      x: shape.x + 20,
+      y: shape.y + 20,
+    };
+
+    engineRef.current.addShape(newShape);
+    engineRef.current.clearSelection();
+    engineRef.current.selectShape(newId);
+    setSelectedShapeId(newId);
+    updateSelectedShapesState();
+    engineRef.current.saveState();
+    saveCanvasState();
+  };
+
   const handleProjectNameClick = () => {
     setEditingProjectName(true);
   };
@@ -702,6 +810,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         // Single shape selection and move
         engineRef.current.selectShape(shape.id, e.shiftKey);
         setSelectedShapeId(shape.id);
+        updateSelectedShapesState();
         setIsDrawing(true); // Start dragging selected shape
         // Store initial shape position and mouse position for smooth dragging
         const worldPoint = engineRef.current.screenToWorld(point);
@@ -712,6 +821,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         if (!e.shiftKey) {
           engineRef.current.clearSelection();
           setSelectedShapeId(null);
+          updateSelectedShapesState();
         }
         setIsSelecting(true);
         setSelectionBox({ start: point, end: point });
@@ -733,6 +843,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       engineRef.current.addShape(shape);
       engineRef.current.selectShape(id); // Select the shape after drawing
       setSelectedShapeId(id);
+      updateSelectedShapesState();
       setIsDrawing(true);
     } else {
       const worldPoint = engineRef.current.screenToWorld(point);
@@ -838,6 +949,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       engineRef.current.addShape(shape);
       engineRef.current.selectShape(id); // Select the shape after drawing
       setSelectedShapeId(id);
+      updateSelectedShapesState();
       setIsDrawing(true);
     }
   };
@@ -1069,8 +1181,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         } else {
           setSelectedShapeId(null);
         }
+        updateSelectedShapesState();
       }
-      
+
       setIsSelecting(false);
       setSelectionBox(null);
     }
@@ -1401,6 +1514,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
                     engineRef.current.addShape(placeholderShape);
                     engineRef.current.selectShape(placeholderId);
+                    setSelectedShapeId(placeholderId);
+                    updateSelectedShapesState();
                     setUploadingImageId(placeholderId);
 
                     try {
@@ -1432,6 +1547,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         });
                         engineRef.current.saveState();
                         saveCanvasState();
+                        updateSelectedShapesState();
                       }
 
                       console.log('Image uploaded successfully:', url);
@@ -1586,51 +1702,64 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           </div>
         )}
 
-        {/* Right Side Panel - Credits, Status, Share, Tasks */}
-        <div className="fixed top-6 right-6 z-40">
-          <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl p-2.5 shadow-2xl min-w-[240px]">
-            {/* Top Section */}
-            <div className="flex items-center justify-between mb-2.5">
-              {/* Left: Credits and Status */}
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-white text-xs">✨</span>
-                  <span className="text-white text-xs">{credits}</span>
+        {/* Right Side Panel - Credits, Status, Share, Tasks - Hidden when settings panel is open */}
+        {!isSettingsPanelOpen && (
+          <div className="fixed top-6 right-6 z-40">
+            <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl p-2.5 shadow-2xl min-w-[240px]">
+              {/* Top Section */}
+              <div className="flex items-center justify-between mb-2.5">
+                {/* Left: Credits and Status */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-white text-xs">✨</span>
+                    <span className="text-white text-xs">{credits}</span>
+                  </div>
+                  <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
+                    <span className="text-yellow-400 text-[10px]">Low credits</span>
+                  </div>
                 </div>
-                <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
-                  <span className="text-yellow-400 text-[10px]">Low credits</span>
+                {/* Right: Share Button */}
+                <div className="flex items-center gap-2">
+                  <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
+                    <span className="text-xs">↗</span>
+                    <span>Share</span>
+                  </button>
                 </div>
               </div>
-              {/* Right: Share Button */}
-              <div className="flex items-center gap-2">
-                <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
-                  <span className="text-xs">↗</span>
-                  <span>Share</span>
+              {/* Bottom Section: Tasks Dropdown */}
+              <div className="relative" data-tasks-menu>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsTasksMenuOpen(!isTasksMenuOpen);
+                  }}
+                  className="text-white text-xs flex items-center gap-1.5 hover:text-gray-300 transition-colors"
+                >
+                  <span>Tasks</span>
+                  <svg className={`w-3 h-3 transition-transform ${isTasksMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
+                {isTasksMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-48 bg-[#2a2a2a] border border-[#3a3a3a] rounded-xl shadow-lg py-2 z-50">
+                    <div className="px-4 py-2 text-sm text-gray-400">No tasks</div>
+                  </div>
+                )}
               </div>
-            </div>
-            {/* Bottom Section: Tasks Dropdown */}
-            <div className="relative" data-tasks-menu>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsTasksMenuOpen(!isTasksMenuOpen);
-                }}
-                className="text-white text-xs flex items-center gap-1.5 hover:text-gray-300 transition-colors"
-              >
-                <span>Tasks</span>
-                <svg className={`w-3 h-3 transition-transform ${isTasksMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {isTasksMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-[#2a2a2a] border border-[#3a3a3a] rounded-xl shadow-lg py-2 z-50">
-                  <div className="px-4 py-2 text-sm text-gray-400">No tasks</div>
-                </div>
-              )}
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Shape Settings Panel */}
+        <ShapeSettingsPanel
+          isOpen={isSettingsPanelOpen}
+          selectedShapes={selectedShapes}
+          onClose={() => setIsSettingsPanelOpen(false)}
+          onSettingsChange={handleShapeSettingsChange}
+          onCropImage={handleCropImageFromPanel}
+          onDownloadImage={handleDownloadImageFromPanel}
+          onDuplicateShape={handleDuplicateShapeFromPanel}
+        />
 
         {/* Canvas Area */}
         <div className="flex-1 bg-[#0a0a0a] overflow-hidden relative">
@@ -1751,6 +1880,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       engineRef.current.clearSelection();
                       engineRef.current.selectShape(newShape.id);
                       setSelectedShapeId(newShape.id);
+                      updateSelectedShapesState();
                       saveCanvasState();
                     }}
                     className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"

@@ -7,6 +7,17 @@ export interface Point {
   y: number;
 }
 
+export interface TextShadow {
+  enabled?: boolean;
+  color?: string;
+  opacity?: number;
+  offsetX?: number;
+  offsetY?: number;
+  blur?: number;
+  angle?: number; // Angle in degrees for offset direction
+  outlineWidth?: number;
+}
+
 export interface ShapeStyle {
   fill?: string;
   stroke?: string;
@@ -16,6 +27,11 @@ export interface ShapeStyle {
   fontFamily?: string;
   fontWeight?: string; // e.g., 'normal', 'bold', '100', '200', etc.
   textAlign?: 'left' | 'center' | 'right' | 'justify';
+  // Text-specific styles
+  textShadow?: TextShadow;
+  textBorder?: boolean; // Whether to show text border/outline
+  textBorderColor?: string;
+  textBorderWidth?: number;
 }
 
 export interface BaseShape {
