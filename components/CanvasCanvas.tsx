@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
-import { Shape, Point, Tool, ImageShape } from '@/lib/canvas/types';
+import { Shape, Point, Tool, ImageShape, TextShape } from '@/lib/canvas/types';
 import ColorPicker from './ColorPicker';
 import {
   ChevronDown,
@@ -77,6 +77,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [selectionBox, setSelectionBox] = useState<{ start: Point; end: Point } | null>(null);
   const [isGroupResizing, setIsGroupResizing] = useState(false);
   const [initialGroupBounds, setInitialGroupBounds] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
+  const [initialGroupShapeBounds, setInitialGroupShapeBounds] = useState<Map<string, { x: number, y: number, width: number, height: number }>>(new Map());
+  const [initialGroupFontSizes, setInitialGroupFontSizes] = useState<Map<string, number>>(new Map());
   const [isGroupMoving, setIsGroupMoving] = useState(false);
   const [initialGroupPositions, setInitialGroupPositions] = useState<Map<string, Point>>(new Map());
 
@@ -387,18 +389,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           }
           return;
         }
-      } else if (selected.length > 1) {
-        // Check for group resize handle
-        const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
-        if (groupHandle) {
-          setIsGroupResizing(true);
-          setResizeHandle(groupHandle);
-          const groupBounds = engineRef.current.getGroupBounds(selected);
-          if (groupBounds) {
-            setInitialGroupBounds(groupBounds);
-          }
-          return;
-        }
       }
     }
 
@@ -409,11 +399,43 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     if (tool === 'select') {
       const selected = engineRef.current.getSelectedShapes();
-      const shape = engineRef.current.hitTest(point);
       
-      if (shape) {
-        // Check if clicking on a selected shape (for group move)
-        if (selected.length > 1 && selected.includes(shape)) {
+        // Check for group resize handle first (before checking shapes)
+        if (selected.length > 1) {
+          const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
+          if (groupHandle) {
+            setIsGroupResizing(true);
+            setResizeHandle(groupHandle);
+            const groupBounds = engineRef.current.getGroupBounds(selected);
+            if (groupBounds && engineRef.current) {
+              setInitialGroupBounds(groupBounds);
+              // Store initial bounds and font sizes for all shapes in the group
+              const shapeBoundsMap = new Map<string, { x: number, y: number, width: number, height: number }>();
+              const fontSizesMap = new Map<string, number>();
+              selected.forEach(shape => {
+                let bounds: { x: number, y: number, width: number, height: number };
+                if (shape.type === 'rectangle' || shape.type === 'image') {
+                  bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+                } else if (shape.type === 'text') {
+                  const textShape = shape as TextShape;
+                  const textBounds = engineRef.current!.getTextBounds(textShape);
+                  bounds = { x: shape.x, y: shape.y, width: textBounds.width, height: textBounds.height };
+                  fontSizesMap.set(shape.id, textShape.style.fontSize || 16);
+                } else if (shape.type === 'circle') {
+                  bounds = { x: shape.x, y: shape.y, width: shape.radius * 2, height: shape.radius * 2 };
+                } else {
+                  return;
+                }
+                shapeBoundsMap.set(shape.id, bounds);
+              });
+              setInitialGroupShapeBounds(shapeBoundsMap);
+              setInitialGroupFontSizes(fontSizesMap);
+            }
+            return;
+          }
+        
+        // Check if clicking inside group bounds (for group move)
+        if (engineRef.current.isPointInGroupBounds(point, selected)) {
           // Start group move
           setIsGroupMoving(true);
           const worldPoint = engineRef.current.screenToWorld(point);
@@ -425,7 +447,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           setInitialMouseWorldPos(worldPoint);
           return;
         }
-        
+      }
+      
+      const shape = engineRef.current.hitTest(point);
+      
+      if (shape) {
+        // Single shape selection and move
         engineRef.current.selectShape(shape.id, e.shiftKey);
         setSelectedShapeId(shape.id);
         setIsDrawing(true); // Start dragging selected shape
@@ -578,12 +605,33 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     };
 
     // Update cursor based on hover (but not when selecting)
-    if (!isDrawing && !isPanning && !isResizing && !isSelecting && tool === 'select' && canvasRef.current) {
-      const hoveredShape = engineRef.current.hitTest(point);
-      if (hoveredShape && engineRef.current.getSelectedShapes().includes(hoveredShape)) {
-        const handle = engineRef.current.getResizeHandleAt(point, hoveredShape);
-        if (handle) {
-          canvasRef.current.style.cursor = getCursorForHandle(handle);
+    if (!isDrawing && !isPanning && !isResizing && !isSelecting && !isGroupResizing && !isGroupMoving && tool === 'select' && canvasRef.current) {
+      const selected = engineRef.current.getSelectedShapes();
+      if (selected.length === 1) {
+        const hoveredShape = engineRef.current.hitTest(point);
+        if (hoveredShape && selected.includes(hoveredShape)) {
+          const handle = engineRef.current.getResizeHandleAt(point, hoveredShape);
+          if (handle) {
+            canvasRef.current.style.cursor = getCursorForHandle(handle);
+            setLastMousePos(point);
+            return;
+          }
+          // Show move cursor when hovering over selected shape
+          canvasRef.current.style.cursor = 'move';
+          setLastMousePos(point);
+          return;
+        }
+      } else if (selected.length > 1) {
+        // Check for group resize handle first
+        const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
+        if (groupHandle) {
+          canvasRef.current.style.cursor = getCursorForHandle(groupHandle);
+          setLastMousePos(point);
+          return;
+        }
+        // Check if hovering inside group bounds (for group move)
+        if (engineRef.current.isPointInGroupBounds(point, selected)) {
+          canvasRef.current.style.cursor = 'move';
           setLastMousePos(point);
           return;
         }
@@ -606,11 +654,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       return;
     }
 
-    if (isGroupResizing && resizeHandle && initialGroupBounds && engineRef.current) {
+    if (isGroupResizing && resizeHandle && initialGroupBounds && initialGroupShapeBounds.size > 0 && engineRef.current) {
       const selected = engineRef.current.getSelectedShapes();
       if (selected.length > 1) {
         const worldCurrent = engineRef.current.screenToWorld(point);
-        engineRef.current.resizeGroup(selected, resizeHandle, worldCurrent, initialGroupBounds);
+        engineRef.current.resizeGroup(selected, resizeHandle, worldCurrent, initialGroupBounds, initialGroupShapeBounds, initialGroupFontSizes);
         return;
       }
     }
@@ -620,7 +668,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       const deltaX = worldCurrent.x - initialMouseWorldPos.x;
       const deltaY = worldCurrent.y - initialMouseWorldPos.y;
       const selected = engineRef.current.getSelectedShapes();
-      engineRef.current.moveGroup(selected, deltaX, deltaY);
+      engineRef.current.moveGroup(selected, initialGroupPositions, deltaX, deltaY);
+      updatePropertiesPanelPosition();
       return;
     }
 
@@ -799,6 +848,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     setResizeHandle(null);
     setInitialShapeBounds(null);
     setInitialGroupBounds(null);
+    setInitialGroupShapeBounds(new Map());
+    setInitialGroupFontSizes(new Map());
     setInitialGroupPositions(new Map());
     setInitialFontSize(null);
     setDragStart(null);

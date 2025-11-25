@@ -1090,7 +1090,7 @@ export class CanvasEngine {
   // Get actual text bounds based on wrapped text
   // When width is bigger than text needs, return shape bounds (not clipped)
   // When width is smaller, return wrapped text bounds (clipped)
-  private getTextBounds(shape: TextShape): { width: number; height: number } {
+  getTextBounds(shape: TextShape): { width: number; height: number } {
     if (!this.ctx) return { width: shape.width, height: shape.height };
     
     const fontSize = shape.style.fontSize || 16;
@@ -1339,8 +1339,24 @@ export class CanvasEngine {
     this.ctx.strokeRect(groupBounds.x - 2, groupBounds.y - 2, groupBounds.width + 4, groupBounds.height + 4);
     this.ctx.restore();
 
-    // Draw resize handles for group selection
-    this.drawResizeHandles(groupBounds, false, false);
+    // Draw resize handles for group selection (corners only)
+    this.drawResizeHandles(groupBounds, false, true);
+  }
+
+  isPointInGroupBounds(point: Point, shapes: Shape[]): boolean {
+    if (shapes.length === 0) return false;
+    
+    const groupBounds = this.getGroupBounds(shapes);
+    if (!groupBounds) return false;
+    
+    const worldPoint = this.screenToWorld(point);
+    
+    return (
+      worldPoint.x >= groupBounds.x &&
+      worldPoint.x <= groupBounds.x + groupBounds.width &&
+      worldPoint.y >= groupBounds.y &&
+      worldPoint.y <= groupBounds.y + groupBounds.height
+    );
   }
 
   getGroupBounds(shapes: Shape[]): { x: number; y: number; width: number; height: number } | null {
@@ -1411,40 +1427,46 @@ export class CanvasEngine {
     const handleSizeWorld = this.HANDLE_SIZE / this.state.viewport.zoom;
     const halfHandleSize = handleSizeWorld / 2;
 
-    const handles: { [key in ResizeHandle]: Point } = {
+    // Only corner handles for group selection
+    const handles: { [key in ResizeHandle]?: Point } = {
       topLeft: { x: groupBounds.x, y: groupBounds.y },
       topRight: { x: groupBounds.x + groupBounds.width, y: groupBounds.y },
       bottomLeft: { x: groupBounds.x, y: groupBounds.y + groupBounds.height },
       bottomRight: { x: groupBounds.x + groupBounds.width, y: groupBounds.y + groupBounds.height },
-      top: { x: groupBounds.x + groupBounds.width / 2, y: groupBounds.y },
-      bottom: { x: groupBounds.x + groupBounds.width / 2, y: groupBounds.y + groupBounds.height },
-      left: { x: groupBounds.x, y: groupBounds.y + groupBounds.height / 2 },
-      right: { x: groupBounds.x + groupBounds.width, y: groupBounds.y + groupBounds.height / 2 },
     };
 
     const worldPoint = this.screenToWorld(point);
 
-    for (const handleName of Object.keys(handles) as ResizeHandle[]) {
+    // Only check corner handles
+    const cornerHandles: ResizeHandle[] = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
+    for (const handleName of cornerHandles) {
       const handlePos = handles[handleName];
-      if (
+      if (handlePos && (
         worldPoint.x >= handlePos.x - halfHandleSize &&
         worldPoint.x <= handlePos.x + halfHandleSize &&
         worldPoint.y >= handlePos.y - halfHandleSize &&
         worldPoint.y <= handlePos.y + halfHandleSize
-      ) {
+      )) {
         return handleName as ResizeHandle;
       }
     }
     return null;
   }
 
-  resizeGroup(shapes: Shape[], handle: ResizeHandle, newWorldPoint: Point, initialBounds: { x: number, y: number, width: number, height: number }) {
+  resizeGroup(shapes: Shape[], handle: ResizeHandle, newWorldPoint: Point, initialBounds: { x: number, y: number, width: number, height: number }, initialShapePositions: Map<string, { x: number, y: number, width: number, height: number }>, initialFontSizes?: Map<string, number>) {
     const minSize = 10 / this.state.viewport.zoom;
     
     let newX = initialBounds.x;
     let newY = initialBounds.y;
     let newWidth = initialBounds.width;
     let newHeight = initialBounds.height;
+
+    // Check if this is a corner handle (for aspect ratio preservation)
+    const isCornerHandle = handle === 'topLeft' || handle === 'topRight' || 
+                          handle === 'bottomLeft' || handle === 'bottomRight';
+    
+    // Calculate aspect ratio from initial bounds
+    const aspectRatio = initialBounds.width / initialBounds.height;
 
     // Calculate new group bounds based on handle
     switch (handle) {
@@ -1484,95 +1506,118 @@ export class CanvasEngine {
         break;
     }
 
+    // For corner handles, maintain aspect ratio
+    if (isCornerHandle) {
+      const widthChange = Math.abs(newWidth - initialBounds.width) / initialBounds.width;
+      const heightChange = Math.abs(newHeight - initialBounds.height) / initialBounds.height;
+
+      // Use the larger change to determine scale, maintaining aspect ratio
+      if (widthChange > heightChange) {
+        // Width changed more, adjust height
+        newHeight = newWidth / aspectRatio;
+        // Adjust position based on handle
+        if (handle === 'topLeft' || handle === 'topRight') {
+          newY = initialBounds.y + initialBounds.height - newHeight;
+        }
+        if (handle === 'topLeft' || handle === 'bottomLeft') {
+          newX = initialBounds.x + initialBounds.width - newWidth;
+        }
+      } else {
+        // Height changed more, adjust width
+        newWidth = newHeight * aspectRatio;
+        // Adjust position based on handle
+        if (handle === 'topLeft' || handle === 'topRight') {
+          newY = initialBounds.y + initialBounds.height - newHeight;
+        }
+        if (handle === 'topLeft' || handle === 'bottomLeft') {
+          newX = initialBounds.x + initialBounds.width - newWidth;
+        }
+      }
+    }
+
     // Ensure minimum size
     if (newWidth < minSize) {
       newWidth = minSize;
+      if (isCornerHandle) {
+        newHeight = newWidth / aspectRatio;
+      }
       if (handle === 'topLeft' || handle === 'bottomLeft' || handle === 'left') {
-        newX = initialBounds.x + initialBounds.width - minSize;
+        newX = initialBounds.x + initialBounds.width - newWidth;
       }
     }
     if (newHeight < minSize) {
       newHeight = minSize;
+      if (isCornerHandle) {
+        newWidth = newHeight * aspectRatio;
+      }
       if (handle === 'topLeft' || handle === 'topRight' || handle === 'top') {
-        newY = initialBounds.y + initialBounds.height - minSize;
+        newY = initialBounds.y + initialBounds.height - newHeight;
       }
     }
 
-    // Calculate scale factors
+    // Calculate scale factors (use uniform scale for corner handles)
     const scaleX = newWidth / initialBounds.width;
     const scaleY = newHeight / initialBounds.height;
+    // For corner handles, use uniform scaling to maintain aspect ratio
+    const uniformScale = isCornerHandle ? Math.min(scaleX, scaleY) : Math.min(scaleX, scaleY);
+    const finalScaleX = isCornerHandle ? uniformScale : scaleX;
+    const finalScaleY = isCornerHandle ? uniformScale : scaleY;
     const offsetX = newX - initialBounds.x;
     const offsetY = newY - initialBounds.y;
 
-    // Apply transformation to all shapes
+    // Apply transformation to all shapes using initial positions
     for (const shape of shapes) {
-      // Calculate shape's position relative to group bounds
-      let shapeBounds: { x: number; y: number; width: number; height: number };
-      
-      if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
-        if (shape.type === 'text') {
-          const textBounds = this.getTextBounds(shape as TextShape);
-          shapeBounds = {
-            x: shape.x,
-            y: shape.y,
-            width: textBounds.width,
-            height: textBounds.height,
-          };
-        } else {
-          shapeBounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
-        }
-      } else if (shape.type === 'circle') {
-        shapeBounds = {
-          x: shape.x,
-          y: shape.y,
-          width: shape.radius * 2,
-          height: shape.radius * 2,
-        };
-      } else {
-        continue; // Skip lines, arrows, freehand for now
-      }
+      // Get initial shape bounds from stored positions
+      const initialShapeBounds = initialShapePositions.get(shape.id);
+      if (!initialShapeBounds) continue;
 
-      const relX = shapeBounds.x - initialBounds.x;
-      const relY = shapeBounds.y - initialBounds.y;
+      const relX = initialShapeBounds.x - initialBounds.x;
+      const relY = initialShapeBounds.y - initialBounds.y;
 
-      // Apply scale and offset
+      // Apply scale and offset using initial shape bounds
       if (shape.type === 'rectangle' || shape.type === 'image') {
         this.updateShape(shape.id, {
-          x: initialBounds.x + relX * scaleX + offsetX,
-          y: initialBounds.y + relY * scaleY + offsetY,
-          width: shapeBounds.width * scaleX,
-          height: shapeBounds.height * scaleY,
+          x: initialBounds.x + relX * finalScaleX + offsetX,
+          y: initialBounds.y + relY * finalScaleY + offsetY,
+          width: initialShapeBounds.width * finalScaleX,
+          height: initialShapeBounds.height * finalScaleY,
         }, false);
       } else if (shape.type === 'text') {
         const textShape = shape as TextShape;
-        const newFontSize = (textShape.style.fontSize || 16) * Math.min(scaleX, scaleY);
+        // Use stored initial font size or fall back to current
+        const baseFontSize = initialFontSizes?.get(shape.id) || (textShape.style.fontSize || 16);
+        const newFontSize = baseFontSize * uniformScale;
         this.updateShape(shape.id, {
-          x: initialBounds.x + relX * scaleX + offsetX,
-          y: initialBounds.y + relY * scaleY + offsetY,
-          width: shapeBounds.width * scaleX,
-          height: shapeBounds.height * scaleY,
+          x: initialBounds.x + relX * finalScaleX + offsetX,
+          y: initialBounds.y + relY * finalScaleY + offsetY,
+          width: initialShapeBounds.width * finalScaleX,
+          height: initialShapeBounds.height * finalScaleY,
           style: {
             ...textShape.style,
             fontSize: newFontSize,
           },
         }, false);
       } else if (shape.type === 'circle') {
-        const newRadius = (shape.radius * Math.min(scaleX, scaleY));
+        const initialRadius = initialShapeBounds.width / 2; // radius = width/2 for circle
+        const newRadius = initialRadius * uniformScale;
         this.updateShape(shape.id, {
-          x: initialBounds.x + relX * scaleX + offsetX,
-          y: initialBounds.y + relY * scaleY + offsetY,
+          x: initialBounds.x + relX * finalScaleX + offsetX,
+          y: initialBounds.y + relY * finalScaleY + offsetY,
           radius: newRadius,
         }, false);
       }
     }
   }
 
-  moveGroup(shapes: Shape[], deltaX: number, deltaY: number) {
+  moveGroup(shapes: Shape[], initialPositions: Map<string, Point>, deltaX: number, deltaY: number) {
     for (const shape of shapes) {
-      this.updateShape(shape.id, {
-        x: shape.x + deltaX,
-        y: shape.y + deltaY,
-      }, false);
+      const initialPos = initialPositions.get(shape.id);
+      if (initialPos) {
+        this.updateShape(shape.id, {
+          x: initialPos.x + deltaX,
+          y: initialPos.y + deltaY,
+        }, false);
+      }
     }
   }
 
