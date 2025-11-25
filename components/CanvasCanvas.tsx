@@ -55,6 +55,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
   const [isShapesMenuOpen, setIsShapesMenuOpen] = useState(false);
   const [credits, setCredits] = useState(0.8);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [isLoadingCanvas, setIsLoadingCanvas] = useState(false);
   const [propertiesPanelPos, setPropertiesPanelPos] = useState<{ x: number; y: number } | null>(null);
   const [aspectRatioLocked, setAspectRatioLocked] = useState(false);
   const [isFillPickerOpen, setIsFillPickerOpen] = useState(false);
@@ -92,6 +95,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [isMigratingImages, setIsMigratingImages] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState<{ current: number; total: number } | null>(null);
+  const canvasLoadedRef = useRef<boolean>(false);
 
   // Initialize engine
   useEffect(() => {
@@ -99,22 +103,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       engineRef.current = new CanvasEngine();
       engineRef.current.setCanvas(canvasRef.current);
       engineRef.current.render();
-
-      // Load saved canvas state and fit to screen
-      const initializeCanvas = async () => {
-        if (currentProjectId) {
-          await loadCanvasState();
-        }
-        // Fit to screen after loading state (or on initial load)
-        setTimeout(() => {
-          if (engineRef.current) {
-            engineRef.current.fitToScreen();
-            const zoom = engineRef.current.getState().viewport.zoom;
-            setZoomLevel(Math.round(zoom * 100));
-          }
-        }, 100);
-      };
-      initializeCanvas();
     }
 
     return () => {
@@ -122,6 +110,57 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         saveCanvasState();
       }
     };
+  }, []);
+
+  // Load canvas state when project ID changes
+  useEffect(() => {
+    const initializeCanvas = async () => {
+      console.log('🔄 initializeCanvas called, projectId:', currentProjectId);
+      if (!currentProjectId) {
+        console.log('⏭️ No project ID, skipping');
+        return;
+      }
+
+      // Reset loaded flag when project changes
+      canvasLoadedRef.current = false;
+
+      // Wait for engine to be ready
+      const waitForEngine = () => {
+        return new Promise<void>((resolve) => {
+          const checkEngine = () => {
+            if (engineRef.current) {
+              console.log('✅ Engine ready');
+              resolve();
+            } else {
+              console.log('⏳ Waiting for engine...');
+              setTimeout(checkEngine, 50);
+            }
+          };
+          checkEngine();
+        });
+      };
+
+      await waitForEngine();
+      console.log('📥 Loading canvas state...');
+      await loadCanvasState();
+      console.log('📥 Canvas state loaded');
+
+      // Mark canvas as loaded - now saving is allowed
+      canvasLoadedRef.current = true;
+      console.log('✅ Canvas marked as loaded - saving enabled');
+
+      // Fit to screen after loading state
+      setTimeout(() => {
+        if (engineRef.current) {
+          engineRef.current.fitToScreen();
+          engineRef.current.render();
+          const zoom = engineRef.current.getState().viewport.zoom;
+          setZoomLevel(Math.round(zoom * 100));
+          console.log('🖼️ Fit to screen complete, zoom:', zoom);
+        }
+      }, 100);
+    };
+    initializeCanvas();
   }, [currentProjectId]);
 
   // Handle resize
@@ -276,6 +315,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const loadCanvasState = async () => {
     if (!currentProjectId) return;
 
+    setIsLoadingCanvas(true);
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) return;
@@ -292,17 +332,25 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
         if (response.ok) {
           const data = await response.json();
+          console.log('📥 Backend response:', {
+            hasCanvasState: !!data.workflow?.canvas_state,
+            canvasStateKeys: data.workflow?.canvas_state ? Object.keys(data.workflow.canvas_state) : null
+          });
           if (data.workflow?.canvas_state && engineRef.current) {
             const serialized = JSON.stringify(data.workflow.canvas_state);
+            console.log('📥 Deserializing canvas state, length:', serialized.length);
             engineRef.current.deserialize(serialized);
+            engineRef.current.render(); // Force render after deserialize
             const zoom = engineRef.current.getState().viewport.zoom;
             setZoomLevel(Math.round(zoom * 100));
             canvasLoaded = true;
-            console.log('Canvas loaded from backend');
+            console.log('✅ Canvas loaded from backend');
 
             // Also update localStorage for quick access next time
             localStorage.setItem(`canvas-${currentProjectId}`, serialized);
           }
+        } else {
+          console.log('❌ Backend response not ok:', response.status);
         }
       } catch (fetchError) {
         console.error('Error fetching canvas from backend:', fetchError);
@@ -310,12 +358,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
       // Fallback to localStorage if backend didn't have canvas state
       if (!canvasLoaded) {
+        console.log('📥 Trying localStorage fallback...');
         const saved = localStorage.getItem(`canvas-${currentProjectId}`);
         if (saved && engineRef.current) {
+          console.log('📥 Found localStorage data, length:', saved.length);
           engineRef.current.deserialize(saved);
+          engineRef.current.render(); // Force render after deserialize
           const zoom = engineRef.current.getState().viewport.zoom;
           setZoomLevel(Math.round(zoom * 100));
-          console.log('Canvas loaded from localStorage');
+          console.log('✅ Canvas loaded from localStorage');
+        } else {
+          console.log('📥 No localStorage data found for canvas-' + currentProjectId);
         }
       }
 
@@ -323,6 +376,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       await migrateBase64Images();
     } catch (error) {
       console.error('Error loading canvas state:', error);
+    } finally {
+      setIsLoadingCanvas(false);
     }
   };
 
@@ -330,6 +385,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const saveCanvasStateLocal = async () => {
     // Don't save while uploading - wait for upload to complete with Supabase URL
     if (uploadingImageId) return;
+
+    // Don't save if canvas hasn't been loaded yet
+    if (!canvasLoadedRef.current) return;
 
     if (!currentProjectId || !engineRef.current) return;
 
@@ -346,6 +404,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     // Don't save while uploading - wait for upload to complete with Supabase URL
     if (uploadingImageId) return;
 
+    // Don't save if canvas hasn't been loaded yet (prevents overwriting with empty state)
+    if (!canvasLoadedRef.current) {
+      console.log('⏭️ Skipping save - canvas not loaded yet');
+      return;
+    }
+
     if (!currentProjectId || !engineRef.current) return;
 
     try {
@@ -353,12 +417,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       if (!token) return;
 
       const serialized = engineRef.current.serialize();
+      const canvasData = JSON.parse(serialized);
+
+      console.log('💾 Saving canvas state:', {
+        projectId: currentProjectId,
+        shapesCount: canvasData.shapes?.length || 0,
+        serializedLength: serialized.length
+      });
 
       // Save to localStorage for quick access
       localStorage.setItem(`canvas-${currentProjectId}`, serialized);
 
       // Save to backend for persistence
-      const canvasData = JSON.parse(serialized);
       const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
         method: 'POST',
         headers: {
@@ -371,12 +441,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       });
 
       if (!response.ok) {
-        console.error('Failed to save canvas to backend');
+        const errorText = await response.text();
+        console.error('❌ Failed to save canvas to backend:', response.status, errorText);
       } else {
-        console.log('Canvas saved to backend successfully');
+        console.log('✅ Canvas saved to backend successfully');
       }
     } catch (error) {
-      console.error('Error saving canvas state:', error);
+      console.error('❌ Error saving canvas state:', error);
     }
   };
 
@@ -457,8 +528,20 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   };
 
   const handleSave = async () => {
-    await saveProjectName();
-    await saveCanvasState();
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveStatus('idle');
+
+    try {
+      await saveProjectName();
+      await saveCanvasState();
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (error) {
+      console.error('Error saving:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleProjectNameClick = () => {
@@ -1453,63 +1536,95 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col">
-        {/* Top Bar */}
-        <div className="h-16 bg-[#1a1a1a] border-b border-[#2a2a2a] flex items-center justify-between px-6">
-          {/* Left Side */}
-          <div className="flex items-center gap-3">
-            {editingProjectName ? (
+        {/* Project Name Display - Fixed at top left */}
+        {currentProjectId && (
+          <div className="fixed top-6 left-[88px] z-40">
+            {isLoadingCanvas ? (
+              <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-gray-400 shadow-2xl min-w-[200px]">
+                Loading...
+              </div>
+            ) : editingProjectName ? (
               <input
                 type="text"
                 value={tempProjectName}
                 onChange={(e) => setTempProjectName(e.target.value)}
                 onBlur={handleProjectNameBlur}
                 onKeyDown={handleProjectNameKeyDown}
-                className="bg-[#2a2a2a] border border-[#3a3a3a] rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#8b5cf6] w-32"
                 autoFocus
+                className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#8b5cf6] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] outline-none focus:ring-2 focus:ring-[#8b5cf6]/50"
               />
             ) : (
-              <input
-                type="text"
-                value={currentProjectName}
+              <div
                 onClick={handleProjectNameClick}
-                readOnly
-                className="bg-transparent border-none text-white text-sm cursor-pointer hover:text-[#8b5cf6] transition-colors w-32"
-              />
+                className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] cursor-pointer hover:border-[#3a3a3a] transition-colors"
+              >
+                <div className="truncate">{currentProjectName}</div>
+              </div>
             )}
+          </div>
+        )}
+
+        {/* Save Button - Fixed next to project name */}
+        {currentProjectId && (
+          <div className="fixed top-6 left-[300px] z-40">
             <button
               onClick={handleSave}
-              className="px-4 py-1.5 bg-[#8b5cf6] text-white rounded text-sm font-medium hover:bg-[#7c3aed] transition-colors"
+              disabled={isSaving}
+              className={`
+                px-4 py-2 rounded-xl text-sm font-medium transition-all
+                ${isSaving
+                  ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
+                  : saveStatus === 'saved'
+                  ? 'bg-green-500/20 border border-green-500/50 text-green-400'
+                  : 'bg-[#8b5cf6] hover:bg-[#7c3aed] text-white'
+                }
+              `}
+              title={isSaving ? 'Saving...' : 'Save canvas'}
             >
-              Save
+              {isSaving ? 'Saving...' : saveStatus === 'saved' ? 'Saved ✓' : 'Save'}
             </button>
           </div>
+        )}
 
-          {/* Right Side */}
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-              <span className="text-sm text-gray-300">{credits}</span>
+        {/* Right Side Panel - Credits, Status, Share, Tasks */}
+        <div className="fixed top-6 right-6 z-40">
+          <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl p-2.5 shadow-2xl min-w-[240px]">
+            {/* Top Section */}
+            <div className="flex items-center justify-between mb-2.5">
+              {/* Left: Credits and Status */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-white text-xs">✨</span>
+                  <span className="text-white text-xs">{credits}</span>
+                </div>
+                <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
+                  <span className="text-yellow-400 text-[10px]">Low credits</span>
+                </div>
+              </div>
+              {/* Right: Share Button */}
+              <div className="flex items-center gap-2">
+                <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
+                  <span className="text-xs">↗</span>
+                  <span>Share</span>
+                </button>
+              </div>
             </div>
-            <button className="px-3 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs font-medium border border-yellow-500/30">
-              Low credits
-            </button>
-            <button className="px-4 py-1.5 bg-white text-black rounded text-sm font-medium hover:bg-gray-100 transition-colors flex items-center gap-2">
-              <Share2 className="w-4 h-4" />
-              Share
-            </button>
+            {/* Bottom Section: Tasks Dropdown */}
             <div className="relative" data-tasks-menu>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsTasksMenuOpen(!isTasksMenuOpen);
                 }}
-                className="px-4 py-1.5 text-sm text-gray-300 hover:text-white transition-colors flex items-center gap-1"
+                className="text-white text-xs flex items-center gap-1.5 hover:text-gray-300 transition-colors"
               >
-                Tasks
-                <ChevronDown className="w-4 h-4" />
+                <span>Tasks</span>
+                <svg className={`w-3 h-3 transition-transform ${isTasksMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
               {isTasksMenuOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-[#2a2a2a] border border-[#3a3a3a] rounded shadow-lg py-2 z-50">
+                <div className="absolute right-0 mt-2 w-48 bg-[#2a2a2a] border border-[#3a3a3a] rounded-xl shadow-lg py-2 z-50">
                   <div className="px-4 py-2 text-sm text-gray-400">No tasks</div>
                 </div>
               )}
