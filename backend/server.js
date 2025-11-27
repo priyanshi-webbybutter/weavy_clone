@@ -7,6 +7,7 @@ const generateVideoRoute = require('./routes/generate-video');
 const authRoute = require('./routes/auth');
 const projectsRoute = require('./routes/projects');
 const uploadCanvasImageRoute = require('./routes/upload-canvas-image');
+const aiChatRoute = require('./routes/ai-chat');
 
 // Load environment variables
 dotenv.config();
@@ -42,6 +43,7 @@ app.use('/api', generateVideoRoute);
 app.use('/api', authRoute);
 app.use('/api', projectsRoute);
 app.use('/api', uploadCanvasImageRoute);
+app.use('/api/ai-chat', aiChatRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
@@ -94,4 +96,6 @@ app.listen(PORT, () => {
   console.log(`   - GET /api/generations/:workflowId - Get generation history`);
   console.log(`🖼️ Canvas image upload:`);
   console.log(`   - POST /api/upload-canvas-image - Upload image to Supabase Storage`);
+  console.log(`🤖 AI Chat (Canvas Agent):`);
+  console.log(`   - POST /api/ai-chat - Chat with Canvas AI Design Agent`);
 });

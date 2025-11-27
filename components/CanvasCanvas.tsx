@@ -23,7 +23,9 @@ import {
   Minus,
   Crop,
   Copy,
+  Bot,
 } from 'lucide-react';
+import AIChatPanel from './AIChatPanel';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -35,6 +37,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const { user } = useAuth();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CanvasEngine | null>(null);
+  const lastShapeCountRef = useRef<number>(0);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(initialProjectId || null);
   const [currentProjectName, setCurrentProjectName] = useState<string>('canvas');
   const [editingProjectName, setEditingProjectName] = useState(false);
@@ -52,6 +56,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [initialMouseWorldPos, setInitialMouseWorldPos] = useState<Point | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [selectedShapes, setSelectedShapes] = useState<Shape[]>([]);
+  const [allShapesState, setAllShapesState] = useState<Shape[]>([]);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [isTasksMenuOpen, setIsTasksMenuOpen] = useState(false);
@@ -99,6 +104,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [isMigratingImages, setIsMigratingImages] = useState(false);
   const [migrationProgress, setMigrationProgress] = useState<{ current: number; total: number } | null>(null);
   const canvasLoadedRef = useRef<boolean>(false);
+  const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
 
   // Initialize engine
   useEffect(() => {
@@ -152,6 +158,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       canvasLoadedRef.current = true;
       console.log('✅ Canvas marked as loaded - saving enabled');
 
+      // Update allShapesState for AI chat panel
+      if (engineRef.current) {
+        setAllShapesState(engineRef.current.getAllShapes());
+      }
+
       // Fit to screen after loading state
       setTimeout(() => {
         if (engineRef.current) {
@@ -180,15 +191,47 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Cleanup save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Handle wheel event with non-passive listener to allow preventDefault
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheelEvent = (e: WheelEvent) => {
+      if (!engineRef.current) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      engineRef.current.zoom(delta, e.clientX - rect.left, e.clientY - rect.top);
+      const zoom = engineRef.current.getState().viewport.zoom;
+      setZoomLevel(Math.round(zoom * 100));
+      updatePropertiesPanelPosition();
+    };
+
+    canvas.addEventListener('wheel', handleWheelEvent, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheelEvent);
+  }, []);
+
   // Helper to update selected shapes state and open settings panel
   const updateSelectedShapesState = () => {
     if (!engineRef.current) {
       setSelectedShapes([]);
+      setAllShapesState([]);
       setIsSettingsPanelOpen(false);
       return;
     }
     const shapes = engineRef.current.getSelectedShapes();
     setSelectedShapes(shapes);
+    // Also update all shapes state for AI chat panel
+    setAllShapesState(engineRef.current.getAllShapes());
     if (shapes.length > 0) {
       setIsSettingsPanelOpen(true);
     } else {
@@ -363,7 +406,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             const zoom = engineRef.current.getState().viewport.zoom;
             setZoomLevel(Math.round(zoom * 100));
             canvasLoaded = true;
-            console.log('✅ Canvas loaded from backend');
+
+            // Initialize shape count tracking
+            const loadedShapeCount = data.workflow.canvas_state.shapes?.length || 0;
+            lastShapeCountRef.current = loadedShapeCount;
+            console.log('✅ Canvas loaded from backend, shapes:', loadedShapeCount);
 
             // Also update localStorage for quick access next time
             localStorage.setItem(`canvas-${currentProjectId}`, serialized);
@@ -385,7 +432,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           engineRef.current.render(); // Force render after deserialize
           const zoom = engineRef.current.getState().viewport.zoom;
           setZoomLevel(Math.round(zoom * 100));
-          console.log('✅ Canvas loaded from localStorage');
+
+          // Initialize shape count tracking from localStorage
+          try {
+            const parsedData = JSON.parse(saved);
+            lastShapeCountRef.current = parsedData.shapes?.length || 0;
+            console.log('✅ Canvas loaded from localStorage, shapes:', lastShapeCountRef.current);
+          } catch {
+            console.log('✅ Canvas loaded from localStorage');
+          }
         } else {
           console.log('📥 No localStorage data found for canvas-' + currentProjectId);
         }
@@ -419,7 +474,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   };
 
   // Save canvas state to backend (for persistence across devices)
-  const saveCanvasState = async () => {
+  const saveCanvasState = async (force: boolean = false) => {
     // Don't save while uploading - wait for upload to complete with Supabase URL
     if (uploadingImageId) return;
 
@@ -437,34 +492,51 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
       const serialized = engineRef.current.serialize();
       const canvasData = JSON.parse(serialized);
+      const currentShapeCount = canvasData.shapes?.length || 0;
+
+      // CRITICAL: Don't save empty state if we previously had shapes (unless forced)
+      if (currentShapeCount === 0 && lastShapeCountRef.current > 0 && !force) {
+        console.log('⚠️ Blocking save - would overwrite', lastShapeCountRef.current, 'shapes with empty state');
+        return;
+      }
+
+      // Update last known shape count
+      lastShapeCountRef.current = currentShapeCount;
 
       console.log('💾 Saving canvas state:', {
         projectId: currentProjectId,
-        shapesCount: canvasData.shapes?.length || 0,
+        shapesCount: currentShapeCount,
         serializedLength: serialized.length
       });
 
       // Save to localStorage for quick access
       localStorage.setItem(`canvas-${currentProjectId}`, serialized);
 
-      // Save to backend for persistence
-      const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          canvas_state: canvasData,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Failed to save canvas to backend:', response.status, errorText);
-      } else {
-        console.log('✅ Canvas saved to backend successfully');
+      // Debounce backend save to prevent rapid repeated saves
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
+
+      saveTimeoutRef.current = setTimeout(async () => {
+        // Save to backend for persistence
+        const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            canvas_state: canvasData,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Failed to save canvas to backend:', response.status, errorText);
+        } else {
+          console.log('✅ Canvas saved to backend successfully');
+        }
+      }, 500); // 500ms debounce
     } catch (error) {
       console.error('❌ Error saving canvas state:', error);
     }
@@ -650,6 +722,104 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     updateSelectedShapesState();
     engineRef.current.saveState();
     saveCanvasState();
+  };
+
+  // Handle adding shape from AI Chat Panel
+  const handleAddShapeFromChat = async (shape: Shape) => {
+    if (!engineRef.current) return;
+
+    // Add shape immediately so user sees it
+    engineRef.current.addShape(shape);
+    engineRef.current.clearSelection();
+    engineRef.current.selectShape(shape.id);
+    setSelectedShapeId(shape.id);
+    updateSelectedShapesState();
+    engineRef.current.saveState();
+
+    // If it's an image with a temporary URL (not from Supabase), upload to permanent storage
+    if (shape.type === 'image' && (shape as ImageShape).src) {
+      const imgSrc = (shape as ImageShape).src;
+      const isTemporaryUrl = imgSrc.startsWith('http') &&
+        !imgSrc.includes('supabase') &&
+        !imgSrc.startsWith('data:');
+
+      if (isTemporaryUrl && currentProjectId) {
+        try {
+          console.log('Uploading AI-generated image to permanent storage...');
+          const token = localStorage.getItem('auth_token');
+
+          if (token) {
+            // Fetch the image and convert to base64
+            const response = await fetch(imgSrc);
+            const blob = await response.blob();
+
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const base64data = reader.result as string;
+
+              // Upload to Supabase
+              const uploadResponse = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  imageData: base64data,
+                  projectId: currentProjectId,
+                }),
+              });
+
+              if (uploadResponse.ok) {
+                const { url } = await uploadResponse.json();
+                // Update the shape with permanent URL
+                if (engineRef.current) {
+                  engineRef.current.updateShape(shape.id, { src: url });
+                  engineRef.current.saveState();
+                  engineRef.current.render();
+                  saveCanvasState();
+                  console.log('AI-generated image uploaded to permanent storage:', url);
+                }
+              } else {
+                console.error('Failed to upload AI-generated image');
+              }
+            };
+            reader.readAsDataURL(blob);
+          }
+        } catch (error) {
+          console.error('Error uploading AI-generated image:', error);
+        }
+      }
+    }
+
+    saveCanvasState();
+  };
+
+  // Handle updating shape from AI Chat Panel
+  const handleUpdateShapeFromChat = (shapeId: string, updates: Partial<Shape>) => {
+    if (!engineRef.current) return;
+    const shape = engineRef.current.getShape(shapeId);
+    if (!shape) return;
+
+    if (updates.style) {
+      updates = {
+        ...updates,
+        style: { ...shape.style, ...updates.style }
+      };
+    }
+
+    engineRef.current.updateShape(shapeId, updates);
+    engineRef.current.saveState();
+    engineRef.current.render();
+    saveCanvasState();
+    updateSelectedShapesState();
+  };
+
+  // Handle image generation for AI Chat Panel
+  const handleGenerateImageForChat = async (prompt: string, aspectRatio?: string): Promise<string> => {
+    // This is a placeholder - the actual generation is handled by the backend
+    // The AIChatPanel will call the API directly
+    return '';
   };
 
   const handleProjectNameClick = () => {
@@ -1237,17 +1407,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
   };
 
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    if (!engineRef.current || !canvasRef.current) return;
-
-    e.preventDefault();
-    const rect = canvasRef.current.getBoundingClientRect();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    engineRef.current.zoom(delta, e.clientX - rect.left, e.clientY - rect.top);
-    const zoom = engineRef.current.getState().viewport.zoom;
-    setZoomLevel(Math.round(zoom * 100));
-    updatePropertiesPanelPosition();
-  };
 
   // Crop handlers
   const handleCropMouseDown = (e: React.MouseEvent, handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w') => {
@@ -1642,6 +1801,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           >
             <Pencil className="w-5 h-5" />
           </button>
+
+          {/* AI Chat Button */}
+          <button
+            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
+              isChatPanelOpen ? 'bg-[#8b5cf6] text-white' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+            }`}
+            title="Canvas AI Assistant"
+            onClick={() => setIsChatPanelOpen(!isChatPanelOpen)}
+          >
+            <Bot className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Bottom Icon */}
@@ -1761,6 +1931,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           onDuplicateShape={handleDuplicateShapeFromPanel}
         />
 
+        {/* AI Chat Panel */}
+        <AIChatPanel
+          isOpen={isChatPanelOpen}
+          onClose={() => setIsChatPanelOpen(false)}
+          selectedShapes={selectedShapes}
+          allShapes={allShapesState}
+          onAddShape={handleAddShapeFromChat}
+          onUpdateShape={handleUpdateShapeFromChat}
+          onGenerateImage={handleGenerateImageForChat}
+        />
+
         {/* Canvas Area */}
         <div className="flex-1 bg-[#0a0a0a] overflow-hidden relative">
           <canvas
@@ -1770,7 +1951,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   onMouseUp={handleMouseUp}
                   onMouseLeave={handleMouseUp}
                   onDoubleClick={handleDoubleClick}
-                  onWheel={handleWheel}
             className="w-full h-full cursor-crosshair"
             style={{ display: 'block' }}
           />
