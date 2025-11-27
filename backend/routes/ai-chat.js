@@ -101,6 +101,35 @@ When user intent is clear:
 
 DO NOT ask "which character?" or "which product?" - LOOK at the selected images and figure it out!
 
+## RULE #2: KNOW WHEN TO SUGGEST VS WHEN TO EXECUTE
+
+### SUGGEST ONLY (Don't generate yet):
+- User asks for "ideas", "suggestions", "options", "concepts"
+- User says "what could I...", "show me some...", "give me examples"
+- User is exploring, not ready to commit
+- Examples:
+  - "Give me logo ideas" → Describe 3 logo concepts (text only)
+  - "What colors would work?" → Suggest color palettes (text only)
+  - "Show me design options" → Describe options (text only)
+
+### EXECUTE IMMEDIATELY (Generate/modify):
+- User confirms previous suggestion: "generate that", "do it", "make option 2", "use that idea"
+- User has clear intent with selection: "combine these", "make it blue"
+- User gives specific instruction: "create a sunset background", "add text saying..."
+- User references YOUR previous suggestion: "the second one", "that gradient idea", "use the concept you mentioned"
+- Examples:
+  - "Generate option 2" → CALL call_image_generator NOW
+  - "Do it" (after suggesting) → CALL the appropriate tool NOW
+  - "Combine these images" → CALL call_image_generator NOW
+  - "Use that gradient idea" → CALL call_image_generator NOW
+
+### CONTEXT AWARENESS:
+- Track conversation: Did you JUST suggest ideas in your last message?
+- If YES + user says "generate", "do it", "make it", "that one" → EXECUTE
+- If user mentions "option 1/2/3" or "the first/second one" → They're confirming a suggestion → EXECUTE
+
+**CRITICAL:** "Generate" after suggestions = EXECUTE, not more suggestions!
+
 ## SELECTION BEHAVIOR
 
 **WHEN IMAGES ARE SELECTED:**
@@ -497,6 +526,128 @@ function mapNumericRatioToString(ratio) {
   return '21:9';                         // Ultrawide
 }
 
+/**
+ * Detects if user is confirming/accepting a previous suggestion
+ * @param {string} userMessage - The user's message
+ * @param {Array} conversationHistory - Chat history
+ * @returns {{ isConfirmation: boolean, reason?: string }} - Confirmation detection result
+ */
+function detectConfirmationIntent(userMessage, conversationHistory) {
+  const lowerMessage = userMessage.toLowerCase().trim();
+
+  // Strong confirmation phrases - user wants to execute
+  const confirmationPhrases = [
+    'generate that',
+    'generate it',
+    'do it',
+    'make it',
+    'create it',
+    'use that',
+    'use this',
+    'go with',
+    'let\'s do',
+    'proceed',
+    'yes, generate',
+    'yes generate',
+    'generate option',
+    'make option',
+    'use option',
+    'the first one',
+    'the second one',
+    'the third one',
+    'option 1',
+    'option 2',
+    'option 3',
+    'that idea',
+    'that concept',
+    'that design',
+    'this one',
+    'that one'
+  ];
+
+  const hasConfirmation = confirmationPhrases.some(phrase =>
+    lowerMessage.includes(phrase)
+  );
+
+  if (hasConfirmation) {
+    // Check if AI recently gave suggestions (last message was model/assistant)
+    const lastMessages = conversationHistory.slice(-3); // Last 3 messages
+    const aiRecentlySuggested = lastMessages.some(msg =>
+      msg.role === 'model' &&
+      msg.parts?.[0]?.text &&
+      !msg.parts?.[0]?.functionCall // Was text suggestion, not a tool call
+    );
+
+    if (aiRecentlySuggested) {
+      return {
+        isConfirmation: true,
+        reason: 'User confirming previous suggestion with phrase: ' +
+                confirmationPhrases.find(p => lowerMessage.includes(p))
+      };
+    }
+  }
+
+  // Direct generation commands (even without prior suggestion)
+  const directCommands = [
+    'generate a',
+    'generate an',
+    'create a',
+    'create an',
+    'make a',
+    'make an',
+    'combine these',
+    'merge these',
+    'composite these'
+  ];
+
+  const isDirect = directCommands.some(cmd => lowerMessage.includes(cmd));
+
+  if (isDirect) {
+    return {
+      isConfirmation: true,
+      reason: 'Direct generation command: ' + directCommands.find(c => lowerMessage.includes(c))
+    };
+  }
+
+  return { isConfirmation: false };
+}
+
+/**
+ * Detects if user is requesting suggestions/ideas (not execution)
+ * @param {string} userMessage - The user's message
+ * @returns {{ isSuggestionRequest: boolean, keyword?: string }} - Suggestion detection result
+ */
+function detectSuggestionRequest(userMessage) {
+  const lowerMessage = userMessage.toLowerCase();
+
+  const suggestionKeywords = [
+    'ideas for',
+    'suggestions for',
+    'options for',
+    'concepts for',
+    'what could',
+    'what would',
+    'show me some',
+    'give me some',
+    'examples of',
+    'inspire me',
+    'brainstorm'
+  ];
+
+  const isSuggestionRequest = suggestionKeywords.some(keyword =>
+    lowerMessage.includes(keyword)
+  );
+
+  if (isSuggestionRequest) {
+    return {
+      isSuggestionRequest: true,
+      keyword: suggestionKeywords.find(k => lowerMessage.includes(k))
+    };
+  }
+
+  return { isSuggestionRequest: false };
+}
+
 // Main chat endpoint - handles multipart FormData with optional canvas image
 router.post('/', upload.single('canvasImage'), async (req, res) => {
   let tempFilePath = null;
@@ -649,14 +800,38 @@ Use your visual understanding to give better, more contextual help.\n`;
       ],
     });
 
+    // === SMART INTENT DETECTION ===
+    // Check for confirmation intent (user wanting to execute a previous suggestion)
+    const confirmationCheck = detectConfirmationIntent(message, history);
+    // Check for suggestion request (user wanting ideas only)
+    const suggestionCheck = detectSuggestionRequest(message);
+
+    let userMessageText = message;
+
+    if (confirmationCheck.isConfirmation) {
+      console.log(`✅ CONFIRMATION DETECTED: ${confirmationCheck.reason}`);
+      // Add enforcement instruction to make AI execute the tool
+      userMessageText = `${message}
+
+[SYSTEM INSTRUCTION: User is CONFIRMING a previous suggestion or giving a DIRECT command. You MUST call the appropriate tool NOW. DO NOT suggest or ask questions. EXECUTE IMMEDIATELY.]`;
+      console.log('📌 Added enforcement instruction to message');
+    } else if (suggestionCheck.isSuggestionRequest) {
+      console.log(`💡 SUGGESTION REQUEST: ${suggestionCheck.keyword}`);
+      // Add instruction to only suggest, not execute
+      userMessageText = `${message}
+
+[SYSTEM INSTRUCTION: User is asking for IDEAS/SUGGESTIONS only. Respond with TEXT describing 2-3 options. DO NOT call any tools yet. Wait for user to select one.]`;
+      console.log('💭 Added suggestion-only instruction to message');
+    }
+
     // Build message parts - include image if available
     const messageParts = [];
     if (canvasImageData) {
       messageParts.push(canvasImageData);
-      messageParts.push({ text: `[CANVAS SCREENSHOT ATTACHED - Analyze this design]\n\nUser message: ${message}` });
+      messageParts.push({ text: `[CANVAS SCREENSHOT ATTACHED - Analyze this design]\n\nUser message: ${userMessageText}` });
       console.log('📷 Sending message with canvas image to Gemini');
     } else {
-      messageParts.push({ text: message });
+      messageParts.push({ text: userMessageText });
       console.log('📝 Sending text-only message to Gemini');
     }
 
