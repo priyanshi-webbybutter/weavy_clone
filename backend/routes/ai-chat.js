@@ -217,11 +217,11 @@ const tools = [
 ];
 
 // Execute tool calls - accepts reference images for compositing
-async function executeToolCall(toolName, args, referenceImages = []) {
+async function executeToolCall(toolName, args, referenceImages = [], projectId = null, token = null) {
   switch (toolName) {
     case 'call_image_generator':
       // Pass reference images for compositing
-      return await generateImage(args.prompt, args.aspect_ratio, referenceImages);
+      return await generateImage(args.prompt, args.aspect_ratio, referenceImages, projectId, token);
 
     case 'call_content_suggester':
       return await generateContent(args.topic, args.goal, args.brand_context);
@@ -253,7 +253,7 @@ async function executeToolCall(toolName, args, referenceImages = []) {
 }
 
 // Generate image using Gemini 2.5 Flash Image Preview (native generation with compositing)
-async function generateImage(prompt, aspectRatio = '1:1', referenceImages = []) {
+async function generateImage(prompt, aspectRatio = '1:1', referenceImages = [], projectId = null, token = null) {
   try {
     console.log('🎨 Generating image with Gemini:', prompt);
     console.log('🎨 Reference images for compositing:', referenceImages.length);
@@ -303,7 +303,7 @@ Output: ONE image.`;
 
     // Call Gemini 2.5 Flash Image Preview API
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -335,10 +335,10 @@ Output: ONE image.`;
       throw new Error(textPart?.text || 'No image generated - model returned text response');
     }
 
-    console.log('🎨 Image generated successfully, uploading to Supabase...');
+    console.log('🎨 Image generated successfully, uploading via API...');
 
-    // Upload to Supabase for permanent URL
-    const imageUrl = await uploadBase64ToSupabase(imagePart.inlineData.data);
+    // Upload using the existing /api/upload-canvas-image endpoint
+    const imageUrl = await uploadViaAPI(imagePart.inlineData.data, projectId, token);
     console.log('🎨 Image uploaded:', imageUrl);
 
     return {
@@ -358,45 +358,47 @@ Output: ONE image.`;
   }
 }
 
-// Helper: Upload base64 image to Supabase storage (with data URL fallback)
-async function uploadBase64ToSupabase(base64Data) {
+// Helper: Upload generated image using the existing /api/upload-canvas-image endpoint
+async function uploadViaAPI(base64Data, projectId, token) {
   // Remove data URL prefix if present
   const cleanBase64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
 
-  // Try Supabase upload first
+  // If no projectId or token, use data URL fallback
+  if (!projectId || !token) {
+    console.warn('⚠️ No projectId or token provided, using data URL fallback');
+    return `data:image/png;base64,${cleanBase64}`;
+  }
+
   try {
-    const buffer = Buffer.from(cleanBase64, 'base64');
+    // Format as data URL (expected by upload-canvas-image endpoint)
+    const dataUrl = `data:image/png;base64,${cleanBase64}`;
 
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 15);
-    const fileName = `generated_${timestamp}_${randomId}.png`;
-    const filePath = `generated-images/${fileName}`;
+    // Call the existing upload-canvas-image endpoint
+    const uploadResponse = await fetch(`http://localhost:3001/api/upload-canvas-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        imageData: dataUrl,
+        projectId: projectId
+      })
+    });
 
-    const { data, error } = await supabase.storage
-      .from('client-images')
-      .upload(filePath, buffer, {
-        contentType: 'image/png',
-        cacheControl: '3600',
-        upsert: false
-      });
-
-    if (error) {
-      throw error;
+    if (!uploadResponse.ok) {
+      const errorData = await uploadResponse.json();
+      throw new Error(errorData.message || `Upload failed with status ${uploadResponse.status}`);
     }
 
-    const { data: { publicUrl } } = supabase.storage
-      .from('client-images')
-      .getPublicUrl(filePath);
-
-    console.log('🎨 Image uploaded to Supabase:', publicUrl);
-    return publicUrl;
+    const uploadData = await uploadResponse.json();
+    console.log('🎨 Image uploaded via /api/upload-canvas-image:', uploadData.url);
+    return uploadData.url;
 
   } catch (error) {
-    // Fallback to data URL if Supabase upload fails
-    console.warn('⚠️ Supabase upload failed, using data URL fallback:', error.message);
-    const dataUrl = `data:image/png;base64,${cleanBase64}`;
-    console.log('🎨 Using data URL (length:', dataUrl.length, 'chars)');
-    return dataUrl;
+    // Fallback to data URL if API upload fails
+    console.warn('⚠️ API upload failed, using data URL fallback:', error.message);
+    return `data:image/png;base64,${cleanBase64}`;
   }
 }
 
@@ -440,6 +442,14 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
     const conversationHistory = req.body.conversationHistory ? JSON.parse(req.body.conversationHistory) : [];
     const canvasContext = req.body.canvasContext ? JSON.parse(req.body.canvasContext) : null;
     const brandBible = req.body.brandBible ? JSON.parse(req.body.brandBible) : null;
+    const projectId = req.body.projectId || null;
+
+    // Extract auth token for image upload
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
 
     // Parse selected images for compositing
     let selectedImages = [];
@@ -585,7 +595,7 @@ Use your visual understanding to give better, more contextual help.\n`;
       for (const call of functionCalls) {
         console.log(`Executing tool: ${call.name}`, call.args);
         // Pass selected images for compositing when calling image generator
-        const toolResult = await executeToolCall(call.name, call.args, selectedImages);
+        const toolResult = await executeToolCall(call.name, call.args, selectedImages, projectId, token);
 
         if (toolResult.success) {
           if (toolResult.imageUrl) {

@@ -41,6 +41,7 @@ interface AIChatPanelProps {
   onUpdateShape: (id: string, updates: Partial<Shape>) => void;
   onGenerateImage: (prompt: string, aspectRatio?: string) => Promise<string>;
   onCaptureCanvas: () => Promise<Blob | null>;
+  projectId?: string | null;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -86,6 +87,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onUpdateShape,
   onGenerateImage,
   onCaptureCanvas,
+  projectId,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -400,6 +402,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         formData.append('brandBible', JSON.stringify(brandBible));
       }
 
+      // Include projectId for image upload
+      if (projectId) {
+        formData.append('projectId', projectId);
+      }
+
       // Append selected images for compositing
       if (selectedImages.length > 0) {
         formData.append('selectedImages', JSON.stringify(selectedImages));
@@ -414,8 +421,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         console.log('📸 No canvas content to attach (empty canvas or capture failed)');
       }
 
+      // Get auth token for image upload authorization
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${API_BASE_URL}/ai-chat`, {
         method: 'POST',
+        headers: headers,
         // NO Content-Type header - browser sets it with boundary for FormData
         body: formData,
       });

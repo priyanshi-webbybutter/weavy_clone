@@ -2071,6 +2071,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           onUpdateShape={handleUpdateShapeFromChat}
           onGenerateImage={handleGenerateImageForChat}
           onCaptureCanvas={captureCanvasForAI}
+          projectId={currentProjectId}
         />
 
         {/* Canvas Area */}
