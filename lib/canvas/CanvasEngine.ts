@@ -10,6 +10,10 @@ export class CanvasEngine {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
 
+  // Image cache for performance - prevents creating new Image() on every render
+  private imageCache: Map<string, HTMLImageElement> = new Map();
+  private loadingImages: Set<string> = new Set();
+
   constructor(initialState?: Partial<CanvasState>) {
     // Initialize state first
     const initialShapes = initialState?.shapes || new Map();
@@ -219,6 +223,13 @@ export class CanvasEngine {
 
   removeShape(id: string) {
     this.saveState();
+    const shape = this.state.shapes.get(id);
+
+    // Clear from image cache if it's an image shape
+    if (shape?.type === 'image') {
+      this.clearImageFromCache((shape as ImageShape).src);
+    }
+
     this.state.shapes.delete(id);
     this.state.selectedIds.delete(id);
     this.render();
@@ -981,28 +992,66 @@ export class CanvasEngine {
   private drawImage(shape: ImageShape) {
     if (!this.ctx) return;
 
-    const img = new Image();
-    img.onload = () => {
-      if (!this.ctx) return;
+    const cacheKey = shape.src;
+
+    // Check if image is in cache
+    const cachedImg = this.imageCache.get(cacheKey);
+    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+      // Draw from cache immediately
       this.ctx.save();
       this.ctx.globalAlpha = shape.style.opacity ?? 1;
-      this.ctx.drawImage(img, shape.x, shape.y, shape.width, shape.height);
+      this.ctx.drawImage(cachedImg, shape.x, shape.y, shape.width, shape.height);
       this.ctx.restore();
-      // Re-render after image loads
+      return;
+    }
+
+    // Check if already loading
+    if (this.loadingImages.has(cacheKey)) {
+      // Draw placeholder while loading
+      this.drawImagePlaceholder(shape);
+      return;
+    }
+
+    // Start loading new image
+    this.loadingImages.add(cacheKey);
+    const img = new Image();
+    // Enable CORS to prevent canvas tainting when exporting
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      this.loadingImages.delete(cacheKey);
+      this.imageCache.set(cacheKey, img);
+      // Single re-render after image loads (not recursive due to cache)
       this.render();
     };
+
     img.onerror = () => {
+      this.loadingImages.delete(cacheKey);
       console.error('Failed to load image:', shape.src);
     };
+
     img.src = shape.src;
-    
-    // Draw immediately if image is already loaded
-    if (img.complete) {
-      this.ctx.save();
-      this.ctx.globalAlpha = shape.style.opacity ?? 1;
-      this.ctx.drawImage(img, shape.x, shape.y, shape.width, shape.height);
-      this.ctx.restore();
-    }
+
+    // Draw placeholder while loading
+    this.drawImagePlaceholder(shape);
+  }
+
+  private drawImagePlaceholder(shape: ImageShape) {
+    if (!this.ctx) return;
+
+    // Draw a subtle loading placeholder
+    this.ctx.save();
+    this.ctx.fillStyle = '#2a2a2a';
+    this.ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+
+    // Loading indicator border
+    this.ctx.strokeStyle = '#3a3a3a';
+    this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+    this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
+    this.ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
+    this.ctx.setLineDash([]);
+
+    this.ctx.restore();
   }
 
   private drawPath(points: Point[]) {
@@ -1761,6 +1810,36 @@ export class CanvasEngine {
       this.render();
     } catch (error) {
       console.error('Failed to deserialize canvas state:', error);
+    }
+  }
+
+  // Image cache management methods
+  clearImageFromCache(src: string) {
+    this.imageCache.delete(src);
+    this.loadingImages.delete(src);
+  }
+
+  clearImageCache() {
+    this.imageCache.clear();
+    this.loadingImages.clear();
+  }
+
+  preloadImages(srcs: string[]) {
+    for (const src of srcs) {
+      if (!this.imageCache.has(src) && !this.loadingImages.has(src)) {
+        this.loadingImages.add(src);
+        const img = new Image();
+        // Enable CORS to prevent canvas tainting when exporting
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          this.loadingImages.delete(src);
+          this.imageCache.set(src, img);
+        };
+        img.onerror = () => {
+          this.loadingImages.delete(src);
+        };
+        img.src = src;
+      }
     }
   }
 

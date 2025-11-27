@@ -822,6 +822,108 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     return '';
   };
 
+  // Capture canvas for AI visual analysis - returns PNG Blob
+  const captureCanvasForAI = async (): Promise<Blob | null> => {
+    if (!canvasRef.current || !engineRef.current) return null;
+
+    const allShapes = engineRef.current.getAllShapes();
+    const selectedShapesList = engineRef.current.getSelectedShapes();
+
+    // If canvas is empty, return null
+    if (allShapes.length === 0) {
+      console.log('📷 Canvas is empty, skipping capture');
+      return null;
+    }
+
+    // Determine which shapes to capture
+    const shapesToCapture = selectedShapesList.length > 0 ? selectedShapesList : allShapes;
+    console.log(`📷 Capturing ${shapesToCapture.length} shapes (${selectedShapesList.length > 0 ? 'selected' : 'all'})`);
+
+    // Calculate bounding box of shapes to capture (in screen coordinates)
+    const calculateShapesBounds = (shapes: Shape[]) => {
+      if (shapes.length === 0) return null;
+
+      let minX = Infinity, minY = Infinity;
+      let maxX = -Infinity, maxY = -Infinity;
+      const zoom = engineRef.current?.getState().viewport.zoom || 1;
+
+      for (const shape of shapes) {
+        const screenPos = engineRef.current?.worldToScreen({ x: shape.x, y: shape.y });
+        if (!screenPos) continue;
+
+        let width = 0, height = 0;
+        if (shape.type === 'rectangle' || shape.type === 'image' || shape.type === 'text') {
+          width = (shape as any).width * zoom;
+          height = (shape as any).height * zoom;
+        } else if (shape.type === 'circle') {
+          const radius = (shape as any).radius || 50;
+          width = height = radius * 2 * zoom;
+        } else if (shape.type === 'line') {
+          const line = shape as any;
+          const endScreenPos = engineRef.current?.worldToScreen({ x: line.x2, y: line.y2 });
+          if (endScreenPos) {
+            width = Math.abs(endScreenPos.x - screenPos.x);
+            height = Math.abs(endScreenPos.y - screenPos.y);
+          }
+        }
+
+        minX = Math.min(minX, screenPos.x);
+        minY = Math.min(minY, screenPos.y);
+        maxX = Math.max(maxX, screenPos.x + width);
+        maxY = Math.max(maxY, screenPos.y + height);
+      }
+
+      if (minX === Infinity) return null;
+      return { minX, minY, maxX, maxY };
+    };
+
+    const bounds = calculateShapesBounds(shapesToCapture);
+    if (!bounds) {
+      console.log('📷 Could not calculate bounds');
+      return null;
+    }
+
+    // Add padding around bounds
+    const padding = 40;
+    const canvasWidth = canvasRef.current.width;
+    const canvasHeight = canvasRef.current.height;
+
+    const x = Math.max(0, bounds.minX - padding);
+    const y = Math.max(0, bounds.minY - padding);
+    const width = Math.min(bounds.maxX - bounds.minX + (padding * 2), canvasWidth - x);
+    const height = Math.min(bounds.maxY - bounds.minY + (padding * 2), canvasHeight - y);
+
+    console.log(`📷 Capturing region: x=${x}, y=${y}, w=${width}, h=${height}`);
+
+    // Create temporary canvas for cropped capture
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) return null;
+
+    // Draw the cropped region
+    tempCtx.drawImage(
+      canvasRef.current,
+      x, y, width, height,  // Source rectangle
+      0, 0, width, height   // Destination rectangle
+    );
+
+    // Return as Blob (NOT base64)
+    return new Promise((resolve) => {
+      try {
+        tempCanvas.toBlob((blob) => {
+          console.log(`📷 Canvas captured as PNG Blob: ${blob?.size || 0} bytes`);
+          resolve(blob);
+        }, 'image/png');
+      } catch (error) {
+        // Handle tainted canvas error (images loaded without CORS)
+        console.warn('📷 Canvas capture failed (tainted canvas). Proceeding with text-only mode.', error);
+        resolve(null);
+      }
+    });
+  };
+
   const handleProjectNameClick = () => {
     setEditingProjectName(true);
   };
@@ -1614,128 +1716,156 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             style={{ display: 'none' }}
             onChange={async (e) => {
               const file = e.target.files?.[0];
-              if (file && engineRef.current && canvasRef.current) {
-                const token = localStorage.getItem('auth_token');
-                if (!token) {
-                  alert('Please log in to upload images');
-                  e.target.value = '';
-                  return;
-                }
-
-                if (!currentProjectId) {
-                  alert('Please save your project first');
-                  e.target.value = '';
-                  return;
-                }
-
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                  const dataUrl = event.target?.result as string;
-                  if (!dataUrl || !engineRef.current || !canvasRef.current) return;
-
-                  // Get image dimensions first
-                  const img = new Image();
-                  img.onload = async () => {
-                    if (!engineRef.current || !canvasRef.current) return;
-
-                    // Place image at center of viewport
-                    const canvasRect = canvasRef.current.getBoundingClientRect();
-                    const centerX = canvasRect.width / 2;
-                    const centerY = canvasRect.height / 2;
-                    const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
-
-                    // Scale down if too large
-                    const maxWidth = 400;
-                    const maxHeight = 400;
-                    let width = img.width;
-                    let height = img.height;
-
-                    if (width > maxWidth || height > maxHeight) {
-                      const ratio = Math.min(maxWidth / width, maxHeight / height);
-                      width = width * ratio;
-                      height = height * ratio;
-                    }
-
-                    // Create placeholder shape with loading state
-                    const placeholderId = `image-uploading-${Date.now()}-${Math.random()}`;
-                    const placeholderShape: ImageShape = {
-                      id: placeholderId,
-                      type: 'image',
-                      x: worldPoint.x - width / 2,
-                      y: worldPoint.y - height / 2,
-                      width,
-                      height,
-                      src: dataUrl, // Show local preview while uploading
-                      style: {
-                        opacity: 0.5, // Dim to indicate loading
-                      },
-                    };
-
-                    engineRef.current.addShape(placeholderShape);
-                    engineRef.current.selectShape(placeholderId);
-                    setSelectedShapeId(placeholderId);
-                    updateSelectedShapesState();
-                    setUploadingImageId(placeholderId);
-
-                    try {
-                      // Upload to Supabase Storage via backend
-                      const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({
-                          imageData: dataUrl,
-                          projectId: currentProjectId,
-                        }),
-                      });
-
-                      if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || 'Upload failed');
-                      }
-
-                      const { url } = await response.json();
-
-                      // Update the shape with the Supabase URL
-                      if (engineRef.current) {
-                        engineRef.current.updateShape(placeholderId, {
-                          src: url,
-                          style: { opacity: 1 },
-                        });
-                        engineRef.current.saveState();
-                        saveCanvasState();
-                        updateSelectedShapesState();
-                      }
-
-                      console.log('Image uploaded successfully:', url);
-                    } catch (uploadError: unknown) {
-                      console.error('Failed to upload image:', uploadError);
-                      // Remove the placeholder on failure
-                      if (engineRef.current) {
-                        engineRef.current.removeShape(placeholderId);
-                      }
-                      const errorMessage = uploadError instanceof Error ? uploadError.message : 'Unknown error';
-                      alert(`Failed to upload image: ${errorMessage}`);
-                    } finally {
-                      setUploadingImageId(null);
-                    }
-                  };
-
-                  img.onerror = () => {
-                    console.error('Failed to load image');
-                    alert('Failed to load the selected image');
-                  };
-                  img.src = dataUrl;
-                };
-
-                reader.onerror = () => {
-                  console.error('Failed to read file');
-                  alert('Failed to read the selected file');
-                };
-                reader.readAsDataURL(file);
+              console.log('📷 File selected:', file?.name, file?.type, file?.size);
+              if (!file) {
+                console.log('❌ No file selected');
+                return;
               }
+              if (!engineRef.current || !canvasRef.current) {
+                console.error('❌ Canvas not ready');
+                return;
+              }
+
+              const token = localStorage.getItem('auth_token');
+              if (!token) {
+                console.error('❌ No auth token');
+                alert('Please log in to upload images');
+                e.target.value = '';
+                return;
+              }
+
+              if (!currentProjectId) {
+                console.error('❌ No project ID');
+                alert('Please save your project first');
+                e.target.value = '';
+                return;
+              }
+
+              console.log('📷 Starting file read...');
+              const reader = new FileReader();
+              reader.onload = async (event) => {
+                const dataUrl = event.target?.result as string;
+                console.log('📷 FileReader loaded image, dataUrl length:', dataUrl?.length);
+                if (!dataUrl || !engineRef.current || !canvasRef.current) {
+                  console.error('❌ Missing required data:', { hasDataUrl: !!dataUrl, hasEngine: !!engineRef.current, hasCanvas: !!canvasRef.current });
+                  return;
+                }
+
+                // Get image dimensions first
+                const img = new Image();
+                img.onload = async () => {
+                  console.log('📷 Image loaded, dimensions:', img.width, 'x', img.height);
+                  if (!engineRef.current || !canvasRef.current) {
+                    console.error('❌ Engine or canvas lost during image load');
+                    return;
+                  }
+
+                  // Place image at center of viewport
+                  const canvasRect = canvasRef.current.getBoundingClientRect();
+                  const centerX = canvasRect.width / 2;
+                  const centerY = canvasRect.height / 2;
+                  const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
+
+                  // Scale down if too large
+                  const maxWidth = 400;
+                  const maxHeight = 400;
+                  let width = img.width;
+                  let height = img.height;
+
+                  if (width > maxWidth || height > maxHeight) {
+                    const ratio = Math.min(maxWidth / width, maxHeight / height);
+                    width = width * ratio;
+                    height = height * ratio;
+                  }
+
+                  // Create placeholder shape with loading state
+                  const placeholderId = `image-uploading-${Date.now()}-${Math.random()}`;
+                  const placeholderShape: ImageShape = {
+                    id: placeholderId,
+                    type: 'image',
+                    x: worldPoint.x - width / 2,
+                    y: worldPoint.y - height / 2,
+                    width,
+                    height,
+                    src: dataUrl, // Show local preview while uploading
+                    style: {
+                      opacity: 0.5, // Dim to indicate loading
+                    },
+                  };
+
+                  console.log('📷 Adding placeholder shape:', placeholderId);
+                  engineRef.current.addShape(placeholderShape);
+                  engineRef.current.selectShape(placeholderId);
+                  engineRef.current.render(); // Force render to show placeholder
+                  setSelectedShapeId(placeholderId);
+                  updateSelectedShapesState();
+                  setUploadingImageId(placeholderId);
+                  console.log('📷 Placeholder added, starting upload...');
+
+                  try {
+                    // Upload to Supabase Storage via backend
+                    const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({
+                        imageData: dataUrl,
+                        projectId: currentProjectId,
+                      }),
+                    });
+
+                    console.log('📷 Upload response status:', response.status);
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      console.error('❌ Upload failed:', errorData);
+                      throw new Error(errorData.error || errorData.message || 'Upload failed');
+                    }
+
+                    const result = await response.json();
+                    console.log('📷 Upload result:', result);
+                    const { url } = result;
+
+                    // Update the shape with the Supabase URL
+                    if (engineRef.current) {
+                      engineRef.current.updateShape(placeholderId, {
+                        src: url,
+                        style: { opacity: 1 },
+                      });
+                      engineRef.current.saveState();
+                      engineRef.current.render();
+                      saveCanvasState();
+                      updateSelectedShapesState();
+                    }
+
+                    console.log('📷 Image uploaded successfully:', url);
+                  } catch (uploadError: unknown) {
+                    console.error('❌ Failed to upload image:', uploadError);
+                    // Remove the placeholder on failure
+                    if (engineRef.current) {
+                      engineRef.current.removeShape(placeholderId);
+                      engineRef.current.render();
+                    }
+                    const errorMessage = uploadError instanceof Error ? uploadError.message : 'Unknown error';
+                    alert(`Failed to upload image: ${errorMessage}`);
+                  } finally {
+                    setUploadingImageId(null);
+                  }
+                };
+
+                img.onerror = () => {
+                  console.error('❌ Failed to load image preview');
+                  alert('Failed to load the selected image');
+                };
+                img.src = dataUrl;
+              };
+
+              reader.onerror = () => {
+                console.error('❌ Failed to read file');
+                alert('Failed to read the selected file');
+              };
+              reader.readAsDataURL(file);
               // Reset input so same file can be selected again
               e.target.value = '';
             }}
@@ -1940,6 +2070,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           onAddShape={handleAddShapeFromChat}
           onUpdateShape={handleUpdateShapeFromChat}
           onGenerateImage={handleGenerateImageForChat}
+          onCaptureCanvas={captureCanvasForAI}
         />
 
         {/* Canvas Area */}

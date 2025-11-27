@@ -40,6 +40,7 @@ interface AIChatPanelProps {
   onAddShape: (shape: Shape) => void;
   onUpdateShape: (id: string, updates: Partial<Shape>) => void;
   onGenerateImage: (prompt: string, aspectRatio?: string) => Promise<string>;
+  onCaptureCanvas: () => Promise<Blob | null>;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -84,6 +85,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onAddShape,
   onUpdateShape,
   onGenerateImage,
+  onCaptureCanvas,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -105,64 +107,243 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
   }, [isOpen]);
 
-  // Build canvas context for API - ALWAYS include selected shapes
+  // Build canvas context for API - rich metadata based on selection state
   const buildCanvasContext = useCallback(() => {
     const context: any = {
       totalShapes: allShapes.length,
+      hasSelection: selectedShapes.length > 0,
       canvasDescription: "User's design canvas"
     };
 
-    // Always include selected shapes so AI can act on them
+    // Build shape summaries by type
+    const shapeSummary = {
+      images: allShapes.filter(s => s.type === 'image').length,
+      text: allShapes.filter(s => s.type === 'text').length,
+      rectangles: allShapes.filter(s => s.type === 'rectangle').length,
+      circles: allShapes.filter(s => s.type === 'circle').length,
+      lines: allShapes.filter(s => s.type === 'line').length,
+    };
+    context.shapeSummary = shapeSummary;
+
+    // SELECTED SHAPES - Detailed metadata for precise actions
     if (selectedShapes.length > 0) {
-      context.selectedShapes = selectedShapes.map(s => ({
-        id: s.id,
-        type: s.type,
-        x: s.x,
-        y: s.y,
-        width: (s as any).width,
-        height: (s as any).height,
-        style: s.style,
-        ...(s.type === 'image' && {
-          src: (s as ImageShape).src,
-        }),
-        ...(s.type === 'text' && {
-          text: (s as TextShape).text
-        }),
-        ...(s.type === 'rectangle' && {
-          shapeType: 'rectangle'
-        }),
-      }));
+      context.selectedShapes = selectedShapes.map(s => {
+        const base = {
+          id: s.id,
+          type: s.type,
+          x: Math.round(s.x),
+          y: Math.round(s.y),
+          style: s.style,
+        };
+
+        // Type-specific details
+        if (s.type === 'image') {
+          const img = s as ImageShape;
+          return {
+            ...base,
+            width: Math.round(img.width),
+            height: Math.round(img.height),
+            src: img.src,
+            description: 'Image element - can resize, reposition, adjust opacity, or use as reference'
+          };
+        }
+        if (s.type === 'text') {
+          const txt = s as TextShape;
+          return {
+            ...base,
+            width: Math.round(txt.width),
+            height: Math.round(txt.height),
+            text: txt.text,
+            fontSize: txt.style?.fontSize,
+            fontFamily: txt.style?.fontFamily,
+            description: 'Text element - can edit content, change font, color, size'
+          };
+        }
+        if (s.type === 'rectangle') {
+          const rect = s as any;
+          return {
+            ...base,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            fill: rect.style?.fill,
+            stroke: rect.style?.stroke,
+            description: 'Rectangle shape - can change fill, stroke, size, position'
+          };
+        }
+        return {
+          ...base,
+          width: (s as any).width ? Math.round((s as any).width) : undefined,
+          height: (s as any).height ? Math.round((s as any).height) : undefined,
+        };
+      });
+
+      context.selectionHint = `User has ${selectedShapes.length} element(s) selected. ` +
+        `When user says "this" or "it", they mean the selected element(s). ` +
+        `Use modify_canvas_element with the IDs provided to make changes.`;
+    } else if (allShapes.length > 0) {
+      // NO SELECTION but canvas has content - provide overview
+      context.canvasOverview = `Canvas contains ${allShapes.length} elements: ` +
+        `${shapeSummary.images} images, ${shapeSummary.text} text, ` +
+        `${shapeSummary.rectangles} rectangles, ${shapeSummary.circles} circles.`;
+
+      context.noSelectionHint = `No elements are selected. ` +
+        `User is asking about the overall design or wants to add new elements. ` +
+        `Use add_to_canvas for new elements, or ask which element to modify if unclear.`;
+    } else {
+      // EMPTY CANVAS
+      context.emptyCanvasHint = `Canvas is empty. User wants to create something from scratch. ` +
+        `Use call_image_generator for images or add_to_canvas for shapes/text.`;
     }
 
     return context;
   }, [allShapes, selectedShapes]);
 
-  // Handle canvas actions from AI
+  // Fetch selected images and convert to base64 for compositing
+  const getSelectedImagesBase64 = useCallback(async (): Promise<{id: string, base64: string, description: string}[]> => {
+    const imageShapes = selectedShapes.filter(s => s.type === 'image') as ImageShape[];
+
+    if (imageShapes.length === 0) return [];
+
+    console.log('📷 Extracting selected images for compositing:', imageShapes.length);
+
+    const results: {id: string, base64: string, description: string}[] = [];
+    for (const img of imageShapes) {
+      if (img.src) {
+        try {
+          // Try to fetch with CORS mode first
+          let response;
+          try {
+            response = await fetch(img.src, { mode: 'cors' });
+          } catch (corsError) {
+            // If CORS fails, try no-cors (will give opaque response)
+            console.warn('📷 CORS fetch failed, trying alternative method for:', img.src);
+            // For cross-origin images, we'll skip them (canvas capture will still include them)
+            continue;
+          }
+
+          if (!response.ok) {
+            console.warn(`📷 Failed to fetch image (${response.status}):`, img.src);
+            continue;
+          }
+
+          const blob = await response.blob();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          results.push({
+            id: img.id,
+            base64: base64.replace(/^data:image\/\w+;base64,/, ''),
+            description: `Image at position (${Math.round(img.x)}, ${Math.round(img.y)}) - ${Math.round(img.width)}x${Math.round(img.height)}px`
+          });
+          console.log(`📷 Extracted image ${img.id}: ${Math.round(blob.size / 1024)}KB`);
+        } catch (e) {
+          console.error('📷 Failed to fetch image for compositing:', img.src, e);
+          // Continue with other images
+        }
+      }
+    }
+    console.log(`📷 Successfully extracted ${results.length} of ${imageShapes.length} images`);
+    return results;
+  }, [selectedShapes]);
+
+  // Handle canvas actions from AI with placeholder system
   const handleCanvasActions = useCallback(async (actions: CanvasAction[], images: { url: string; prompt: string }[]) => {
-    // Handle generated images - add to canvas
-    for (const image of images) {
-      const newShape: ImageShape = {
-        id: `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'image',
-        x: 100 + Math.random() * 200,
-        y: 100 + Math.random() * 200,
-        width: 400,
-        height: 400,
-        src: image.url,
-        style: { opacity: 1 }
-      };
-      onAddShape(newShape);
+    // Calculate smart positioning based on existing shapes or selection
+    let baseX = 100;
+    let baseY = 100;
+
+    // If shapes are selected, position near them
+    if (selectedShapes.length > 0) {
+      const firstSelected = selectedShapes[0];
+      baseX = firstSelected.x + ((firstSelected as any).width || 100) + 50;
+      baseY = firstSelected.y;
+    } else if (allShapes.length > 0) {
+      // Position away from existing shapes
+      const maxX = Math.max(...allShapes.map(s => s.x + ((s as any).width || 100)));
+      baseX = Math.min(maxX + 50, 500);
     }
 
-    // Handle other actions
+    // Handle generated images - load image first to get actual dimensions
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      console.log('🎨 Loading generated image to get dimensions:', image.url.substring(0, 50) + '...');
+
+      // Load image to get actual dimensions
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      await new Promise<void>((resolve) => {
+        img.onload = () => {
+          // Calculate display size (max 500px, maintain aspect ratio)
+          const maxSize = 500;
+          let width = img.naturalWidth;
+          let height = img.naturalHeight;
+
+          if (width > maxSize || height > maxSize) {
+            if (width > height) {
+              height = (height / width) * maxSize;
+              width = maxSize;
+            } else {
+              width = (width / height) * maxSize;
+              height = maxSize;
+            }
+          }
+
+          console.log(`🎨 Image dimensions: ${img.naturalWidth}x${img.naturalHeight} → display: ${Math.round(width)}x${Math.round(height)}`);
+
+          // Create image shape with correct dimensions
+          const imageShape: ImageShape = {
+            id: imageId,
+            type: 'image',
+            x: baseX + (i * 50),
+            y: baseY + (i * 50),
+            width: Math.round(width),
+            height: Math.round(height),
+            src: image.url,
+            style: { opacity: 1 }
+          };
+
+          onAddShape(imageShape);
+          resolve();
+        };
+
+        img.onerror = () => {
+          console.error('🎨 Failed to load generated image');
+          // Still add with default size if loading fails
+          const imageShape: ImageShape = {
+            id: imageId,
+            type: 'image',
+            x: baseX + (i * 50),
+            y: baseY + (i * 50),
+            width: 400,
+            height: 400,
+            src: image.url,
+            style: { opacity: 1 }
+          };
+          onAddShape(imageShape);
+          resolve();
+        };
+
+        img.src = image.url;
+      });
+    }
+
+    // Handle other actions (text, shapes, modifications)
+    let actionOffset = 0;
     for (const action of actions) {
       if (action.type === 'add') {
         if (action.asset_type === 'text' && action.content) {
           const newShape: TextShape = {
             id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'text',
-            x: 100 + Math.random() * 200,
-            y: 100 + Math.random() * 200,
+            x: baseX + actionOffset,
+            y: baseY + actionOffset + (images.length * 50), // Offset from images
             width: 300,
             height: 50,
             text: action.content,
@@ -174,14 +355,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             }
           };
           onAddShape(newShape);
+          actionOffset += 30;
         }
       } else if (action.type === 'modify' && action.element_id && action.updates) {
+        console.log('🔧 Modifying element:', action.element_id, action.updates);
         onUpdateShape(action.element_id, action.updates as Partial<Shape>);
       }
     }
-  }, [onAddShape, onUpdateShape]);
+  }, [onAddShape, onUpdateShape, selectedShapes, allShapes]);
 
-  // Send message to AI
+  // Send message to AI with canvas screenshot
   const sendMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
@@ -197,18 +380,44 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setIsLoading(true);
 
     try {
+      // Capture canvas as PNG Blob (not base64)
+      console.log('📸 Capturing canvas for AI analysis...');
+      const canvasBlob = await onCaptureCanvas();
+
+      // Extract selected images for compositing (base64)
+      console.log('📷 Getting selected images for compositing...');
+      const selectedImages = await getSelectedImagesBase64();
+
+      // Build FormData for multipart upload
+      const formData = new FormData();
+      formData.append('message', messageText);
+      formData.append('conversationHistory', JSON.stringify(
+        messages.map(m => ({ role: m.role, content: m.content }))
+      ));
+      formData.append('canvasContext', JSON.stringify(buildCanvasContext()));
+
+      if (brandBible) {
+        formData.append('brandBible', JSON.stringify(brandBible));
+      }
+
+      // Append selected images for compositing
+      if (selectedImages.length > 0) {
+        formData.append('selectedImages', JSON.stringify(selectedImages));
+        console.log(`📷 Attached ${selectedImages.length} selected images for compositing`);
+      }
+
+      // Append PNG file if canvas has content
+      if (canvasBlob) {
+        formData.append('canvasImage', canvasBlob, 'canvas-capture.png');
+        console.log(`📸 Attached canvas image: ${canvasBlob.size} bytes`);
+      } else {
+        console.log('📸 No canvas content to attach (empty canvas or capture failed)');
+      }
+
       const response = await fetch(`${API_BASE_URL}/ai-chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          conversationHistory: messages.map(m => ({
-            role: m.role,
-            content: m.content
-          })),
-          canvasContext: buildCanvasContext(),
-          brandBible: brandBible
-        })
+        // NO Content-Type header - browser sets it with boundary for FormData
+        body: formData,
       });
 
       const data = await response.json();
@@ -251,7 +460,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions]);
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64]);
 
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
