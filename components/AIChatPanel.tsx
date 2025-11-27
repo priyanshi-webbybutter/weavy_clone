@@ -104,6 +104,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [brandBible, setBrandBible] = useState<BrandBible | null>(null);
   const [includeSelection, setIncludeSelection] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -118,6 +120,68 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen]);
+
+  // Load chat history when project changes
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      if (!projectId || !isOpen) {
+        return; // Don't load if no project or panel closed
+      }
+
+      // Only load once per project
+      if (historyLoaded) {
+        return;
+      }
+
+      setIsLoadingHistory(true);
+      console.log('📜 Loading chat history for project:', projectId);
+
+      try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) {
+          console.warn('⚠️ No auth token, skipping chat history load');
+          setIsLoadingHistory(false);
+          return;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/ai-chat/history/${projectId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load chat history: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.success && data.messages) {
+          console.log(`✅ Loaded ${data.messages.length} messages from history`);
+          // Convert timestamp strings to Date objects
+          const messagesWithDates = data.messages.map((msg: any) => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }));
+          setMessages(messagesWithDates);
+          setHistoryLoaded(true);
+        }
+      } catch (error) {
+        console.error('❌ Error loading chat history:', error);
+        // Don't show error to user, just start with empty chat
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadChatHistory();
+  }, [projectId, isOpen, historyLoaded]);
+
+  // Reset history loaded flag when project changes
+  useEffect(() => {
+    setHistoryLoaded(false);
+    setMessages([]); // Clear messages when switching projects
+  }, [projectId]);
 
   // Build canvas context for API - rich metadata based on selection state
   const buildCanvasContext = useCallback(() => {
@@ -507,6 +571,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setMessages([]);
     setBrandBible(null);
     setInputValue('');
+    setHistoryLoaded(false); // Allow reloading history
   };
 
   // Handle key press
@@ -599,39 +664,49 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         {!hasMessages ? (
           /* Welcome Screen */
           <div className="p-4">
-            {/* Rotating Icon */}
-            <div className="flex justify-center py-6">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
-                <Sparkles className="w-8 h-8 text-blue-400" />
+            {isLoadingHistory ? (
+              // Loading state
+              <div className="flex flex-col items-center justify-center py-12">
+                <RefreshCw className="w-8 h-8 text-blue-400 animate-spin mb-3" />
+                <p className="text-gray-400 text-sm">Loading chat history...</p>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Rotating Icon */}
+                <div className="flex justify-center py-6">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
+                    <Sparkles className="w-8 h-8 text-blue-400" />
+                  </div>
+                </div>
 
-            {/* Welcome Text */}
-            <div className="text-center mb-6">
-              <h2 className="text-white text-lg font-medium mb-2">What do you want to create?</h2>
-              <p className="text-gray-500 text-sm">
-                Generate images, edit them, or add one from your canvas to customize it
-              </p>
-            </div>
+                {/* Welcome Text */}
+                <div className="text-center mb-6">
+                  <h2 className="text-white text-lg font-medium mb-2">What do you want to create?</h2>
+                  <p className="text-gray-500 text-sm">
+                    Generate images, edit them, or add one from your canvas to customize it
+                  </p>
+                </div>
 
-            {/* Quick Templates */}
-            <div className="mb-4">
-              <div className="text-gray-400 text-xs mb-3">Create a</div>
-              <div className="grid grid-cols-2 gap-2">
-                {QUICK_TEMPLATES.map(template => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleTemplateClick(template)}
-                    className="bg-[#1a1a1a] rounded-lg p-3 text-left hover:bg-[#2a2a2a] transition-colors border border-[#2a2a2a] hover:border-[#3a3a3a]"
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/30 to-blue-500/30 mb-2 flex items-center justify-center">
-                      <Sparkles className="w-5 h-5 text-purple-400" />
-                    </div>
-                    <div className="text-white text-xs font-medium">{template.name}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+                {/* Quick Templates */}
+                <div className="mb-4">
+                  <div className="text-gray-400 text-xs mb-3">Create a</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {QUICK_TEMPLATES.map(template => (
+                      <button
+                        key={template.id}
+                        onClick={() => handleTemplateClick(template)}
+                        className="bg-[#1a1a1a] rounded-lg p-3 text-left hover:bg-[#2a2a2a] transition-colors border border-[#2a2a2a] hover:border-[#3a3a3a]"
+                      >
+                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/30 to-blue-500/30 mb-2 flex items-center justify-center">
+                          <Sparkles className="w-5 h-5 text-purple-400" />
+                        </div>
+                        <div className="text-white text-xs font-medium">{template.name}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           /* Chat Messages */
@@ -677,7 +752,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
                 {/* Timestamp */}
                 <div className="text-[10px] text-gray-600 mt-1">
-                  {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             ))}

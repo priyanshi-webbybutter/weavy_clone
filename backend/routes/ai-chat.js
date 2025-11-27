@@ -25,6 +25,86 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
 );
 
+/**
+ * Get authenticated user for chat persistence
+ * Returns user and user-scoped Supabase client for RLS enforcement
+ */
+const getAuthenticatedUserForChat = async (req) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { user: null, supabaseClient: null };
+  }
+
+  const token = authHeader.substring(7);
+
+  if (!token || token.length === 0) {
+    return { user: null, supabaseClient: null };
+  }
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return { user: null, supabaseClient: null };
+    }
+
+    // Create a Supabase client with the user's access token for RLS
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    const userSupabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    return { user, supabaseClient: userSupabase };
+  } catch (error) {
+    console.error('Exception getting user from token:', error);
+    return { user: null, supabaseClient: null };
+  }
+};
+
+/**
+ * Save a chat message to the database
+ * @param {Object} supabaseClient - User-scoped Supabase client
+ * @param {string} projectId - Project UUID
+ * @param {string} userId - User UUID
+ * @param {Object} message - Message object { role, content, phase?, images?, actions? }
+ * @returns {Promise<Object>} - { success: boolean, data?: object, error?: string }
+ */
+async function saveChatMessage(supabaseClient, projectId, userId, message) {
+  try {
+    const { data, error } = await supabaseClient
+      .from('chat_messages')
+      .insert({
+        project_id: projectId,
+        user_id: userId,
+        role: message.role,
+        content: message.content,
+        phase: message.phase || null,
+        images: message.images || [],
+        actions: message.actions || [],
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error saving chat message:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log('✅ Chat message saved:', data.id);
+    return { success: true, data };
+  } catch (error) {
+    console.error('❌ Exception saving chat message:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // System prompt for Canvas agent with visual understanding and IMAGE COMPOSITING
 const SYSTEM_PROMPT = `You are 'Canvas', an AI Design Assistant with VISUAL UNDERSTANDING and IMAGE COMPOSITING capabilities.
 
@@ -660,6 +740,9 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
     const brandBible = req.body.brandBible ? JSON.parse(req.body.brandBible) : null;
     const projectId = req.body.projectId || null;
 
+    // === GET AUTHENTICATED USER FOR PERSISTENCE ===
+    const { user, supabaseClient } = await getAuthenticatedUserForChat(req);
+
     // Extract auth token for image upload
     let token = null;
     const authHeader = req.headers.authorization;
@@ -687,6 +770,20 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
+
+    // === SAVE USER MESSAGE TO DATABASE ===
+    if (projectId && user && supabaseClient) {
+      const userMessage = {
+        role: 'user',
+        content: message,
+      };
+      const saveResult = await saveChatMessage(supabaseClient, projectId, user.id, userMessage);
+      if (!saveResult.success) {
+        console.warn('⚠️ Failed to save user message:', saveResult.error);
+        // Continue anyway - don't fail the request
+      }
+    }
+    // ===============================================
 
     // Check if canvas image was uploaded
     let canvasImageData = null;
@@ -900,6 +997,23 @@ Use your visual understanding to give better, more contextual help.\n`;
     // Clean the response (remove the JSON marker)
     const cleanResponse = textResponse.replace(/<!--BRAND_BIBLE_JSON:.+?-->/g, '').trim();
 
+    // === SAVE ASSISTANT MESSAGE TO DATABASE ===
+    if (projectId && user && supabaseClient) {
+      const assistantMessage = {
+        role: 'assistant',
+        content: cleanResponse,
+        phase: detectPhase(cleanResponse, actions, generatedImages),
+        images: generatedImages,
+        actions: actions,
+      };
+      const saveResult = await saveChatMessage(supabaseClient, projectId, user.id, assistantMessage);
+      if (!saveResult.success) {
+        console.warn('⚠️ Failed to save assistant message:', saveResult.error);
+        // Continue anyway - still return response
+      }
+    }
+    // ===============================================
+
     res.json({
       success: true,
       response: cleanResponse,
@@ -946,5 +1060,87 @@ function detectPhase(response, actions, images) {
 
   return 'STRATEGY';
 }
+
+/**
+ * GET /api/ai-chat/history/:projectId
+ * Fetch last 50 chat messages for a project
+ */
+router.get('/history/:projectId', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    if (!projectId) {
+      return res.status(400).json({
+        error: 'projectId is required',
+      });
+    }
+
+    // Get authenticated user
+    const { user, supabaseClient } = await getAuthenticatedUserForChat(req);
+
+    if (!user || !supabaseClient) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Valid authentication token required',
+      });
+    }
+
+    console.log('📜 Fetching chat history for project:', projectId, 'user:', user.id);
+
+    // Verify project belongs to user
+    const { data: project, error: projectError } = await supabaseClient
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .single();
+
+    if (projectError || !project) {
+      return res.status(404).json({
+        error: 'Project not found or access denied',
+      });
+    }
+
+    // Fetch last 50 messages (RLS ensures user can only see their own)
+    const { data: messages, error } = await supabaseClient
+      .from('chat_messages')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: true }) // Oldest first for chat UI
+      .limit(50);
+
+    if (error) {
+      console.error('❌ Error fetching chat history:', error);
+      return res.status(500).json({
+        error: 'Failed to fetch chat history',
+        message: error.message,
+      });
+    }
+
+    console.log(`✅ Found ${messages?.length || 0} messages`);
+
+    // Transform database format to frontend Message format
+    const formattedMessages = (messages || []).map(msg => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      phase: msg.phase,
+      images: msg.images || [],
+      actions: msg.actions || [],
+      timestamp: new Date(msg.created_at),
+    }));
+
+    res.json({
+      success: true,
+      messages: formattedMessages,
+    });
+
+  } catch (error) {
+    console.error('❌ Error in GET /api/ai-chat/history/:projectId:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message,
+    });
+  }
+});
 
 module.exports = router;
