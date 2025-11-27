@@ -1618,6 +1618,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         if (editingTextId) {
           return; // Let the text input handle backspace
         }
+
+        // Don't delete shapes if user is typing in an input or textarea (like chatbot)
+        const activeElement = document.activeElement;
+        if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') {
+          return; // Let the input handle backspace
+        }
+
         const selected = engineRef.current.getSelectedShapes();
         selected.forEach(shape => {
           engineRef.current?.removeShape(shape.id);
@@ -1713,12 +1720,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             style={{ display: 'none' }}
             onChange={async (e) => {
-              const file = e.target.files?.[0];
-              console.log('📷 File selected:', file?.name, file?.type, file?.size);
-              if (!file) {
-                console.log('❌ No file selected');
+              const files = e.target.files;
+              console.log('📷 Files selected:', files?.length);
+              if (!files || files.length === 0) {
+                console.log('❌ No files selected');
                 return;
               }
               if (!engineRef.current || !canvasRef.current) {
@@ -1741,132 +1749,154 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 return;
               }
 
-              console.log('📷 Starting file read...');
-              const reader = new FileReader();
-              reader.onload = async (event) => {
-                const dataUrl = event.target?.result as string;
-                console.log('📷 FileReader loaded image, dataUrl length:', dataUrl?.length);
-                if (!dataUrl || !engineRef.current || !canvasRef.current) {
-                  console.error('❌ Missing required data:', { hasDataUrl: !!dataUrl, hasEngine: !!engineRef.current, hasCanvas: !!canvasRef.current });
-                  return;
-                }
+              // Calculate initial center position
+              const canvasRect = canvasRef.current.getBoundingClientRect();
+              const centerX = canvasRect.width / 2;
+              const centerY = canvasRect.height / 2;
+              const initialWorldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
 
-                // Get image dimensions first
-                const img = new Image();
-                img.onload = async () => {
-                  console.log('📷 Image loaded, dimensions:', img.width, 'x', img.height);
-                  if (!engineRef.current || !canvasRef.current) {
-                    console.error('❌ Engine or canvas lost during image load');
-                    return;
-                  }
+              // Process each file
+              const fileArray = Array.from(files);
+              for (let fileIndex = 0; fileIndex < fileArray.length; fileIndex++) {
+                const file = fileArray[fileIndex];
+                console.log(`📷 Processing file ${fileIndex + 1}/${fileArray.length}:`, file.name, file.type, file.size);
 
-                  // Place image at center of viewport
-                  const canvasRect = canvasRef.current.getBoundingClientRect();
-                  const centerX = canvasRect.width / 2;
-                  const centerY = canvasRect.height / 2;
-                  const worldPoint = engineRef.current.screenToWorld({ x: centerX, y: centerY });
+                await new Promise<void>((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = async (event) => {
+                    const dataUrl = event.target?.result as string;
+                    console.log(`📷 FileReader loaded image ${fileIndex + 1}, dataUrl length:`, dataUrl?.length);
+                    if (!dataUrl || !engineRef.current || !canvasRef.current) {
+                      console.error('❌ Missing required data:', { hasDataUrl: !!dataUrl, hasEngine: !!engineRef.current, hasCanvas: !!canvasRef.current });
+                      resolve();
+                      return;
+                    }
 
-                  // Scale down if too large
-                  const maxWidth = 400;
-                  const maxHeight = 400;
-                  let width = img.width;
-                  let height = img.height;
+                    // Get image dimensions first
+                    const img = new Image();
+                    img.onload = async () => {
+                      console.log(`📷 Image ${fileIndex + 1} loaded, dimensions:`, img.width, 'x', img.height);
+                      if (!engineRef.current || !canvasRef.current) {
+                        console.error('❌ Engine or canvas lost during image load');
+                        resolve();
+                        return;
+                      }
 
-                  if (width > maxWidth || height > maxHeight) {
-                    const ratio = Math.min(maxWidth / width, maxHeight / height);
-                    width = width * ratio;
-                    height = height * ratio;
-                  }
+                      // Scale down if too large
+                      const maxWidth = 400;
+                      const maxHeight = 400;
+                      let width = img.width;
+                      let height = img.height;
 
-                  // Create placeholder shape with loading state
-                  const placeholderId = `image-uploading-${Date.now()}-${Math.random()}`;
-                  const placeholderShape: ImageShape = {
-                    id: placeholderId,
-                    type: 'image',
-                    x: worldPoint.x - width / 2,
-                    y: worldPoint.y - height / 2,
-                    width,
-                    height,
-                    src: dataUrl, // Show local preview while uploading
-                    style: {
-                      opacity: 0.5, // Dim to indicate loading
-                    },
+                      if (width > maxWidth || height > maxHeight) {
+                        const ratio = Math.min(maxWidth / width, maxHeight / height);
+                        width = width * ratio;
+                        height = height * ratio;
+                      }
+
+                      // Position images with offset (50px spacing for each subsequent image)
+                      const offset = fileIndex * 50;
+                      const x = initialWorldPoint.x - width / 2 + offset;
+                      const y = initialWorldPoint.y - height / 2 + offset;
+
+                      // Create placeholder shape with loading state
+                      const placeholderId = `image-uploading-${Date.now()}-${Math.random()}`;
+                      const placeholderShape: ImageShape = {
+                        id: placeholderId,
+                        type: 'image',
+                        x,
+                        y,
+                        width,
+                        height,
+                        src: dataUrl, // Show local preview while uploading
+                        style: {
+                          opacity: 0.5, // Dim to indicate loading
+                        },
+                      };
+
+                      console.log(`📷 Adding placeholder shape ${fileIndex + 1}:`, placeholderId);
+                      engineRef.current.addShape(placeholderShape);
+                      if (fileIndex === fileArray.length - 1) {
+                        // Select the last image
+                        engineRef.current.selectShape(placeholderId);
+                        setSelectedShapeId(placeholderId);
+                      }
+                      engineRef.current.render(); // Force render to show placeholder
+                      updateSelectedShapesState();
+                      setUploadingImageId(placeholderId);
+                      console.log(`📷 Placeholder ${fileIndex + 1} added, starting upload...`);
+
+                      try {
+                        // Upload to Supabase Storage via backend
+                        const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({
+                            imageData: dataUrl,
+                            projectId: currentProjectId,
+                          }),
+                        });
+
+                        console.log(`📷 Upload ${fileIndex + 1} response status:`, response.status);
+                        if (!response.ok) {
+                          const errorData = await response.json();
+                          console.error(`❌ Upload ${fileIndex + 1} failed:`, errorData);
+                          throw new Error(errorData.error || errorData.message || 'Upload failed');
+                        }
+
+                        const result = await response.json();
+                        console.log(`📷 Upload ${fileIndex + 1} result:`, result);
+                        const { url } = result;
+
+                        // Update the shape with the Supabase URL
+                        if (engineRef.current) {
+                          engineRef.current.updateShape(placeholderId, {
+                            src: url,
+                            style: { opacity: 1 },
+                          });
+                          engineRef.current.saveState();
+                          engineRef.current.render();
+                          saveCanvasState();
+                          updateSelectedShapesState();
+                        }
+
+                        console.log(`📷 Image ${fileIndex + 1} uploaded successfully:`, url);
+                      } catch (uploadError: unknown) {
+                        console.error(`❌ Failed to upload image ${fileIndex + 1}:`, uploadError);
+                        // Remove the placeholder on failure
+                        if (engineRef.current) {
+                          engineRef.current.removeShape(placeholderId);
+                          engineRef.current.render();
+                        }
+                        const errorMessage = uploadError instanceof Error ? uploadError.message : 'Unknown error';
+                        alert(`Failed to upload image ${file.name}: ${errorMessage}`);
+                      } finally {
+                        setUploadingImageId(null);
+                        resolve();
+                      }
+                    };
+
+                    img.onerror = () => {
+                      console.error(`❌ Failed to load image ${fileIndex + 1} preview`);
+                      alert(`Failed to load the selected image: ${file.name}`);
+                      resolve();
+                    };
+                    img.src = dataUrl;
                   };
 
-                  console.log('📷 Adding placeholder shape:', placeholderId);
-                  engineRef.current.addShape(placeholderShape);
-                  engineRef.current.selectShape(placeholderId);
-                  engineRef.current.render(); // Force render to show placeholder
-                  setSelectedShapeId(placeholderId);
-                  updateSelectedShapesState();
-                  setUploadingImageId(placeholderId);
-                  console.log('📷 Placeholder added, starting upload...');
+                  reader.onerror = () => {
+                    console.error(`❌ Failed to read file ${fileIndex + 1}`);
+                    alert(`Failed to read the selected file: ${file.name}`);
+                    resolve();
+                  };
+                  reader.readAsDataURL(file);
+                });
+              }
 
-                  try {
-                    // Upload to Supabase Storage via backend
-                    const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`,
-                      },
-                      body: JSON.stringify({
-                        imageData: dataUrl,
-                        projectId: currentProjectId,
-                      }),
-                    });
-
-                    console.log('📷 Upload response status:', response.status);
-                    if (!response.ok) {
-                      const errorData = await response.json();
-                      console.error('❌ Upload failed:', errorData);
-                      throw new Error(errorData.error || errorData.message || 'Upload failed');
-                    }
-
-                    const result = await response.json();
-                    console.log('📷 Upload result:', result);
-                    const { url } = result;
-
-                    // Update the shape with the Supabase URL
-                    if (engineRef.current) {
-                      engineRef.current.updateShape(placeholderId, {
-                        src: url,
-                        style: { opacity: 1 },
-                      });
-                      engineRef.current.saveState();
-                      engineRef.current.render();
-                      saveCanvasState();
-                      updateSelectedShapesState();
-                    }
-
-                    console.log('📷 Image uploaded successfully:', url);
-                  } catch (uploadError: unknown) {
-                    console.error('❌ Failed to upload image:', uploadError);
-                    // Remove the placeholder on failure
-                    if (engineRef.current) {
-                      engineRef.current.removeShape(placeholderId);
-                      engineRef.current.render();
-                    }
-                    const errorMessage = uploadError instanceof Error ? uploadError.message : 'Unknown error';
-                    alert(`Failed to upload image: ${errorMessage}`);
-                  } finally {
-                    setUploadingImageId(null);
-                  }
-                };
-
-                img.onerror = () => {
-                  console.error('❌ Failed to load image preview');
-                  alert('Failed to load the selected image');
-                };
-                img.src = dataUrl;
-              };
-
-              reader.onerror = () => {
-                console.error('❌ Failed to read file');
-                alert('Failed to read the selected file');
-              };
-              reader.readAsDataURL(file);
-              // Reset input so same file can be selected again
+              // Reset input so same files can be selected again
               e.target.value = '';
             }}
           />

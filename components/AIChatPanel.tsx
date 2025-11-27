@@ -32,6 +32,16 @@ interface CanvasAction {
   updates?: Record<string, any>;
 }
 
+interface SelectedImageMetadata {
+  id: string;
+  base64: string;
+  description: string;
+  width: number;
+  height: number;
+  area: number;
+  aspectRatio: number;
+}
+
 interface AIChatPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -201,14 +211,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   }, [allShapes, selectedShapes]);
 
   // Fetch selected images and convert to base64 for compositing
-  const getSelectedImagesBase64 = useCallback(async (): Promise<{id: string, base64: string, description: string}[]> => {
+  const getSelectedImagesBase64 = useCallback(async (): Promise<SelectedImageMetadata[]> => {
     const imageShapes = selectedShapes.filter(s => s.type === 'image') as ImageShape[];
 
     if (imageShapes.length === 0) return [];
 
     console.log('📷 Extracting selected images for compositing:', imageShapes.length);
 
-    const results: {id: string, base64: string, description: string}[] = [];
+    const results: SelectedImageMetadata[] = [];
     for (const img of imageShapes) {
       if (img.src) {
         try {
@@ -236,12 +246,22 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             reader.readAsDataURL(blob);
           });
 
+          // Calculate dimensions with fallbacks
+          const width = Math.round(img.width || 512);
+          const height = Math.round(img.height || 512);
+          const area = width * height;
+          const aspectRatio = width / height;
+
           results.push({
             id: img.id,
             base64: base64.replace(/^data:image\/\w+;base64,/, ''),
-            description: `Image at position (${Math.round(img.x)}, ${Math.round(img.y)}) - ${Math.round(img.width)}x${Math.round(img.height)}px`
+            description: `Image at position (${Math.round(img.x)}, ${Math.round(img.y)}) - ${width}x${height}px`,
+            width,
+            height,
+            area,
+            aspectRatio
           });
-          console.log(`📷 Extracted image ${img.id}: ${Math.round(blob.size / 1024)}KB`);
+          console.log(`📷 Extracted image ${img.id}: ${Math.round(blob.size / 1024)}KB, ${width}x${height}px, ratio ${aspectRatio.toFixed(2)}`);
         } catch (e) {
           console.error('📷 Failed to fetch image for compositing:', img.src, e);
           // Continue with other images

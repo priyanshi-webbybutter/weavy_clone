@@ -50,6 +50,46 @@ Example:
 - You call: call_image_generator with prompt "A woman wearing the black wide-brim hat, portrait style, professional photo"
 - Result: New composite image of woman wearing the hat
 
+## AUTOMATIC ASPECT RATIO DETECTION
+
+When generating images with selected reference images:
+
+1. **CALCULATE FROM LARGEST IMAGE**:
+   - Each reference image has: { width, height, area, aspectRatio }
+   - Find the image with LARGEST area (width × height)
+   - Use that image's aspectRatio for generation
+
+2. **CONVERT NUMERIC RATIO TO STRING**:
+   - aspectRatio < 0.6 → '9:16' (very tall portrait)
+   - aspectRatio 0.6-0.8 → '2:3' (portrait)
+   - aspectRatio 0.8-1.2 → '1:1' (square)
+   - aspectRatio 1.2-1.4 → '4:3' (slightly wide)
+   - aspectRatio 1.4-1.8 → '16:9' (wide landscape)
+   - aspectRatio > 1.8 → '21:9' (ultrawide)
+
+3. **MANUAL OVERRIDE DETECTION**:
+   - "make it square" → '1:1'
+   - "make it vertical/portrait" → '9:16'
+   - "make it horizontal/landscape/wide" → '16:9'
+   - Explicit ratio mentioned (e.g., "in 16:9") → use that
+   - When override detected: IGNORE calculated ratio
+
+4. **NO SELECTION BEHAVIOR**:
+   - "banner", "header", "cover" → '16:9'
+   - "story", "Instagram story" → '9:16'
+   - "post", "profile", "logo" → '1:1'
+   - Default if unclear → '1:1'
+
+5. **ALWAYS SPECIFY aspect_ratio**:
+   Never rely on default - always calculate and provide aspect_ratio in tool call
+
+Example workflow:
+- Reference images: [Image A: 800×600 (area 480,000, ratio 1.33), Image B: 500×700 (area 350,000, ratio 0.71)]
+- Largest by area: Image A (480,000 > 350,000)
+- Its aspectRatio: 1.33
+- Maps to: '4:3' (closest standard ratio)
+- Tool call: call_image_generator({ prompt: "...", aspect_ratio: "4:3" })
+
 ## RULE #1: JUST DO IT - NO QUESTIONS
 
 When user intent is clear:
@@ -109,7 +149,7 @@ const tools = [
     functionDeclarations: [
       {
         name: "call_image_generator",
-        description: "Generates or composites images. When images are selected on the canvas, they are automatically used as reference images for compositing. Use this for: creating new images, combining selected images into composites (e.g., 'have the character wear the hat'), generating variations based on selected images, creating product photos with models.",
+        description: "Generates or composites images. When images are selected, AUTOMATICALLY CALCULATE aspect ratio from the LARGEST image by area. Use this for: creating new images, combining selected images into composites (e.g., 'have the character wear the hat'), generating variations based on selected images, creating product photos with models.",
         parameters: {
           type: "object",
           properties: {
@@ -119,10 +159,10 @@ const tools = [
             },
             aspect_ratio: {
               type: "string",
-              description: "The desired aspect ratio: '1:1' (square), '16:9' (wide), '9:16' (portrait), '3:2' (print). Default is '1:1'."
+              description: "REQUIRED: '1:1', '16:9', '9:16', '3:2', '2:3', '4:3', or '21:9'. Calculate from largest selected image or detect from user intent. Never use default."
             }
           },
-          required: ["prompt"]
+          required: ["prompt", "aspect_ratio"]
         }
       },
       {
@@ -255,7 +295,15 @@ async function executeToolCall(toolName, args, referenceImages = [], projectId =
 // Generate image using Gemini 2.5 Flash Image Preview (native generation with compositing)
 async function generateImage(prompt, aspectRatio = '1:1', referenceImages = [], projectId = null, token = null) {
   try {
+    // Validate aspect ratio
+    const validRatios = ['1:1', '16:9', '9:16', '3:2', '2:3', '4:3', '21:9'];
+    if (!validRatios.includes(aspectRatio)) {
+      console.warn(`⚠️ Invalid aspect ratio "${aspectRatio}", defaulting to '1:1'`);
+      aspectRatio = '1:1';
+    }
+
     console.log('🎨 Generating image with Gemini:', prompt);
+    console.log('🎨 Aspect ratio:', aspectRatio);
     console.log('🎨 Reference images for compositing:', referenceImages.length);
 
     // Build request parts - REFERENCE IMAGES FIRST (important for Gemini)
@@ -290,7 +338,10 @@ Output: ONE high-quality composite image.`;
         '1:1': 'square format, 1:1 aspect ratio',
         '16:9': 'widescreen format, 16:9 aspect ratio, landscape orientation',
         '9:16': 'portrait format, 9:16 aspect ratio, vertical orientation',
-        '3:2': 'print format, 3:2 aspect ratio'
+        '3:2': 'print format, 3:2 aspect ratio',
+        '4:3': 'standard format, 4:3 aspect ratio, slightly landscape',
+        '2:3': 'portrait format, 2:3 aspect ratio, vertical orientation',
+        '21:9': 'ultrawide format, 21:9 aspect ratio, cinematic landscape'
       };
 
       enhancedPrompt = `Generate a high-quality image: ${prompt}.
@@ -432,6 +483,20 @@ Provide 5 creative options, each on a new line. Be concise, catchy, and aligned 
   }
 }
 
+/**
+ * Maps numeric aspect ratio to standard string format
+ * @param {number} ratio - Numeric aspect ratio (width/height)
+ * @returns {string} - Standard aspect ratio string
+ */
+function mapNumericRatioToString(ratio) {
+  if (ratio < 0.6) return '9:16';        // Very tall
+  if (ratio < 0.8) return '2:3';         // Portrait
+  if (ratio >= 0.8 && ratio <= 1.2) return '1:1';  // Square
+  if (ratio > 1.2 && ratio <= 1.4) return '4:3';   // Slightly wide
+  if (ratio > 1.4 && ratio <= 1.8) return '16:9';  // Wide
+  return '21:9';                         // Ultrawide
+}
+
 // Main chat endpoint - handles multipart FormData with optional canvas image
 router.post('/', upload.single('canvasImage'), async (req, res) => {
   let tempFilePath = null;
@@ -535,11 +600,26 @@ Use your visual understanding to give better, more contextual help.\n`;
 
     // IMPORTANT: Inform AI about available reference images for compositing
     if (selectedImages.length > 0) {
-      systemContext += `\n\n🖼️ REFERENCE IMAGES AVAILABLE FOR COMPOSITING:\n`;
-      systemContext += `${selectedImages.length} selected image(s) are available as reference.\n`;
-      systemContext += `When you call call_image_generator, these images will be automatically sent for compositing.\n`;
-      systemContext += `LOOK at the canvas screenshot to see what's in these images, then create a composite!\n`;
-      systemContext += `Example: If you see a hat and a person, and user says "have her wear it", call call_image_generator with prompt "A woman wearing the black hat, portrait style"\n`;
+      systemContext += `\n\n🖼️ REFERENCE IMAGES FOR COMPOSITING:\n`;
+      systemContext += `${selectedImages.length} selected image(s) with metadata:\n`;
+
+      // Show structured metadata for AI
+      for (let i = 0; i < selectedImages.length; i++) {
+        const img = selectedImages[i];
+        const orientation = img.aspectRatio > 1 ? 'landscape' : img.aspectRatio < 1 ? 'portrait' : 'square';
+        systemContext += `  ${i + 1}. Size: ${img.width}×${img.height}px, Area: ${img.area}px², Ratio: ${img.aspectRatio.toFixed(2)} (${orientation})\n`;
+      }
+
+      // Calculate suggested ratio from largest image
+      const largestImage = selectedImages.reduce((max, img) =>
+        img.area > max.area ? img : max
+      );
+      const suggestedRatio = mapNumericRatioToString(largestImage.aspectRatio);
+
+      systemContext += `\n📊 LARGEST IMAGE: #${selectedImages.indexOf(largestImage) + 1} with area ${largestImage.area}px²\n`;
+      systemContext += `📐 CALCULATED ASPECT RATIO: "${suggestedRatio}" (from ratio ${largestImage.aspectRatio.toFixed(2)})\n`;
+      systemContext += `\n⚠️ USE aspect_ratio="${suggestedRatio}" in call_image_generator UNLESS user explicitly requests different ratio.\n`;
+      systemContext += `These images will be automatically sent for compositing when you call call_image_generator.\n`;
     }
 
     // Add brand bible ONLY if established (don't require it)

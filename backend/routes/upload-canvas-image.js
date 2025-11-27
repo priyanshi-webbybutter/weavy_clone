@@ -86,6 +86,10 @@ router.post('/upload-canvas-image', async (req, res) => {
     // Normalize extension (jpeg -> jpg, svg+xml -> svg)
     if (extension === 'jpeg') extension = 'jpg';
     if (extension === 'svg+xml') extension = 'svg';
+
+    // Normalize MIME type for Supabase (jpg -> jpeg for contentType)
+    const mimeType = extension === 'jpg' ? 'jpeg' : extension;
+
     const buffer = Buffer.from(base64Data, 'base64');
 
     // Check file size (max 10MB)
@@ -107,7 +111,7 @@ router.post('/upload-canvas-image', async (req, res) => {
     const { data, error: uploadError } = await supabaseClient.storage
       .from('client-images')
       .upload(filePath, buffer, {
-        contentType: `image/${extension}`,
+        contentType: `image/${mimeType}`,
         upsert: false,
       });
 
