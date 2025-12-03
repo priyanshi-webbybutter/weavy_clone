@@ -108,6 +108,17 @@ async function saveChatMessage(supabaseClient, projectId, userId, message) {
 // System prompt for Canvas agent with visual understanding and IMAGE COMPOSITING
 const SYSTEM_PROMPT = `You are 'Canvas', an AI Design Assistant with VISUAL UNDERSTANDING and IMAGE COMPOSITING capabilities.
 
+## ⚡ STRUCTURED PROMPTING FOR IMAGE GENERATION ⚡
+
+When generating images, I will provide a STRUCTURED GENERATION GUIDE with sections:
+- COMPOSITION: How to frame and compose the image
+- SUBJECT & STYLE: What to create and the aesthetic
+- LIGHTING & TECHNICAL: Professional quality standards
+- OUTPUT REQUIREMENTS: Aspect ratio and specifications
+
+**FOLLOW THIS GUIDE PRECISELY** - Each section is important for professional results.
+If a structured guide is provided, integrate its instructions into your generation prompt.
+
 ## CRITICAL: ANALYZE IMAGES FIRST
 
 When the user selects images, you can SEE what's in them. ALWAYS describe what you see:
@@ -693,6 +704,22 @@ function detectConfirmationIntent(userMessage, conversationHistory) {
 }
 
 /**
+ * Maps numeric aspect ratio to standard format
+ * From walk-through.md Step 4
+ * @param {number} ratio - Numeric aspect ratio (width/height)
+ * @returns {string} - Standard aspect ratio string (e.g., "16:9")
+ */
+function mapAspectRatio(ratio) {
+  if (ratio < 0.6) return '9:16'; // Very tall portrait
+  if (ratio >= 0.6 && ratio < 0.8) return '2:3'; // Portrait
+  if (ratio >= 0.8 && ratio <= 1.2) return '1:1'; // Square
+  if (ratio > 1.2 && ratio <= 1.4) return '4:3'; // Slightly wide
+  if (ratio > 1.4 && ratio <= 1.8) return '16:9'; // Wide landscape
+  if (ratio > 1.8) return '21:9'; // Ultrawide
+  return '1:1'; // Default
+}
+
+/**
  * Detects if user is requesting suggestions/ideas (not execution)
  * @param {string} userMessage - The user's message
  * @returns {{ isSuggestionRequest: boolean, keyword?: string }} - Suggestion detection result
@@ -726,6 +753,250 @@ function detectSuggestionRequest(userMessage) {
   }
 
   return { isSuggestionRequest: false };
+}
+
+// === 9-STEP DECISION PIPELINE ===
+// These functions implement the systematic approach from walk-through.md
+
+/**
+ * Step 1: Read and understand user input
+ * Analyzes message, context, and references
+ * @param {string} message - User's message
+ * @param {object} canvasContext - Canvas state
+ * @param {array} selectedImages - Selected images for reference
+ * @param {array} conversationHistory - Chat history
+ * @returns {object} - Analysis of user intent
+ */
+function analyzeUserInput(message, canvasContext, selectedImages, conversationHistory) {
+  return {
+    userIntent: {
+      message: message,
+      hasSelection: canvasContext?.selectedShapes?.length > 0,
+      hasImages: selectedImages.length > 0,
+      conversationLength: conversationHistory.length
+    }
+  };
+}
+
+/**
+ * Step 2: Identify key elements from input
+ * Based on training-data.md patterns
+ * @param {string} message - User's message
+ * @param {object} analysis - Analysis from Step 1
+ * @returns {object} - Identified elements (action, subject, etc.)
+ */
+function identifyKeyElements(message, analysis) {
+  const lowerMessage = message.toLowerCase();
+
+  // Extract action verbs (from training-data.md)
+  const actionVerbs = {
+    generate: ['generate', 'create', 'make', 'design', 'paint', 'draw'],
+    edit: ['edit', 'change', 'modify', 'replace', 'update', 'adjust'],
+    suggest: ['suggest', 'recommend', 'advise', 'help', 'what should', 'how can'],
+    analyze: ['analyze', 'examine', 'study', 'describe', 'what is']
+  };
+
+  let primaryAction = 'unknown';
+  for (const [action, verbs] of Object.entries(actionVerbs)) {
+    if (verbs.some(verb => lowerMessage.includes(verb))) {
+      primaryAction = action;
+      break;
+    }
+  }
+
+  // Extract subject
+  const subjects = {
+    shape: ['shape', 'rectangle', 'circle', 'square', 'triangle'],
+    image: ['image', 'photo', 'picture', 'visual'],
+    text: ['text', 'label', 'caption', 'title', 'heading'],
+    color: ['color', 'fill', 'background', 'foreground']
+  };
+
+  let primarySubject = 'unknown';
+  for (const [subject, keywords] of Object.entries(subjects)) {
+    if (keywords.some(keyword => lowerMessage.includes(keyword))) {
+      primarySubject = subject;
+      break;
+    }
+  }
+
+  return {
+    primaryAction,
+    primarySubject,
+    rawMessage: message,
+    hasSelection: analysis.userIntent.hasSelection,
+    hasReferenceImages: analysis.userIntent.hasImages
+  };
+}
+
+/**
+ * Step 3: Determine task type
+ * Maps to our tools: call_image_generator, modify_canvas_element, add_to_canvas
+ * @param {object} elements - Elements from Step 2
+ * @returns {object} - Task type and recommended tool
+ */
+function determineTaskType(elements) {
+  // PRIORITY 1: Reference images with edit/generate action
+  // When user selects reference images and wants to modify/enhance them
+  if (elements.hasReferenceImages && (elements.primaryAction === 'edit' || elements.primaryAction === 'generate')) {
+    return {
+      taskType: 'image_generation',
+      tool: 'call_image_generator',
+      confidence: 'high'
+    };
+  }
+
+  // PRIORITY 2: Explicit image generation
+  if (elements.primaryAction === 'generate' && elements.primarySubject === 'image') {
+    return {
+      taskType: 'image_generation',
+      tool: 'call_image_generator',
+      confidence: 'high'
+    };
+  }
+
+  // PRIORITY 3: Canvas shape modification (when canvas shapes are selected, not images)
+  if (elements.primaryAction === 'edit' && elements.hasSelection) {
+    return {
+      taskType: 'shape_modification',
+      tool: 'modify_canvas_element',
+      confidence: 'high'
+    };
+  }
+
+  // PRIORITY 4: Color changes (likely on canvas shapes)
+  if (elements.primarySubject === 'color' && elements.hasSelection) {
+    return {
+      taskType: 'shape_modification',
+      tool: 'modify_canvas_element',
+      confidence: 'high'
+    };
+  }
+
+  // PRIORITY 5: Shape addition
+  if (elements.primaryAction === 'generate' && elements.primarySubject === 'shape') {
+    return {
+      taskType: 'shape_addition',
+      tool: 'add_to_canvas',
+      confidence: 'medium'
+    };
+  }
+
+  // PRIORITY 6: Suggestion request
+  if (elements.primaryAction === 'suggest') {
+    return {
+      taskType: 'suggestion',
+      tool: null,
+      confidence: 'high'
+    };
+  }
+
+  // Default to letting Gemini decide
+  return {
+    taskType: 'complex',
+    tool: null,
+    confidence: 'low'
+  };
+}
+
+/**
+ * Step 4: Check and analyze reference material
+ * @param {array} selectedImages - Selected images
+ * @param {object} canvasContext - Canvas state
+ * @returns {object} - Reference analysis
+ */
+function analyzeReferenceMaterial(selectedImages, canvasContext) {
+  if (selectedImages.length === 0) {
+    return { hasReferences: false };
+  }
+
+  // Calculate aspect ratio from largest image (from walk-through.md)
+  const largestImage = selectedImages.reduce((max, img) =>
+    img.area > max.area ? img : max
+  );
+
+  const suggestedAspectRatio = mapAspectRatio(largestImage.aspectRatio);
+
+  return {
+    hasReferences: true,
+    count: selectedImages.length,
+    largestImage,
+    suggestedAspectRatio,
+    purpose: 'compositing' // For combining reference images
+  };
+}
+
+/**
+ * Step 5: Match to available tools (already done - we have 4 tools)
+ * Just log the decision
+ * @param {object} taskType - Task type from Step 3
+ */
+function logToolSelection(taskType) {
+  console.log('🎯 Step 5: Tool Selection:', {
+    taskType: taskType.taskType,
+    selectedTool: taskType.tool,
+    confidence: taskType.confidence
+  });
+}
+
+/**
+ * Step 6: Structure the prompt (CRITICAL - from complete-example.md)
+ * This is the NEW structured prompting approach
+ * @param {object} taskType - Task type from Step 3
+ * @param {object} elements - Elements from Step 2
+ * @param {object} referenceMaterial - Reference analysis from Step 4
+ * @returns {object|null} - Structured prompt or null
+ */
+function structurePrompt(taskType, elements, referenceMaterial) {
+  if (taskType.taskType !== 'image_generation') {
+    return null; // Only structure prompts for image generation
+  }
+
+  // Build structured prompt sections (from complete-example.md)
+  const sections = [];
+
+  // COMPOSITION section
+  sections.push('COMPOSITION:');
+  if (referenceMaterial.hasReferences) {
+    sections.push(`- Use the ${referenceMaterial.count} reference image(s) as the basis`);
+    sections.push('- Seamlessly integrate elements from reference images');
+  } else {
+    sections.push('- Center the main subject with balanced framing');
+    sections.push('- Clean, professional composition');
+  }
+  sections.push('- Clear focal point with intentional visual hierarchy');
+  sections.push('');
+
+  // SUBJECT & STYLE section
+  sections.push('SUBJECT & STYLE:');
+  sections.push(`- ${elements.rawMessage}`);
+  sections.push('- Professional, polished aesthetic');
+  sections.push('- Attention to detail and quality');
+  sections.push('');
+
+  // LIGHTING section
+  sections.push('LIGHTING & TECHNICAL:');
+  sections.push('- Professional studio-quality lighting');
+  sections.push('- Proper exposure and color balance');
+  sections.push('- Sharp focus with appropriate depth');
+  sections.push('');
+
+  // TECHNICAL SPECS
+  sections.push('OUTPUT REQUIREMENTS:');
+  if (referenceMaterial.hasReferences) {
+    sections.push(`- Aspect ratio: ${referenceMaterial.suggestedAspectRatio} (from reference image)`);
+    sections.push('- Maintain style consistency with reference');
+  } else {
+    sections.push('- Aspect ratio: 1:1 (default)');
+  }
+  sections.push('- High quality, professional result');
+  sections.push('- ONE final image output');
+
+  return {
+    isStructured: true,
+    structuredPrompt: sections.join('\n'),
+    originalMessage: elements.rawMessage
+  };
 }
 
 // Main chat endpoint - handles multipart FormData with optional canvas image
@@ -897,28 +1168,63 @@ Use your visual understanding to give better, more contextual help.\n`;
       ],
     });
 
-    // === SMART INTENT DETECTION ===
-    // Check for confirmation intent (user wanting to execute a previous suggestion)
-    const confirmationCheck = detectConfirmationIntent(message, history);
-    // Check for suggestion request (user wanting ideas only)
-    const suggestionCheck = detectSuggestionRequest(message);
+    // === APPLY 9-STEP DECISION PIPELINE ===
+    console.log('🚀 Starting 9-step decision process...');
 
+    // Step 1: Read and understand
+    const analysis = analyzeUserInput(message, canvasContext, selectedImages, conversationHistory);
+    console.log('📖 Step 1: Analyzed input');
+
+    // Step 2: Identify key elements
+    const elements = identifyKeyElements(message, analysis);
+    console.log('🔍 Step 2: Key elements:', elements);
+
+    // Step 3: Determine task type
+    const taskType = determineTaskType(elements);
+    console.log('🎯 Step 3: Task type:', taskType.taskType, '→ Tool:', taskType.tool);
+
+    // Step 4: Check reference material
+    const referenceMaterial = analyzeReferenceMaterial(selectedImages, canvasContext);
+    console.log('🖼️ Step 4: Reference analysis:', referenceMaterial.hasReferences ?
+      `${referenceMaterial.count} images` : 'No references');
+
+    // Step 5: Match to tools (logging only)
+    logToolSelection(taskType);
+
+    // Step 6: Structure the prompt
+    const structuredPrompt = structurePrompt(taskType, elements, referenceMaterial);
+    if (structuredPrompt) {
+      console.log('📝 Step 6: Created structured prompt');
+      console.log('Structured prompt preview:', structuredPrompt.structuredPrompt.substring(0, 200) + '...');
+    }
+
+    // Step 7: Execute (existing Gemini call)
+    // Add structured prompt to system context if available
+    if (structuredPrompt) {
+      systemContext += `\n\n🎨 STRUCTURED GENERATION GUIDE:\n${structuredPrompt.structuredPrompt}\n`;
+    }
+
+    // Modify user message based on task type and confidence
     let userMessageText = message;
 
-    if (confirmationCheck.isConfirmation) {
-      console.log(`✅ CONFIRMATION DETECTED: ${confirmationCheck.reason}`);
-      // Add enforcement instruction to make AI execute the tool
+    if (taskType.confidence === 'high' && taskType.tool) {
+      // High confidence - tell Gemini exactly which tool to use
       userMessageText = `${message}
 
-[SYSTEM INSTRUCTION: User is CONFIRMING a previous suggestion or giving a DIRECT command. You MUST call the appropriate tool NOW. DO NOT suggest or ask questions. EXECUTE IMMEDIATELY.]`;
-      console.log('📌 Added enforcement instruction to message');
-    } else if (suggestionCheck.isSuggestionRequest) {
-      console.log(`💡 SUGGESTION REQUEST: ${suggestionCheck.keyword}`);
-      // Add instruction to only suggest, not execute
+[SYSTEM INSTRUCTION: This is a ${taskType.taskType}. Use the ${taskType.tool} tool. ${structuredPrompt ? 'Follow the structured generation guide above.' : 'Execute immediately.'}]`;
+      console.log('⚡ Step 7: Added high-confidence execution instruction');
+    } else if (taskType.taskType === 'suggestion') {
+      // Suggestion mode
       userMessageText = `${message}
 
-[SYSTEM INSTRUCTION: User is asking for IDEAS/SUGGESTIONS only. Respond with TEXT describing 2-3 options. DO NOT call any tools yet. Wait for user to select one.]`;
-      console.log('💭 Added suggestion-only instruction to message');
+[SYSTEM INSTRUCTION: User wants IDEAS/SUGGESTIONS only. Provide 2-3 options in text. DO NOT execute tools.]`;
+      console.log('💡 Step 7: Suggestion mode activated');
+    } else {
+      // Low confidence - let Gemini decide but encourage execution
+      userMessageText = `${message}
+
+[SYSTEM INSTRUCTION: DIRECT COMMAND - analyze the request and call the appropriate tool if applicable.]`;
+      console.log('🤔 Step 7: Letting Gemini decide (low confidence)');
     }
 
     // Build message parts - include image if available
@@ -1013,6 +1319,38 @@ Use your visual understanding to give better, more contextual help.\n`;
       }
     }
     // ===============================================
+
+    // === STEP 8: REVIEW OUTPUT ===
+    console.log('👀 Step 8: Reviewing output...');
+
+    // Validate generated images
+    if (generatedImages.length > 0) {
+      for (const img of generatedImages) {
+        if (!img.url || !img.url.startsWith('http')) {
+          console.warn('⚠️ Generated image has invalid URL:', img.url);
+        } else {
+          console.log('✅ Valid image URL:', img.url.substring(0, 50) + '...');
+        }
+      }
+    }
+
+    // Validate actions
+    if (actions.length > 0) {
+      for (const action of actions) {
+        if (!action.type || (!action.element_id && action.type === 'modify')) {
+          console.warn('⚠️ Invalid action structure:', action);
+        } else {
+          console.log('✅ Valid action:', action.type);
+        }
+      }
+    }
+
+    // Step 9: Deliver (log delivery summary)
+    console.log('📦 Step 9: Delivering response with', {
+      responseLength: cleanResponse.length,
+      imagesGenerated: generatedImages.length,
+      actionsExecuted: actions.length
+    });
 
     res.json({
       success: true,

@@ -552,10 +552,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     const shapes = engineRef.current.getState().shapes;
     const base64Images: Array<{ id: string; src: string }> = [];
 
-    // Find all images with base64 data URLs
+    // Find all images with base64 data URLs (skip placeholders)
     shapes.forEach((shape, id) => {
       if (shape.type === 'image') {
         const imageShape = shape as ImageShape;
+        // Skip placeholder images (from AI chat) - they have SVG data URIs and placeholder IDs
+        if (id.startsWith('placeholder-') || imageShape.src.includes('Generating image')) {
+          console.log(`Skipping placeholder image: ${id}`);
+          // Remove stale placeholders
+          if (engineRef.current) {
+            engineRef.current.removeShape(id);
+          }
+          return;
+        }
         if (imageShape.src.startsWith('data:image/')) {
           base64Images.push({ id, src: imageShape.src });
         }
