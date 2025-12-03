@@ -450,6 +450,249 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
   }, [onAddShape, onUpdateShape, selectedShapes, allShapes]);
 
+  // === LOADING PLACEHOLDER HELPERS ===
+
+  // Track active placeholder animations
+  const placeholderAnimationRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Cleanup animations on unmount
+  useEffect(() => {
+    return () => {
+      placeholderAnimationRef.current.forEach((interval) => clearInterval(interval));
+      placeholderAnimationRef.current.clear();
+    };
+  }, []);
+
+  /**
+   * Detects if the user message will trigger image generation
+   * Based on keywords and context
+   */
+  const detectImageGeneration = useCallback((message: string, shapes: Shape[]): boolean => {
+    const lowerMessage = message.toLowerCase();
+
+    // Keywords that indicate image generation
+    const generationKeywords = [
+      'generate', 'create', 'make', 'design', 'paint', 'draw',
+      'image', 'photo', 'picture', 'visual', 'illustration',
+      'combine', 'composite', 'merge', 'blend'
+    ];
+
+    // Check for generation keywords
+    const hasGenerationKeyword = generationKeywords.some(keyword =>
+      lowerMessage.includes(keyword)
+    );
+
+    // Check if modifying existing image (reference images selected)
+    const hasReferenceImages = shapes.some(s => s.type === 'image');
+    const hasModificationKeyword = ['change', 'modify', 'edit', 'adjust', 'vibrant', 'brighter'].some(k =>
+      lowerMessage.includes(k)
+    );
+
+    return hasGenerationKeyword || (hasReferenceImages && hasModificationKeyword);
+  }, []);
+
+  /**
+   * Creates an animated loading placeholder SVG frame
+   * @param frame - Current frame number (0-11) for 12-frame animation cycle
+   */
+  const createLoadingPlaceholderSVG = useCallback((frame: number = 0): string => {
+    // Calculate rotation based on frame (30 degrees per frame for smooth rotation)
+    const rotation = (frame * 30) % 360;
+
+    // Calculate dot opacities for animated dots effect
+    const dotOpacities = [
+      frame % 4 === 0 ? 1 : 0.3,
+      frame % 4 === 1 ? 1 : 0.3,
+      frame % 4 === 2 ? 1 : 0.3,
+    ];
+
+    const svg = `
+      <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#6366f1;stop-opacity:0.3" />
+            <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:0.3" />
+          </linearGradient>
+        </defs>
+
+        <!-- Background -->
+        <rect width="400" height="400" fill="url(#grad)" />
+
+        <!-- Static dashed border -->
+        <rect x="2" y="2" width="396" height="396" fill="none" stroke="#6366f1"
+              stroke-width="3" stroke-dasharray="10,5" opacity="0.5"/>
+
+        <!-- Loading spinner - animated rotation -->
+        <g transform="rotate(${rotation}, 200, 200)">
+          <circle cx="200" cy="200" r="40" fill="none" stroke="#ffffff"
+                  stroke-width="4" stroke-dasharray="60,200" opacity="0.8"/>
+        </g>
+
+        <!-- Text -->
+        <text x="200" y="260" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
+              font-size="18" fill="#ffffff" font-weight="500">
+          Generating
+        </text>
+
+        <!-- Animated dots -->
+        <text x="200" y="285" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
+              font-size="24" fill="#ffffff">
+          <tspan opacity="${dotOpacities[0]}">.</tspan>
+          <tspan opacity="${dotOpacities[1]}">.</tspan>
+          <tspan opacity="${dotOpacities[2]}">.</tspan>
+        </text>
+      </svg>
+    `;
+
+    // Convert SVG to data URL
+    return `data:image/svg+xml;base64,${btoa(svg)}`;
+  }, []);
+
+  /**
+   * Creates an error placeholder SVG
+   */
+  const createErrorPlaceholderSVG = useCallback((errorMessage: string): string => {
+    const svg = `
+      <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+        <!-- Background -->
+        <rect width="400" height="400" fill="#1f2937" />
+
+        <!-- Error icon (X) -->
+        <circle cx="200" cy="180" r="40" fill="none" stroke="#ef4444" stroke-width="3" />
+        <line x1="180" y1="160" x2="220" y2="200" stroke="#ef4444" stroke-width="3" />
+        <line x1="220" y1="160" x2="180" y2="200" stroke="#ef4444" stroke-width="3" />
+
+        <!-- Text -->
+        <text x="200" y="250" text-anchor="middle" font-family="system-ui"
+              font-size="16" fill="#ef4444" font-weight="500">
+          Generation Failed
+        </text>
+
+        <text x="200" y="275" text-anchor="middle" font-family="system-ui"
+              font-size="12" fill="#9ca3af">
+          ${errorMessage.substring(0, 40)}
+        </text>
+      </svg>
+    `;
+
+    return `data:image/svg+xml;base64,${btoa(svg)}`;
+  }, []);
+
+  /**
+   * Adds a loading placeholder to the canvas with animation
+   * Returns the placeholder ID for later replacement
+   */
+  const addGenerationPlaceholder = useCallback((): string => {
+    const placeholderId = `placeholder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Calculate position (same logic as handleCanvasActions)
+    let baseX = 100;
+    let baseY = 100;
+
+    if (selectedShapes.length > 0) {
+      const firstSelected = selectedShapes[0];
+      baseX = firstSelected.x + ((firstSelected as any).width || 100) + 50;
+      baseY = firstSelected.y;
+    } else if (allShapes.length > 0) {
+      const maxX = Math.max(...allShapes.map(s => s.x + ((s as any).width || 100)));
+      baseX = Math.min(maxX + 50, 500);
+    }
+
+    // Create placeholder image shape with SVG data URL (initial frame)
+    const placeholderShape: ImageShape = {
+      id: placeholderId,
+      type: 'image',
+      x: baseX,
+      y: baseY,
+      width: 400,
+      height: 400,
+      src: createLoadingPlaceholderSVG(0),
+      style: { opacity: 0.8 }
+    };
+
+    // Add to canvas immediately
+    onAddShape(placeholderShape);
+    console.log('🎨 Added loading placeholder:', placeholderId);
+
+    // Start animation loop - update every 100ms for smooth animation
+    let frame = 0;
+    const animationInterval = setInterval(() => {
+      frame = (frame + 1) % 12; // 12 frames in the animation cycle
+      const newSvg = createLoadingPlaceholderSVG(frame);
+      onUpdateShape(placeholderId, { src: newSvg });
+    }, 100);
+
+    // Store the interval for cleanup
+    placeholderAnimationRef.current.set(placeholderId, animationInterval);
+    console.log('🎬 Started placeholder animation:', placeholderId);
+
+    return placeholderId;
+  }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG]);
+
+  /**
+   * Stops the animation for a placeholder
+   */
+  const stopPlaceholderAnimation = useCallback((placeholderId: string) => {
+    const interval = placeholderAnimationRef.current.get(placeholderId);
+    if (interval) {
+      clearInterval(interval);
+      placeholderAnimationRef.current.delete(placeholderId);
+      console.log('🛑 Stopped placeholder animation:', placeholderId);
+    }
+  }, []);
+
+  /**
+   * Replaces the loading placeholder with the actual generated image
+   */
+  const replacePlaceholderWithImage = useCallback(async (
+    placeholderId: string,
+    generatedImage: { url: string; prompt: string; aspectRatio?: string }
+  ): Promise<void> => {
+    console.log('🔄 Replacing placeholder with actual image:', placeholderId);
+
+    // Stop the animation first
+    stopPlaceholderAnimation(placeholderId);
+
+    // Load the actual image to get dimensions
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = generatedImage.url;
+
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => {
+        // Calculate display size (max 500px, maintain aspect ratio)
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+
+        if (width > 500 || height > 500) {
+          if (width > height) {
+            height = (height / width) * 500;
+            width = 500;
+          } else {
+            width = (width / height) * 500;
+            height = 500;
+          }
+        }
+
+        // Update the placeholder shape with actual image
+        onUpdateShape(placeholderId, {
+          src: generatedImage.url,
+          width: Math.round(width),
+          height: Math.round(height),
+          style: { opacity: 1 }
+        });
+
+        console.log('✅ Placeholder replaced successfully');
+        resolve();
+      };
+
+      img.onerror = () => {
+        console.error('❌ Failed to load generated image:', generatedImage.url);
+        reject(new Error('Failed to load image'));
+      };
+    });
+  }, [onUpdateShape, stopPlaceholderAnimation]);
+
   // Send message to AI with canvas screenshot
   const sendMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
@@ -464,6 +707,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+
+    // === PLACEHOLDER LOGIC: Detect if image generation expected ===
+    // Declare outside try block so it's accessible in catch
+    const willGenerateImage = detectImageGeneration(messageText, selectedShapes);
+    let placeholderId: string | null = null;
+
+    if (willGenerateImage) {
+      console.log('🎨 Image generation detected - adding placeholder');
+      placeholderId = addGenerationPlaceholder();
+    }
 
     try {
       // Capture canvas as PNG Blob (not base64)
@@ -529,7 +782,28 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
         // Handle canvas actions
         if ((data.actions && data.actions.length > 0) || (data.generatedImages && data.generatedImages.length > 0)) {
-          await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          // === PLACEHOLDER LOGIC: Replace placeholder with actual image ===
+          if (placeholderId && data.generatedImages && data.generatedImages.length > 0) {
+            console.log('🔄 Replacing placeholder with generated image');
+            try {
+              await replacePlaceholderWithImage(placeholderId, data.generatedImages[0]);
+              // Remove the generated image from the list since we already handled it via placeholder
+              const remainingImages = data.generatedImages.slice(1);
+              if (remainingImages.length > 0) {
+                await handleCanvasActions(data.actions || [], remainingImages);
+              } else {
+                // Only handle non-image actions if we replaced the placeholder
+                await handleCanvasActions(data.actions || [], []);
+              }
+            } catch (replaceError) {
+              console.error('❌ Failed to replace placeholder:', replaceError);
+              // Fallback: use normal handling if replacement fails
+              await handleCanvasActions(data.actions || [], data.generatedImages || []);
+            }
+          } else {
+            // Normal handling when no placeholder
+            await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          }
         }
 
         // Add assistant message
@@ -549,6 +823,23 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       }
     } catch (error) {
       console.error('AI Chat error:', error);
+
+      // === PLACEHOLDER LOGIC: Show error state on placeholder ===
+      if (placeholderId) {
+        console.log('⚠️ Updating placeholder with error state');
+        // Stop the animation first
+        stopPlaceholderAnimation(placeholderId);
+        try {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+          onUpdateShape(placeholderId, {
+            src: createErrorPlaceholderSVG(errorMsg),
+            style: { opacity: 0.5 }
+          });
+        } catch (updateError) {
+          console.error('❌ Failed to update placeholder with error:', updateError);
+        }
+      }
+
       const errorMessage: Message = {
         id: `msg-${Date.now()}`,
         role: 'assistant',
@@ -559,7 +850,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64]);
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation]);
 
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
