@@ -14,6 +14,9 @@ export class CanvasEngine {
   private imageCache: Map<string, HTMLImageElement> = new Map();
   private loadingImages: Set<string> = new Set();
 
+  // Callback for when an image shape is updated (for dynamic arrow updates)
+  private onImageUpdateCallback?: (imageId: string) => void;
+
   constructor(initialState?: Partial<CanvasState>) {
     // Initialize state first
     const initialShapes = initialState?.shapes || new Map();
@@ -248,6 +251,11 @@ export class CanvasEngine {
     if (shape) {
       this.state.shapes.set(id, { ...shape, ...updates } as Shape);
       this.render();
+
+      // Notify callback if an image was updated (for dynamic arrow updates)
+      if (shape.type === 'image' && this.onImageUpdateCallback) {
+        this.onImageUpdateCallback(id);
+      }
     }
   }
 
@@ -257,6 +265,10 @@ export class CanvasEngine {
 
   getAllShapes(): Shape[] {
     return Array.from(this.state.shapes.values());
+  }
+
+  setOnImageUpdateCallback(callback: (imageId: string) => void) {
+    this.onImageUpdateCallback = callback;
   }
 
   // Selection
@@ -908,6 +920,16 @@ export class CanvasEngine {
     this.ctx.lineWidth = (shape.style.strokeWidth || 2) / this.state.viewport.zoom;
     this.ctx.globalAlpha = shape.style.opacity ?? 1;
 
+    // Apply lineDash pattern if specified (for dashed lines/arrows)
+    if (shape.style.lineDash && Array.isArray(shape.style.lineDash)) {
+      const scaledDash = shape.style.lineDash.map(
+        dashLength => dashLength / this.state.viewport.zoom
+      );
+      this.ctx.setLineDash(scaledDash);
+    } else {
+      this.ctx.setLineDash([]);
+    }
+
     // Apply rotation
       if (shape.rotation) {
       let centerX = shape.x;
@@ -1328,11 +1350,14 @@ export class CanvasEngine {
 
   private drawArrowhead(start: Point, end: Point) {
     if (!this.ctx) return;
-    
+
+    // Clear dash pattern so arrowhead is solid (not dashed)
+    this.ctx.setLineDash([]);
+
     const angle = Math.atan2(end.y - start.y, end.x - start.x);
     const arrowLength = 15 / this.state.viewport.zoom;
     const arrowAngle = Math.PI / 6;
-    
+
     this.ctx.beginPath();
     this.ctx.moveTo(end.x, end.y);
     this.ctx.lineTo(
@@ -1808,7 +1833,17 @@ export class CanvasEngine {
   deserialize(data: string) {
     try {
       const parsed = JSON.parse(data);
-      this.state.shapes = new Map(parsed.shapes);
+
+      // Convert Date strings back to Date objects in generationMetadata
+      const shapesEntries = parsed.shapes.map(([id, shape]: [string, any]) => {
+        if (shape.generationMetadata?.generatedAt &&
+            typeof shape.generationMetadata.generatedAt === 'string') {
+          shape.generationMetadata.generatedAt = new Date(shape.generationMetadata.generatedAt);
+        }
+        return [id, shape];
+      });
+
+      this.state.shapes = new Map(shapesEntries);
       if (parsed.viewport) {
         this.state.viewport = parsed.viewport;
       }

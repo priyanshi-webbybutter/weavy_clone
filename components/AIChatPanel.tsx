@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Send, Paperclip, Sparkles, RefreshCw } from 'lucide-react';
-import { Shape, ImageShape, TextShape } from '@/lib/canvas/types';
+import { Shape, ImageShape, TextShape, ArrowShape } from '@/lib/canvas/types';
 import MarkdownMessage from './MarkdownMessage';
 
 interface Message {
@@ -115,9 +115,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [activePlaceholders, setActivePlaceholders] = useState<string[]>([]);
+  const [currentReferenceIds, setCurrentReferenceIds] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activePlaceholdersRef = useRef<string[]>([]);
+  const currentReferenceIdsRef = useRef<string[]>([]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -293,6 +295,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     console.log('📷 Extracting selected images for compositing:', imageShapes.length);
 
     const results: SelectedImageMetadata[] = [];
+    const selectedIds: string[] = [];
     for (const img of imageShapes) {
       if (img.src) {
         try {
@@ -335,6 +338,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             area,
             aspectRatio
           });
+          selectedIds.push(img.id);
           console.log(`📷 Extracted image ${img.id}: ${Math.round(blob.size / 1024)}KB, ${width}x${height}px, ratio ${aspectRatio.toFixed(2)}`);
         } catch (e) {
           console.error('📷 Failed to fetch image for compositing:', img.src, e);
@@ -343,6 +347,12 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       }
     }
     console.log(`📷 Successfully extracted ${results.length} of ${imageShapes.length} images`);
+
+    // Store reference IDs for arrow creation after generation
+    console.log('🔵 SETTING currentReferenceIds:', selectedIds);
+    setCurrentReferenceIds(selectedIds);
+    currentReferenceIdsRef.current = selectedIds;
+
     return results;
   }, [selectedShapes]);
 
@@ -412,10 +422,30 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             width: Math.round(width),
             height: Math.round(height),
             src: image.url,
-            style: { opacity: 1 }
+            style: { opacity: 1 },
+            generationMetadata: {
+              referenceImageIds: currentReferenceIds.length > 0
+                ? [...currentReferenceIds]
+                : undefined,
+              generatedAt: new Date(),
+              prompt: image.prompt
+            }
           };
 
           onAddShape(imageShape);
+
+          // Create reference arrows if references exist (use ref to avoid stale closure)
+          const refIds = currentReferenceIdsRef.current;
+          console.log('🔵 Checking currentReferenceIds for arrows (onload):', refIds);
+          if (refIds.length > 0) {
+            console.log('✅ Creating arrows for image:', imageShape.id);
+            setTimeout(() => {
+              createReferenceArrows(imageShape, refIds);
+            }, 50);
+          } else {
+            console.log('❌ No reference IDs - skipping arrow creation');
+          }
+
           resolve();
         };
 
@@ -430,9 +460,29 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             width: 400,
             height: 400,
             src: image.url,
-            style: { opacity: 1 }
+            style: { opacity: 1 },
+            generationMetadata: {
+              referenceImageIds: currentReferenceIds.length > 0
+                ? [...currentReferenceIds]
+                : undefined,
+              generatedAt: new Date(),
+              prompt: image.prompt
+            }
           };
           onAddShape(imageShape);
+
+          // Create reference arrows if references exist (use ref to avoid stale closure)
+          const refIds = currentReferenceIdsRef.current;
+          console.log('🔵 Checking currentReferenceIds for arrows (onerror):', refIds);
+          if (refIds.length > 0) {
+            console.log('✅ Creating arrows for image:', imageShape.id);
+            setTimeout(() => {
+              createReferenceArrows(imageShape, refIds);
+            }, 50);
+          } else {
+            console.log('❌ No reference IDs - skipping arrow creation');
+          }
+
           resolve();
         };
 
@@ -468,6 +518,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         onUpdateShape(action.element_id, action.updates as Partial<Shape>);
       }
     }
+
+    // Clear reference tracking after all images and actions processed
+    setCurrentReferenceIds([]);
+    currentReferenceIdsRef.current = [];
   }, [onAddShape, onUpdateShape, selectedShapes, allShapes]);
 
   // === LOADING PLACEHOLDER HELPERS ===
@@ -674,6 +728,158 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     return placeholderId;
   }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG, onCenterToShape]);
+
+  /**
+   * Calculates edge-to-edge arrow points between two images
+   */
+  const calculateEdgeToEdgePoints = useCallback((
+    sourceImage: ImageShape,
+    targetImage: ImageShape,
+    arrowIndex: number
+  ): { startPoint: Point; endPoint: Point } => {
+    // Calculate bounding boxes
+    const sourceBounds = {
+      left: sourceImage.x,
+      right: sourceImage.x + sourceImage.width,
+      top: sourceImage.y,
+      bottom: sourceImage.y + sourceImage.height,
+      centerX: sourceImage.x + sourceImage.width / 2,
+      centerY: sourceImage.y + sourceImage.height / 2
+    };
+
+    const targetBounds = {
+      left: targetImage.x,
+      right: targetImage.x + targetImage.width,
+      top: targetImage.y,
+      bottom: targetImage.y + targetImage.height,
+      centerX: targetImage.x + targetImage.width / 2,
+      centerY: targetImage.y + targetImage.height / 2
+    };
+
+    // Calculate center-to-center direction
+    const dx = targetBounds.centerX - sourceBounds.centerX;
+    const dy = targetBounds.centerY - sourceBounds.centerY;
+
+    let startPoint: Point, endPoint: Point;
+
+    // Determine primary direction (which edges should connect)
+    if (Math.abs(dx) > Math.abs(dy)) {
+      // Horizontal separation is greater - use left/right edges
+      if (dx > 0) {
+        // Target is to the RIGHT of source
+        startPoint = {
+          x: sourceBounds.right,
+          y: sourceBounds.centerY + (arrowIndex * 15) // Vertical offset for multiple arrows
+        };
+        endPoint = {
+          x: targetBounds.left,
+          y: targetBounds.centerY + (arrowIndex * 15)
+        };
+      } else {
+        // Target is to the LEFT of source
+        startPoint = {
+          x: sourceBounds.left,
+          y: sourceBounds.centerY + (arrowIndex * 15)
+        };
+        endPoint = {
+          x: targetBounds.right,
+          y: targetBounds.centerY + (arrowIndex * 15)
+        };
+      }
+    } else {
+      // Vertical separation is greater - use top/bottom edges
+      if (dy > 0) {
+        // Target is BELOW source
+        startPoint = {
+          x: sourceBounds.centerX + (arrowIndex * 15), // Horizontal offset for multiple arrows
+          y: sourceBounds.bottom
+        };
+        endPoint = {
+          x: targetBounds.centerX + (arrowIndex * 15),
+          y: targetBounds.top
+        };
+      } else {
+        // Target is ABOVE source
+        startPoint = {
+          x: sourceBounds.centerX + (arrowIndex * 15),
+          y: sourceBounds.top
+        };
+        endPoint = {
+          x: targetBounds.centerX + (arrowIndex * 15),
+          y: targetBounds.bottom
+        };
+      }
+    }
+
+    return { startPoint, endPoint };
+  }, []);
+
+  /**
+   * Creates reference arrows from reference images to generated image
+   */
+  const createReferenceArrows = useCallback((
+    generatedImage: ImageShape,
+    referenceImageIds: string[]
+  ) => {
+    console.log('🎯 Creating reference arrows:', {
+      from: referenceImageIds.length,
+      to: generatedImage.id,
+      referenceIds: referenceImageIds
+    });
+
+    console.log('🔍 DEBUG: allShapes available:', allShapes.length);
+    console.log('🔍 DEBUG: Looking for IDs:', referenceImageIds);
+
+    // Find reference shapes on canvas
+    const referenceShapes = allShapes.filter(
+      shape => shape.type === 'image' && referenceImageIds.includes(shape.id)
+    ) as ImageShape[];
+
+    console.log('🔍 DEBUG: Found reference shapes:', referenceShapes.length, referenceShapes.map(s => s.id));
+
+    if (referenceShapes.length === 0) {
+      console.warn('⚠️ Reference images not found - may have been deleted');
+      console.warn('⚠️ Available image shapes:', allShapes.filter(s => s.type === 'image').map(s => s.id));
+      return;
+    }
+
+    // Create arrow from each reference image
+    referenceShapes.forEach((refImage, index) => {
+      // Calculate edge-to-edge points using helper function
+      const { startPoint, endPoint } = calculateEdgeToEdgePoints(refImage, generatedImage, index);
+
+      // Create arrow with custom styling
+      const arrowId = `arrow-ref-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`;
+
+      const arrowShape: ArrowShape = {
+        id: arrowId,
+        type: 'arrow',
+        x: startPoint.x,
+        y: startPoint.y,
+        points: [startPoint, endPoint],
+        rotation: 0,
+        style: {
+          stroke: '#ff6b6b',
+          strokeWidth: 3,
+          opacity: 0.6,
+          lineDash: [10, 5],
+          fill: '#ff6b6b'
+        },
+        locked: false,
+        visible: true,
+        connectionMetadata: {
+          sourceImageId: refImage.id,
+          targetImageId: generatedImage.id,
+          arrowIndex: index
+        }
+      };
+
+      onAddShape(arrowShape);
+      console.log(`✅ Created reference arrow ${index + 1}/${referenceShapes.length}`);
+    });
+
+    console.log(`🎯 Created ${referenceShapes.length} reference arrows`);
+  }, [allShapes, onAddShape, calculateEdgeToEdgePoints]);
 
   /**
    * Stops the animation for a placeholder

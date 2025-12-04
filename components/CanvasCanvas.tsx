@@ -833,6 +833,129 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     console.log('🗑️ Removed placeholder:', placeholderId);
   }, [saveCanvasState]);
 
+  // Update arrows connected to a moved image
+  const updateConnectedArrows = useCallback((movedImageId: string) => {
+    if (!engineRef.current) return;
+
+    const allShapes = Array.from(engineRef.current.getState().shapes.values());
+
+    // Find arrows connected to this image
+    const connectedArrows = allShapes.filter(shape =>
+      shape.type === 'arrow' &&
+      shape.connectionMetadata &&
+      (shape.connectionMetadata.sourceImageId === movedImageId ||
+       shape.connectionMetadata.targetImageId === movedImageId)
+    ) as ArrowShape[];
+
+    if (connectedArrows.length === 0) return;
+
+    console.log(`🔄 Updating ${connectedArrows.length} arrows connected to image:`, movedImageId);
+
+    // Recalculate each arrow's position
+    connectedArrows.forEach(arrow => {
+      const sourceImage = allShapes.find(s =>
+        s.id === arrow.connectionMetadata?.sourceImageId
+      ) as ImageShape | undefined;
+
+      const targetImage = allShapes.find(s =>
+        s.id === arrow.connectionMetadata?.targetImageId
+      ) as ImageShape | undefined;
+
+      if (!sourceImage || !targetImage) {
+        console.warn('⚠️ Could not find source or target image for arrow:', arrow.id);
+        return;
+      }
+
+      // Calculate edge-to-edge positions (same logic as in AIChatPanel)
+      const sourceBounds = {
+        left: sourceImage.x,
+        right: sourceImage.x + sourceImage.width,
+        top: sourceImage.y,
+        bottom: sourceImage.y + sourceImage.height,
+        centerX: sourceImage.x + sourceImage.width / 2,
+        centerY: sourceImage.y + sourceImage.height / 2
+      };
+
+      const targetBounds = {
+        left: targetImage.x,
+        right: targetImage.x + targetImage.width,
+        top: targetImage.y,
+        bottom: targetImage.y + targetImage.height,
+        centerX: targetImage.x + targetImage.width / 2,
+        centerY: targetImage.y + targetImage.height / 2
+      };
+
+      const dx = targetBounds.centerX - sourceBounds.centerX;
+      const dy = targetBounds.centerY - sourceBounds.centerY;
+      const arrowIndex = arrow.connectionMetadata?.arrowIndex || 0;
+
+      let startPoint: Point, endPoint: Point;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // Horizontal separation
+        if (dx > 0) {
+          startPoint = {
+            x: sourceBounds.right,
+            y: sourceBounds.centerY + (arrowIndex * 15)
+          };
+          endPoint = {
+            x: targetBounds.left,
+            y: targetBounds.centerY + (arrowIndex * 15)
+          };
+        } else {
+          startPoint = {
+            x: sourceBounds.left,
+            y: sourceBounds.centerY + (arrowIndex * 15)
+          };
+          endPoint = {
+            x: targetBounds.right,
+            y: targetBounds.centerY + (arrowIndex * 15)
+          };
+        }
+      } else {
+        // Vertical separation
+        if (dy > 0) {
+          startPoint = {
+            x: sourceBounds.centerX + (arrowIndex * 15),
+            y: sourceBounds.bottom
+          };
+          endPoint = {
+            x: targetBounds.centerX + (arrowIndex * 15),
+            y: targetBounds.top
+          };
+        } else {
+          startPoint = {
+            x: sourceBounds.centerX + (arrowIndex * 15),
+            y: sourceBounds.top
+          };
+          endPoint = {
+            x: targetBounds.centerX + (arrowIndex * 15),
+            y: targetBounds.bottom
+          };
+        }
+      }
+
+      // Update arrow
+      engineRef.current?.updateShape(arrow.id, {
+        x: startPoint.x,
+        y: startPoint.y,
+        points: [startPoint, endPoint]
+      });
+
+      console.log(`✅ Updated arrow ${arrow.id}`);
+    });
+
+    engineRef.current?.render();
+  }, []);
+
+  // Set up callback for dynamic arrow updates
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setOnImageUpdateCallback(updateConnectedArrows);
+      console.log('✅ Registered dynamic arrow update callback');
+    }
+  }, [updateConnectedArrows]);
+
   // Handle focusing on a shape from AI Chat Panel
   const handleFocusShapeFromChat = (shapeId: string, keepSelection: boolean = false) => {
     if (!engineRef.current || !canvasRef.current) return;
