@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Send, Paperclip, Sparkles, RefreshCw } from 'lucide-react';
 import { Shape, ImageShape, TextShape } from '@/lib/canvas/types';
+import MarkdownMessage from './MarkdownMessage';
 
 interface Message {
   id: string;
@@ -50,6 +51,7 @@ interface AIChatPanelProps {
   allShapes: Shape[];
   onAddShape: (shape: Shape) => void;
   onUpdateShape: (id: string, updates: Partial<Shape>) => void;
+  onRemovePlaceholder?: (placeholderId: string) => void;
   onGenerateImage: (prompt: string, aspectRatio?: string) => Promise<string>;
   onCaptureCanvas: () => Promise<Blob | null>;
   onFocusShape?: (shapeId: string, keepSelection?: boolean) => void;
@@ -98,6 +100,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   allShapes,
   onAddShape,
   onUpdateShape,
+  onRemovePlaceholder,
   onGenerateImage,
   onCaptureCanvas,
   onFocusShape,
@@ -111,8 +114,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [includeSelection, setIncludeSelection] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [activePlaceholders, setActivePlaceholders] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const activePlaceholdersRef = useRef<string[]>([]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -662,6 +667,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       }, 50);
     }
 
+    // Track placeholder ID for later removal
+    setActivePlaceholders(prev => [...prev, placeholderId]);
+    activePlaceholdersRef.current = [...activePlaceholdersRef.current, placeholderId];
+    console.log('📝 Tracked placeholder for removal:', placeholderId);
+
     return placeholderId;
   }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG, onCenterToShape]);
 
@@ -826,28 +836,33 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
         // Handle canvas actions
         if ((data.actions && data.actions.length > 0) || (data.generatedImages && data.generatedImages.length > 0)) {
-          // === PLACEHOLDER LOGIC: Replace placeholder with actual image ===
-          if (placeholderId && data.generatedImages && data.generatedImages.length > 0) {
-            console.log('🔄 Replacing placeholder with generated image');
-            try {
-              await replacePlaceholderWithImage(placeholderId, data.generatedImages[0]);
-              // Remove the generated image from the list since we already handled it via placeholder
-              const remainingImages = data.generatedImages.slice(1);
-              if (remainingImages.length > 0) {
-                await handleCanvasActions(data.actions || [], remainingImages);
-              } else {
-                // Only handle non-image actions if we replaced the placeholder
-                await handleCanvasActions(data.actions || [], []);
-              }
-            } catch (replaceError) {
-              console.error('❌ Failed to replace placeholder:', replaceError);
-              // Fallback: use normal handling if replacement fails
-              await handleCanvasActions(data.actions || [], data.generatedImages || []);
-            }
-          } else {
-            // Normal handling when no placeholder
-            await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          // === DEBUG: Check placeholder state before removal ===
+          console.log('🔍 DEBUG: Checking placeholders for removal:', {
+            activePlaceholdersLength: activePlaceholders.length,
+            activePlaceholdersRef: activePlaceholdersRef.current,
+            hasGeneratedImages: data.generatedImages?.length > 0,
+            onRemovePlaceholderDefined: !!onRemovePlaceholder
+          });
+
+          // === REMOVE PLACEHOLDERS BEFORE ADDING REAL IMAGES ===
+          const currentPlaceholders = activePlaceholdersRef.current;
+          if (currentPlaceholders.length > 0 && data.generatedImages && data.generatedImages.length > 0) {
+            console.log('🗑️ Removing placeholders before adding real images:', currentPlaceholders);
+
+            // Stop animations and remove all active placeholders
+            currentPlaceholders.forEach(placeholderId => {
+              stopPlaceholderAnimation(placeholderId);
+              onRemovePlaceholder?.(placeholderId);
+            });
+
+            // Clear the placeholder tracking
+            setActivePlaceholders([]);
+            activePlaceholdersRef.current = [];
+            console.log('✅ All placeholders removed');
           }
+
+          // Handle canvas actions with real images
+          await handleCanvasActions(data.actions || [], data.generatedImages || []);
         }
 
         // Add assistant message
@@ -940,7 +955,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
   return (
     <div
-      className="fixed left-[68px] top-0 h-screen w-[320px] bg-[#0a0a0a] border-r border-[#2a2a2a] z-50 flex flex-col"
+      className="fixed left-[68px] top-0 h-screen w-[380px] bg-[#0a0a0a] border-r border-[#2a2a2a] z-50 flex flex-col"
       style={{ fontWeight: 200 }}
     >
       {/* Header */}
@@ -1049,7 +1064,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             {messages.map(message => (
               <div
                 key={message.id}
-                className={`${message.role === 'user' ? 'ml-8' : 'mr-4'}`}
+                className={`${message.role === 'user' ? 'flex justify-end items-end gap-2' : 'mr-4'}`}
               >
                 {/* Phase Badge for assistant messages */}
                 {message.role === 'assistant' && message.phase && (
@@ -1062,11 +1077,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 <div
                   className={`rounded-lg p-3 text-sm ${
                     message.role === 'user'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-[#1a1a1a] text-gray-200 border border-[#2a2a2a]'
+                      ? 'bg-gray-900 text-white max-w-[80%] inline-block'
+                      : 'text-gray-200'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.role === 'assistant' ? (
+                    <MarkdownMessage content={message.content} />
+                  ) : (
+                    <div className="whitespace-pre-wrap">{message.content}</div>
+                  )}
 
                   {/* Selected Images Thumbnails */}
                   {message.selectedImages && message.selectedImages.length > 0 && (
@@ -1091,8 +1110,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Generated Images */}
-                  {message.images && message.images.length > 0 && (
+                  {/* Generated Images - only for user messages with attachments */}
+                  {message.role === 'user' && message.images && message.images.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {message.images.map((img, i) => (
                         <div key={i} className="rounded-lg overflow-hidden border border-[#3a3a3a]">
@@ -1106,11 +1125,6 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                       ))}
                     </div>
                   )}
-                </div>
-
-                {/* Timestamp */}
-                <div className="text-[10px] text-gray-600 mt-1">
-                  {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             ))}

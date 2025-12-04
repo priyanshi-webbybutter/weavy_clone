@@ -39,6 +39,7 @@ export class CanvasEngine {
     
     // Now initialize the full state
     this.state = {
+      ...initialState,
       shapes: initialShapes,
       selectedIds: initialSelectedIds,
       viewport: initialViewport,
@@ -47,7 +48,6 @@ export class CanvasEngine {
         present: initialSnapshot,
         future: [],
       },
-      ...initialState,
     };
   }
 
@@ -1815,6 +1815,21 @@ export class CanvasEngine {
       this.render();
     } catch (error) {
       console.error('Failed to deserialize canvas state:', error);
+    }
+  }
+
+  // Remove a shape by ID
+  removeShape(id: string): void {
+    if (this.state.shapes.has(id)) {
+      this.state.shapes.delete(id);
+
+      // Remove from selection if selected (selectedIds is a Set)
+      if (this.state.selectedIds.has(id)) {
+        this.state.selectedIds.delete(id);
+      }
+
+      this.render();
+      console.log('🗑️ Removed shape:', id);
     }
   }
 

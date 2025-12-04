@@ -249,14 +249,51 @@ DO NOT ask "which character?" or "which product?" - LOOK at the selected images 
 - \`add_to_canvas\` - For adding text/shapes
 - \`call_content_suggester\` - For text content ideas
 
-## RESPONSE STYLE
+## RESPONSE STYLE & FORMATTING
 
+### Markdown Formatting
+Use **markdown formatting** in all responses for better readability:
+- Use **bold** for emphasis on key terms and features
+- Use bullet points for structured information
+- Use clear headings when appropriate
+- Keep descriptions concise and professional
+
+### Response Structure
+When generating images:
+1. **Brief description** of what was created (highlighting key elements)
+2. **Structured details** with bullet points:
+   - **Feature 1:** Description
+   - **Feature 2:** Description
+   - etc.
+3. **Call-to-action** question like "Would you like any adjustments?" or "Would you like me to create variations?"
+
+### General Responses
 - First, describe what you SEE in selected images
 - Then, take action immediately
 - Brief confirmation of what you did
 
-Example response:
-"I can see a black wide-brim hat and a woman's portrait. Creating a composite image where she's wearing the hat..."
+### Example Response Format
+
+For image generation:
+"I've created a professional advertisement featuring the product. The image captures elegant composition with cinematic lighting.
+
+The advertisement features:
+- **Subject:** Clear product focus
+- **Lighting:** Professional studio lighting
+- **Composition:** Clean, minimalist background
+- **Quality:** High-end marketing ready
+
+Would you like any adjustments to the composition?"
+
+For image compositing:
+"I can see a black wide-brim hat and a woman's portrait. Creating a composite image where she's wearing the hat...
+
+The composite features:
+- **Subject:** Woman wearing the black wide-brim hat
+- **Style:** Portrait photography with professional lighting
+- **Integration:** Seamless blend of the hat onto the model
+
+Would you like any adjustments?"
 
 ## DEFAULT COLORS
 Blue: #3B82F6, Red: #EF4444, Green: #22C55E, Yellow: #EAB308,
@@ -999,6 +1036,9 @@ function structurePrompt(taskType, elements, referenceMaterial) {
   };
 }
 
+// Import design types library
+const { detectDesignType, fillPromptTemplate } = require('../lib/design-types');
+
 // Main chat endpoint - handles multipart FormData with optional canvas image
 router.post('/', upload.single('canvasImage'), async (req, res) => {
   let tempFilePath = null;
@@ -1055,6 +1095,27 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
       }
     }
     // ===============================================
+
+    /**
+     * Formats the AI response with markdown syntax
+     * Injects generated images into the response text
+     */
+    function formatMarkdownResponse(textResponse, generatedImages) {
+      let formattedResponse = textResponse;
+
+      // If there are generated images, inject them at the beginning
+      if (generatedImages && generatedImages.length > 0) {
+        const imageMarkdown = generatedImages.map((img, index) => {
+          const title = img.prompt ? img.prompt.substring(0, 80) : `Generated Image ${index + 1}`;
+          return `![${title}](${img.url})`;
+        }).join('\n\n');
+
+        // Inject images at the beginning of the response
+        formattedResponse = `${imageMarkdown}\n\n${formattedResponse}`;
+      }
+
+      return formattedResponse;
+    }
 
     // Check if canvas image was uploaded
     let canvasImageData = null;
@@ -1115,6 +1176,30 @@ Use your visual understanding to give better, more contextual help.\n`;
         }
         systemContext += `\nUser has elements selected. If they ask to change something, use modify_canvas_element with the ID above.\n`;
       }
+    }
+
+    // === DETECT DESIGN TYPE ===
+    const detectedDesignType = detectDesignType(message, canvasContext?.selectedShapes || []);
+    if (detectedDesignType) {
+      console.log(`🎨 Detected design type: ${detectedDesignType.name}`);
+
+      // Enhance system prompt with design-specific guidelines
+      systemContext += `\n\n## 🎨 DESIGN TYPE DETECTED: ${detectedDesignType.name.toUpperCase()}
+
+You are creating a **${detectedDesignType.name}** design. Follow these specific guidelines:
+
+**Default Aspect Ratio:** ${detectedDesignType.defaultAspectRatio}
+
+**Design Guidelines:**
+${Object.entries(detectedDesignType.guidelines).map(([key, value]) =>
+  `- ${key.toUpperCase()}: ${value}`
+).join('\n')}
+
+**Prompt Structure Template:**
+${detectedDesignType.promptTemplate}
+
+IMPORTANT: When generating the image, structure your prompt following the template above.
+Fill in the {{variables}} with information from the user's request.\n`;
     }
 
     // IMPORTANT: Inform AI about available reference images for compositing
@@ -1209,9 +1294,19 @@ Use your visual understanding to give better, more contextual help.\n`;
 
     if (taskType.confidence === 'high' && taskType.tool) {
       // High confidence - tell Gemini exactly which tool to use
-      userMessageText = `${message}
+      let instruction = `[SYSTEM INSTRUCTION: This is a ${taskType.taskType}. Use the ${taskType.tool} tool. ${structuredPrompt ? 'Follow the structured generation guide above.' : 'Execute immediately.'}`;
 
-[SYSTEM INSTRUCTION: This is a ${taskType.taskType}. Use the ${taskType.tool} tool. ${structuredPrompt ? 'Follow the structured generation guide above.' : 'Execute immediately.'}]`;
+      // Add design type specific instructions for image generation
+      if (taskType.tool === 'call_image_generator' && detectedDesignType) {
+        instruction += `\n\nDESIGN TYPE: ${detectedDesignType.name}
+When calling call_image_generator, structure your prompt following the ${detectedDesignType.name} template provided in the system context.
+Use the proper COMPOSITION, STYLE, LIGHTING, and TECHNICAL sections.
+Default aspect ratio: ${detectedDesignType.defaultAspectRatio} (unless user specifies different).
+Follow the design guidelines provided above.`;
+      }
+
+      instruction += `]`;
+      userMessageText = `${message}\n\n${instruction}`;
       console.log('⚡ Step 7: Added high-confidence execution instruction');
     } else if (taskType.taskType === 'suggestion') {
       // Suggestion mode
@@ -1317,6 +1412,11 @@ Use your visual understanding to give better, more contextual help.\n`;
         console.warn('⚠️ Failed to save assistant message:', saveResult.error);
         // Continue anyway - still return response
       }
+
+      // Log design type metadata if detected
+      if (detectedDesignType) {
+        console.log(`💾 Saved message with design type: ${detectedDesignType.id} (${detectedDesignType.name})`);
+      }
     }
     // ===============================================
 
@@ -1352,9 +1452,12 @@ Use your visual understanding to give better, more contextual help.\n`;
       actionsExecuted: actions.length
     });
 
+    // Format response with markdown and inject images
+    const markdownResponse = formatMarkdownResponse(cleanResponse, generatedImages);
+
     res.json({
       success: true,
-      response: cleanResponse,
+      response: markdownResponse,
       actions: actions,
       generatedImages: generatedImages,
       generatedContent: generatedContent,

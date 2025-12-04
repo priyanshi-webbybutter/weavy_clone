@@ -820,6 +820,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     updateSelectedShapesState();
   };
 
+  // Handle removing placeholder from AI Chat Panel
+  const removePlaceholder = useCallback((placeholderId: string) => {
+    if (!engineRef.current) return;
+
+    // Remove shape from engine
+    engineRef.current.removeShape(placeholderId);
+    engineRef.current.saveState();
+    engineRef.current.render();
+    saveCanvasState();
+
+    console.log('🗑️ Removed placeholder:', placeholderId);
+  }, [saveCanvasState]);
+
   // Handle focusing on a shape from AI Chat Panel
   const handleFocusShapeFromChat = (shapeId: string, keepSelection: boolean = false) => {
     if (!engineRef.current || !canvasRef.current) return;
@@ -2220,6 +2233,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           allShapes={allShapesState}
           onAddShape={handleAddShapeFromChat}
           onUpdateShape={handleUpdateShapeFromChat}
+          onRemovePlaceholder={removePlaceholder}
           onGenerateImage={handleGenerateImageForChat}
           onCaptureCanvas={captureCanvasForAI}
           onFocusShape={handleFocusShapeFromChat}
