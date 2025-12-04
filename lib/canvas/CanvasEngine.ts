@@ -109,6 +109,11 @@ export class CanvasEngine {
     this.render();
   }
 
+  setViewport(viewport: Viewport) {
+    this.state.viewport = { ...viewport };
+    this.render();
+  }
+
   fitToScreen(padding = 50) {
     if (!this.canvas) return;
 

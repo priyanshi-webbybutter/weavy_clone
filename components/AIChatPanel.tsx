@@ -10,6 +10,7 @@ interface Message {
   content: string;
   phase?: 'STRATEGY' | 'EXECUTION' | 'REFINEMENT';
   images?: { url: string; prompt: string }[];
+  selectedImages?: { id: string; url: string }[];
   actions?: CanvasAction[];
   timestamp: Date;
 }
@@ -51,6 +52,8 @@ interface AIChatPanelProps {
   onUpdateShape: (id: string, updates: Partial<Shape>) => void;
   onGenerateImage: (prompt: string, aspectRatio?: string) => Promise<string>;
   onCaptureCanvas: () => Promise<Blob | null>;
+  onFocusShape?: (shapeId: string, keepSelection?: boolean) => void;
+  onCenterToShape?: (shapeId: string, animate?: boolean) => void;
   projectId?: string | null;
 }
 
@@ -97,6 +100,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onUpdateShape,
   onGenerateImage,
   onCaptureCanvas,
+  onFocusShape,
+  onCenterToShape,
   projectId,
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -334,6 +339,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
     console.log(`📷 Successfully extracted ${results.length} of ${imageShapes.length} images`);
     return results;
+  }, [selectedShapes]);
+
+  // Get selected image shapes for thumbnail display
+  const getSelectedImageShapes = useCallback((): ImageShape[] => {
+    return selectedShapes.filter(shape => {
+      if (shape.type !== 'image') return false;
+      const imgShape = shape as ImageShape;
+      // Only include images with valid, non-empty src URLs
+      return imgShape.src && imgShape.src.trim() !== '' && !imgShape.src.includes('uploading');
+    }) as ImageShape[];
   }, [selectedShapes]);
 
   // Handle canvas actions from AI with placeholder system
@@ -626,8 +641,17 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     placeholderAnimationRef.current.set(placeholderId, animationInterval);
     console.log('🎬 Started placeholder animation:', placeholderId);
 
+    // Center canvas to show the placeholder
+    if (onCenterToShape) {
+      // Use setTimeout to ensure shape is added before centering
+      setTimeout(() => {
+        onCenterToShape(placeholderId, true);
+        console.log('🎯 Centered canvas to placeholder:', placeholderId);
+      }, 50);
+    }
+
     return placeholderId;
-  }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG]);
+  }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG, onCenterToShape]);
 
   /**
    * Stops the animation for a placeholder
@@ -697,10 +721,18 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const sendMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
+    // Get selected images to include in the message
+    const selectedImageShapes = getSelectedImageShapes();
+    const selectedImagesData = selectedImageShapes.map(img => ({
+      id: img.id,
+      url: img.src
+    }));
+
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
       content: messageText,
+      selectedImages: selectedImagesData.length > 0 ? selectedImagesData : undefined,
       timestamp: new Date()
     };
 
@@ -850,7 +882,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation]);
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation]);
 
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
@@ -1024,6 +1056,29 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 >
                   <div className="whitespace-pre-wrap">{message.content}</div>
 
+                  {/* Selected Images Thumbnails */}
+                  {message.selectedImages && message.selectedImages.length > 0 && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {message.selectedImages.map((img) => (
+                        <button
+                          key={img.id}
+                          onClick={() => onFocusShape?.(img.id)}
+                          className="relative w-12 h-12 rounded overflow-hidden border border-[#3a3a3a] hover:border-blue-500 transition-colors flex-shrink-0"
+                          title="Click to focus on canvas"
+                        >
+                          <img
+                            src={img.url}
+                            alt="Selected"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Generated Images */}
                   {message.images && message.images.length > 0 && (
                     <div className="mt-3 space-y-2">
@@ -1063,19 +1118,27 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
       {/* Input Area */}
       <div className="p-4 border-t border-[#2a2a2a]">
-        {/* Selection indicator */}
-        {selectedShapes.length > 0 && (
-          <button
-            onClick={() => setIncludeSelection(!includeSelection)}
-            className={`mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-              includeSelection
-                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                : 'bg-[#1a1a1a] text-gray-400 border border-[#2a2a2a] hover:border-[#3a3a3a]'
-            }`}
-          >
-            <Paperclip className="w-3 h-3" />
-            {includeSelection ? `Including ${selectedShapes.length} selected` : `Include ${selectedShapes.length} selected`}
-          </button>
+        {/* Selected Image Thumbnails */}
+        {getSelectedImageShapes().length > 0 && (
+          <div className="mb-2 flex items-center gap-2 flex-wrap">
+            {getSelectedImageShapes().map((img) => (
+              <button
+                key={img.id}
+                onClick={() => onFocusShape?.(img.id, true)}
+                className="relative w-12 h-12 rounded-lg overflow-hidden border-2 border-[#3a3a3a] hover:border-blue-500 transition-all hover:scale-105 active:scale-95 flex-shrink-0"
+                title="Click to center this image on canvas"
+              >
+                <img
+                  src={img.src}
+                  alt="Selected"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </button>
+            ))}
+          </div>
         )}
 
         {/* Input */}
@@ -1090,16 +1153,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             className="w-full bg-transparent px-4 py-3 text-white text-sm resize-none focus:outline-none placeholder:text-gray-500"
             disabled={isLoading}
           />
-          <div className="flex items-center justify-between px-3 py-2 border-t border-[#2a2a2a]">
-            <button
-              onClick={() => setIncludeSelection(!includeSelection)}
-              className={`p-1.5 rounded transition-colors ${
-                includeSelection ? 'text-blue-400' : 'text-gray-500 hover:text-gray-300'
-              }`}
-              title="Include selected shapes"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
+          <div className="flex items-center justify-end px-3 py-2 border-t border-[#2a2a2a]">
             <button
               onClick={() => sendMessage(inputValue)}
               disabled={!inputValue.trim() || isLoading}

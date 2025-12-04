@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
 import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape } from '@/lib/canvas/types';
@@ -739,10 +739,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     // Add shape immediately so user sees it
     engineRef.current.addShape(shape);
-    engineRef.current.clearSelection();
-    engineRef.current.selectShape(shape.id);
-    setSelectedShapeId(shape.id);
-    updateSelectedShapesState();
     engineRef.current.saveState();
 
     // If it's an image with a temporary URL (not from Supabase), upload to permanent storage
@@ -823,6 +819,122 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     saveCanvasState();
     updateSelectedShapesState();
   };
+
+  // Handle focusing on a shape from AI Chat Panel
+  const handleFocusShapeFromChat = (shapeId: string, keepSelection: boolean = false) => {
+    if (!engineRef.current || !canvasRef.current) return;
+
+    const shape = engineRef.current.getShape(shapeId);
+    if (!shape) return;
+
+    // Select the shape only if not keeping selection
+    if (!keepSelection) {
+      setSelectedShapeId(shapeId);
+      engineRef.current.clearSelection();
+      engineRef.current.selectShape(shapeId);
+      updateSelectedShapesState();
+    }
+
+    // Get canvas dimensions
+    const canvasWidth = canvasRef.current.width / window.devicePixelRatio;
+    const canvasHeight = canvasRef.current.height / window.devicePixelRatio;
+
+    // Calculate shape bounds
+    let shapeX = shape.x;
+    let shapeY = shape.y;
+    let shapeWidth = 0;
+    let shapeHeight = 0;
+
+    if ('width' in shape && 'height' in shape) {
+      shapeWidth = shape.width;
+      shapeHeight = shape.height;
+    } else if ('radius' in shape) {
+      shapeWidth = shape.radius * 2;
+      shapeHeight = shape.radius * 2;
+      shapeX = shape.x - shape.radius;
+      shapeY = shape.y - shape.radius;
+    }
+
+    // Add padding (10% on each side)
+    const padding = 0.1;
+    const paddedWidth = shapeWidth * (1 + padding * 2);
+    const paddedHeight = shapeHeight * (1 + padding * 2);
+
+    // Calculate zoom to fit the shape with padding
+    const zoomX = canvasWidth / paddedWidth;
+    const zoomY = canvasHeight / paddedHeight;
+    const newZoom = Math.min(zoomX, zoomY, 1); // Don't zoom in beyond 100%
+
+    // Calculate shape center
+    const centerX = shapeX + shapeWidth / 2;
+    const centerY = shapeY + shapeHeight / 2;
+
+    // Calculate viewport to center the shape
+    const viewportX = (canvasWidth / 2) - (centerX * newZoom);
+    const viewportY = (canvasHeight / 2) - (centerY * newZoom);
+
+    // Update viewport with zoom and position
+    engineRef.current.setViewport({
+      x: viewportX,
+      y: viewportY,
+      zoom: newZoom,
+    });
+    setZoomLevel(Math.round(newZoom * 100));
+  };
+
+  // Handle centering canvas to a specific shape without selecting it
+  const handleCenterToShape = useCallback((shapeId: string, animate: boolean = true) => {
+    if (!engineRef.current || !canvasRef.current) return;
+
+    const shape = engineRef.current.getShape(shapeId);
+    if (!shape) return;
+
+    // Get canvas dimensions
+    const canvasWidth = canvasRef.current.width / window.devicePixelRatio;
+    const canvasHeight = canvasRef.current.height / window.devicePixelRatio;
+
+    // Calculate shape bounds
+    let shapeX = shape.x;
+    let shapeY = shape.y;
+    let shapeWidth = 0;
+    let shapeHeight = 0;
+
+    if ('width' in shape && 'height' in shape) {
+      shapeWidth = shape.width;
+      shapeHeight = shape.height;
+    } else if ('radius' in shape) {
+      shapeWidth = shape.radius * 2;
+      shapeHeight = shape.radius * 2;
+      shapeX = shape.x - shape.radius;
+      shapeY = shape.y - shape.radius;
+    }
+
+    // Add padding (15% for better framing)
+    const padding = 0.15;
+    const paddedWidth = shapeWidth * (1 + padding * 2);
+    const paddedHeight = shapeHeight * (1 + padding * 2);
+
+    // Calculate zoom to fit the shape with padding
+    const zoomX = canvasWidth / paddedWidth;
+    const zoomY = canvasHeight / paddedHeight;
+    const newZoom = Math.min(zoomX, zoomY, 1); // Don't zoom in beyond 100%
+
+    // Calculate shape center
+    const centerX = shapeX + shapeWidth / 2;
+    const centerY = shapeY + shapeHeight / 2;
+
+    // Calculate viewport to center the shape
+    const viewportX = (canvasWidth / 2) - (centerX * newZoom);
+    const viewportY = (canvasHeight / 2) - (centerY * newZoom);
+
+    // Update viewport (smooth transition handled by CSS if animate=true)
+    engineRef.current.setViewport({
+      x: viewportX,
+      y: viewportY,
+      zoom: newZoom,
+    });
+    setZoomLevel(Math.round(newZoom * 100));
+  }, []);
 
   // Handle image generation for AI Chat Panel
   const handleGenerateImageForChat = async (prompt: string, aspectRatio?: string): Promise<string> => {
@@ -2110,6 +2222,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           onUpdateShape={handleUpdateShapeFromChat}
           onGenerateImage={handleGenerateImageForChat}
           onCaptureCanvas={captureCanvasForAI}
+          onFocusShape={handleFocusShapeFromChat}
+          onCenterToShape={handleCenterToShape}
           projectId={currentProjectId}
         />
 

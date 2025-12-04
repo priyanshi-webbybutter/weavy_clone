@@ -1386,17 +1386,36 @@ Use your visual understanding to give better, more contextual help.\n`;
 function detectPhase(response, actions, images) {
   const lowerResponse = response.toLowerCase();
 
-  if (lowerResponse.includes('brand bible') || lowerResponse.includes('target audience') || lowerResponse.includes('color palette')) {
-    return 'STRATEGY';
-  }
-  if (images.length > 0 || actions.length > 0 || lowerResponse.includes('here\'s') || lowerResponse.includes('generated')) {
+  // Priority 1: If tools were actually executed or images generated → EXECUTION
+  if (images.length > 0 || actions.length > 0) {
     return 'EXECUTION';
   }
-  if (lowerResponse.includes('refined') || lowerResponse.includes('updated') || lowerResponse.includes('modified')) {
+
+  // Priority 2: Check for execution keywords in response
+  const executionKeywords = [
+    'here\'s', 'generated', 'created', 'i\'ll create', 'i\'ll generate',
+    'creating', 'generating', 'i\'ve created', 'i\'ve generated',
+    'compositing', 'adding', 'i\'ve added'
+  ];
+  if (executionKeywords.some(keyword => lowerResponse.includes(keyword))) {
+    return 'EXECUTION';
+  }
+
+  // Priority 3: Check for refinement keywords
+  if (lowerResponse.includes('refined') || lowerResponse.includes('updated') ||
+      lowerResponse.includes('modified') || lowerResponse.includes('adjusted')) {
     return 'REFINEMENT';
   }
 
-  return 'STRATEGY';
+  // Priority 4: Check for strategy keywords
+  if (lowerResponse.includes('brand bible') || lowerResponse.includes('target audience') ||
+      lowerResponse.includes('color palette') || lowerResponse.includes('let me analyze') ||
+      lowerResponse.includes('first, let\'s')) {
+    return 'STRATEGY';
+  }
+
+  // Default: EXECUTION (most user prompts are execution requests)
+  return 'EXECUTION';
 }
 
 /**
