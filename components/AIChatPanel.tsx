@@ -600,7 +600,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const addGenerationPlaceholder = useCallback((): string => {
     const placeholderId = `placeholder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Calculate position (same logic as handleCanvasActions)
+    // Calculate base position
     let baseX = 100;
     let baseY = 100;
 
@@ -613,12 +613,24 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       baseX = Math.min(maxX + 50, 500);
     }
 
+    // Count existing placeholders to create diagonal stacking
+    const placeholderCount = allShapes.filter(s =>
+      s.id.startsWith('placeholder-')
+    ).length;
+
+    // Apply diagonal offset (50px right and 50px down for each existing placeholder)
+    const diagonalOffset = placeholderCount * 50;
+    const finalX = baseX + diagonalOffset;
+    const finalY = baseY + diagonalOffset;
+
+    console.log(`🎯 Placing placeholder #${placeholderCount + 1} at (${finalX}, ${finalY})`);
+
     // Create placeholder image shape with SVG data URL (initial frame)
     const placeholderShape: ImageShape = {
       id: placeholderId,
       type: 'image',
-      x: baseX,
-      y: baseY,
+      x: finalX,
+      y: finalY,
       width: 400,
       height: 400,
       src: createLoadingPlaceholderSVG(0),
