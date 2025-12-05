@@ -2,7 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, Send, Paperclip, Sparkles, RefreshCw } from 'lucide-react';
-import { Shape, ImageShape, TextShape, ArrowShape } from '@/lib/canvas/types';
+import { Shape, ImageShape, TextShape, ArrowShape, Point } from '@/lib/canvas/types';
+import { findOptimalPlacement, findMultiPlacement } from '@/lib/canvas/placementUtils';
 import MarkdownMessage from './MarkdownMessage';
 
 interface Message {
@@ -116,10 +117,13 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [activePlaceholders, setActivePlaceholders] = useState<string[]>([]);
   const [currentReferenceIds, setCurrentReferenceIds] = useState<string[]>([]);
+  const [uploadedImages, setUploadedImages] = useState<{ id: string; url: string; file: File }[]>([]);
+  const [uploadingImages, setUploadingImages] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activePlaceholdersRef = useRef<string[]>([]);
   const currentReferenceIdsRef = useRef<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -194,6 +198,28 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setHistoryLoaded(false);
     setMessages([]); // Clear messages when switching projects
   }, [projectId]);
+
+  /**
+   * Fixes malformed markdown image syntax where alt text contains newlines
+   * Converts: ![multi\nline\nalt](url) → ![Image](url)
+   */
+  const cleanMarkdownImages = useCallback((content: string): string => {
+    // Pattern to match markdown images with potentially multi-line alt text
+    // Matches: ![anything including newlines](url)
+    const imagePattern = /!\[([^\]]*(?:\n[^\]]*)*)\]\((https?:\/\/[^\s)]+)\)/g;
+
+    return content.replace(imagePattern, (match, altText, url) => {
+      // Clean alt text: remove newlines, extra spaces, and truncate if too long
+      const cleanAlt = altText
+        .replace(/\n/g, ' ')  // Replace newlines with spaces
+        .replace(/\s+/g, ' ') // Collapse multiple spaces
+        .trim()
+        .substring(0, 100);   // Limit to 100 chars
+
+      // Return properly formatted markdown
+      return `![${cleanAlt || 'Generated Image'}](${url})`;
+    });
+  }, []);
 
   // Build canvas context for API - rich metadata based on selection state
   const buildCanvasContext = useCallback(() => {
@@ -366,140 +392,236 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }) as ImageShape[];
   }, [selectedShapes]);
 
-  // Handle canvas actions from AI with placeholder system
-  const handleCanvasActions = useCallback(async (actions: CanvasAction[], images: { url: string; prompt: string }[]) => {
-    // Calculate smart positioning based on existing shapes or selection
-    let baseX = 100;
-    let baseY = 100;
+  // Handle file upload from user's device
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.currentTarget.files;
+    if (!files || files.length === 0) return;
 
-    // If shapes are selected, position near them
-    if (selectedShapes.length > 0) {
-      const firstSelected = selectedShapes[0];
-      baseX = firstSelected.x + ((firstSelected as any).width || 100) + 50;
-      baseY = firstSelected.y;
-    } else if (allShapes.length > 0) {
-      // Position away from existing shapes
-      const maxX = Math.max(...allShapes.map(s => s.x + ((s as any).width || 100)));
-      baseX = Math.min(maxX + 50, 500);
+    const validFiles = Array.from(files).filter(file => {
+      // Validate file type
+      const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+      if (!validTypes.includes(file.type)) {
+        console.error('Invalid file type:', file.type);
+        return false;
+      }
+
+      // Validate file size (10MB max)
+      const maxSize = 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        console.error('File too large:', file.size);
+        return false;
+      }
+
+      return true;
+    });
+
+    for (const file of validFiles) {
+      const tempId = `uploading-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Add to uploading set
+      setUploadingImages(prev => new Set(prev).add(tempId));
+
+      try {
+        // Convert to base64
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        // Upload to backend
+        const token = localStorage.getItem('auth_token');
+
+        // Prepare request body as JSON
+        const requestBody: { imageData: string; projectId?: string } = {
+          imageData: base64,
+        };
+
+        if (projectId) {
+          requestBody.projectId = projectId;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/upload-canvas-image`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.url) {
+          // Add uploaded image to state
+          setUploadedImages(prev => [...prev, {
+            id: tempId,
+            url: data.url,
+            file: file,
+          }]);
+          console.log('✅ Image uploaded successfully:', data.url);
+        } else {
+          console.error('Upload failed:', data.error);
+        }
+      } catch (error) {
+        console.error('Error uploading image:', error);
+      } finally {
+        // Remove from uploading set
+        setUploadingImages(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(tempId);
+          return newSet;
+        });
+      }
     }
 
-    // Handle generated images - load image first to get actual dimensions
-    for (let i = 0; i < images.length; i++) {
-      const image = images[i];
-      const imageId = `image-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Clear file input
+    if (e.currentTarget) {
+      e.currentTarget.value = '';
+    }
+  }, [projectId]);
 
-      console.log('🎨 Loading generated image to get dimensions:', image.url.substring(0, 50) + '...');
+  // Remove uploaded image from state
+  const removeUploadedImage = useCallback((imageId: string) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== imageId));
+  }, []);
 
-      // Load image to get actual dimensions
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
+  // Handle canvas actions from AI with placeholder system
+  const handleCanvasActions = useCallback(async (actions: CanvasAction[], images: { url: string; prompt: string }[]) => {
+    // Handle generated images with smart placement
+    if (images.length > 0) {
+      console.log(`🎨 Loading ${images.length} generated images to get dimensions...`);
 
-      await new Promise<void>((resolve) => {
-        img.onload = () => {
-          // Calculate display size (max 500px, maintain aspect ratio)
-          const maxSize = 500;
-          let width = img.naturalWidth;
-          let height = img.naturalHeight;
+      // Load all images first to get actual dimensions
+      const imageData: Array<{
+        url: string;
+        prompt: string;
+        width: number;
+        height: number;
+      }> = [];
 
-          if (width > maxSize || height > maxSize) {
-            if (width > height) {
-              height = (height / width) * maxSize;
-              width = maxSize;
-            } else {
-              width = (width / height) * maxSize;
-              height = maxSize;
-            }
-          }
-
-          console.log(`🎨 Image dimensions: ${img.naturalWidth}x${img.naturalHeight} → display: ${Math.round(width)}x${Math.round(height)}`);
-
-          // Create image shape with correct dimensions
-          const imageShape: ImageShape = {
-            id: imageId,
-            type: 'image',
-            x: baseX + (i * 50),
-            y: baseY + (i * 50),
-            width: Math.round(width),
-            height: Math.round(height),
-            src: image.url,
-            style: { opacity: 1 },
-            generationMetadata: {
-              referenceImageIds: currentReferenceIds.length > 0
-                ? [...currentReferenceIds]
-                : undefined,
-              generatedAt: new Date(),
-              prompt: image.prompt
-            }
-          };
-
-          onAddShape(imageShape);
-
-          // Create reference arrows if references exist (use ref to avoid stale closure)
-          const refIds = currentReferenceIdsRef.current;
-          console.log('🔵 Checking currentReferenceIds for arrows (onload):', refIds);
-          if (refIds.length > 0) {
-            console.log('✅ Creating arrows for image:', imageShape.id);
-            setTimeout(() => {
-              createReferenceArrows(imageShape, refIds);
-            }, 50);
-          } else {
-            console.log('❌ No reference IDs - skipping arrow creation');
-          }
-
-          resolve();
-        };
-
-        img.onerror = () => {
-          console.error('🎨 Failed to load generated image');
-          // Still add with default size if loading fails
-          const imageShape: ImageShape = {
-            id: imageId,
-            type: 'image',
-            x: baseX + (i * 50),
-            y: baseY + (i * 50),
-            width: 400,
-            height: 400,
-            src: image.url,
-            style: { opacity: 1 },
-            generationMetadata: {
-              referenceImageIds: currentReferenceIds.length > 0
-                ? [...currentReferenceIds]
-                : undefined,
-              generatedAt: new Date(),
-              prompt: image.prompt
-            }
-          };
-          onAddShape(imageShape);
-
-          // Create reference arrows if references exist (use ref to avoid stale closure)
-          const refIds = currentReferenceIdsRef.current;
-          console.log('🔵 Checking currentReferenceIds for arrows (onerror):', refIds);
-          if (refIds.length > 0) {
-            console.log('✅ Creating arrows for image:', imageShape.id);
-            setTimeout(() => {
-              createReferenceArrows(imageShape, refIds);
-            }, 50);
-          } else {
-            console.log('❌ No reference IDs - skipping arrow creation');
-          }
-
-          resolve();
-        };
-
+      for (const image of images) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
         img.src = image.url;
-      });
+
+        const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+          img.onload = () => {
+            // Calculate display size (max 500px, maintain aspect ratio)
+            const maxSize = 500;
+            let width = img.naturalWidth;
+            let height = img.naturalHeight;
+
+            if (width > maxSize || height > maxSize) {
+              if (width > height) {
+                height = (height / width) * maxSize;
+                width = maxSize;
+              } else {
+                width = (width / height) * maxSize;
+                height = maxSize;
+              }
+            }
+
+            console.log(`🎨 Image dimensions: ${img.naturalWidth}x${img.naturalHeight} → display: ${Math.round(width)}x${Math.round(height)}`);
+            resolve({ width: Math.round(width), height: Math.round(height) });
+          };
+
+          img.onerror = () => {
+            console.error('🎨 Failed to load generated image, using default size');
+            resolve({ width: 400, height: 400 }); // Fallback
+          };
+        });
+
+        imageData.push({
+          url: image.url,
+          prompt: image.prompt,
+          width: dimensions.width,
+          height: dimensions.height,
+        });
+      }
+
+      // Get placeholder IDs to exclude (they'll be removed)
+      const placeholderIds = allShapes
+        .filter(s => s.id.startsWith('placeholder-'))
+        .map(s => s.id);
+
+      // Find optimal positions for all images at once using smart placement
+      const positions = findMultiPlacement(
+        imageData.map(img => ({ width: img.width, height: img.height })),
+        allShapes,
+        selectedShapes, // Reference shapes
+        placeholderIds,
+        {
+          minGap: 50,
+          preferredGap: 80,
+          maxIterations: 50,
+          spiralStep: 100,
+        }
+      );
+
+      // Create image shapes with calculated positions
+      for (let i = 0; i < imageData.length; i++) {
+        const imgData = imageData[i];
+        const position = positions[i];
+        const imageId = `image-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`;
+
+        console.log(`🎨 Placing image ${i + 1}/${imageData.length} at (${position.x}, ${position.y})`);
+
+        const imageShape: ImageShape = {
+          id: imageId,
+          type: 'image',
+          x: position.x,
+          y: position.y,
+          width: imgData.width,
+          height: imgData.height,
+          src: imgData.url,
+          style: { opacity: 1 },
+          generationMetadata: {
+            referenceImageIds: currentReferenceIds.length > 0
+              ? [...currentReferenceIds]
+              : undefined,
+            generatedAt: new Date(),
+            prompt: imgData.prompt
+          }
+        };
+
+        onAddShape(imageShape);
+
+        // Create reference arrows if references exist
+        const refIds = currentReferenceIdsRef.current;
+        if (refIds.length > 0) {
+          console.log('✅ Creating arrows for image:', imageShape.id);
+          setTimeout(() => {
+            createReferenceArrows(imageShape, refIds);
+          }, 50);
+        }
+      }
     }
 
     // Handle other actions (text, shapes, modifications)
-    let actionOffset = 0;
     for (const action of actions) {
       if (action.type === 'add') {
         if (action.asset_type === 'text' && action.content) {
+          // Use smart placement for text as well
+          const placeholderIds = allShapes
+            .filter(s => s.id.startsWith('placeholder-'))
+            .map(s => s.id);
+
+          const position = findOptimalPlacement(
+            300, // Default text width
+            50,  // Default text height
+            allShapes,
+            selectedShapes,
+            placeholderIds,
+            { minGap: 50, preferredGap: 80 }
+          );
+
           const newShape: TextShape = {
             id: `text-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'text',
-            x: baseX + actionOffset,
-            y: baseY + actionOffset + (images.length * 50), // Offset from images
+            x: position.x,
+            y: position.y,
             width: 300,
             height: 50,
             text: action.content,
@@ -511,7 +633,6 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             }
           };
           onAddShape(newShape);
-          actionOffset += 30;
         }
       } else if (action.type === 'modify' && action.element_id && action.updates) {
         console.log('🔧 Modifying element:', action.element_id, action.updates);
@@ -544,25 +665,32 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const detectImageGeneration = useCallback((message: string, shapes: Shape[]): boolean => {
     const lowerMessage = message.toLowerCase();
 
-    // Keywords that indicate image generation
-    const generationKeywords = [
-      'generate', 'create', 'make', 'design', 'paint', 'draw',
-      'image', 'photo', 'picture', 'visual', 'illustration',
-      'combine', 'composite', 'merge', 'blend'
+    // HIGH CONFIDENCE ONLY - explicit generation commands
+    const explicitGenerationCommands = [
+      'generate image', 'create image', 'generate a', 'create a',
+      'paint', 'draw', 'composite', 'merge images', 'blend images',
+      'combine images'
     ];
 
-    // Check for generation keywords
-    const hasGenerationKeyword = generationKeywords.some(keyword =>
-      lowerMessage.includes(keyword)
-    );
+    // Check for explicit phrases first
+    if (explicitGenerationCommands.some(cmd => lowerMessage.includes(cmd))) {
+      return true;
+    }
 
-    // Check if modifying existing image (reference images selected)
-    const hasReferenceImages = shapes.some(s => s.type === 'image');
-    const hasModificationKeyword = ['change', 'modify', 'edit', 'adjust', 'vibrant', 'brighter'].some(k =>
-      lowerMessage.includes(k)
-    );
+    // Single words only if with "image/photo/picture"
+    const singleWords = ['generate', 'create', 'make'];
+    const imageNouns = ['image', 'photo', 'picture', 'visual', 'illustration'];
 
-    return hasGenerationKeyword || (hasReferenceImages && hasModificationKeyword);
+    const hasSingleWord = singleWords.some(w => lowerMessage.includes(w));
+    const hasImageNoun = imageNouns.some(n => lowerMessage.includes(n));
+
+    if (hasSingleWord && hasImageNoun) {
+      return true;
+    }
+
+    // Don't create placeholder for low-confidence cases
+    // Let backend decide without optimistic placeholder
+    return false;
   }, []);
 
   /**
@@ -659,39 +787,39 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const addGenerationPlaceholder = useCallback((): string => {
     const placeholderId = `placeholder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Calculate base position
-    let baseX = 100;
-    let baseY = 100;
+    // Smart placement using collision detection
+    const PLACEHOLDER_SIZE = 400;
 
-    if (selectedShapes.length > 0) {
-      const firstSelected = selectedShapes[0];
-      baseX = firstSelected.x + ((firstSelected as any).width || 100) + 50;
-      baseY = firstSelected.y;
-    } else if (allShapes.length > 0) {
-      const maxX = Math.max(...allShapes.map(s => s.x + ((s as any).width || 100)));
-      baseX = Math.min(maxX + 50, 500);
-    }
+    // Get IDs of existing placeholders to exclude from collision
+    const existingPlaceholderIds = allShapes
+      .filter(s => s.id.startsWith('placeholder-'))
+      .map(s => s.id);
 
-    // Count existing placeholders to create diagonal stacking
-    const placeholderCount = allShapes.filter(s =>
-      s.id.startsWith('placeholder-')
-    ).length;
+    // Find optimal placement using smart algorithm
+    const position = findOptimalPlacement(
+      PLACEHOLDER_SIZE,
+      PLACEHOLDER_SIZE,
+      allShapes,
+      selectedShapes, // Reference shapes
+      existingPlaceholderIds,
+      {
+        minGap: 50,
+        preferredGap: 80,
+        maxIterations: 50,
+        spiralStep: 100,
+      }
+    );
 
-    // Apply diagonal offset (50px right and 50px down for each existing placeholder)
-    const diagonalOffset = placeholderCount * 50;
-    const finalX = baseX + diagonalOffset;
-    const finalY = baseY + diagonalOffset;
-
-    console.log(`🎯 Placing placeholder #${placeholderCount + 1} at (${finalX}, ${finalY})`);
+    console.log(`🎯 Smart placement for placeholder at (${position.x}, ${position.y})`);
 
     // Create placeholder image shape with SVG data URL (initial frame)
     const placeholderShape: ImageShape = {
       id: placeholderId,
       type: 'image',
-      x: finalX,
-      y: finalY,
-      width: 400,
-      height: 400,
+      x: position.x,
+      y: position.y,
+      width: PLACEHOLDER_SIZE,
+      height: PLACEHOLDER_SIZE,
       src: createLoadingPlaceholderSVG(0),
       style: { opacity: 0.8 }
     };
@@ -726,8 +854,20 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     activePlaceholdersRef.current = [...activePlaceholdersRef.current, placeholderId];
     console.log('📝 Tracked placeholder for removal:', placeholderId);
 
+    // ADD: Auto-cleanup after 60 seconds as safety measure
+    setTimeout(() => {
+      // Check if placeholder still exists
+      if (activePlaceholdersRef.current.includes(placeholderId)) {
+        console.warn('⚠️ Placeholder timeout - removing orphaned placeholder:', placeholderId);
+        stopPlaceholderAnimation(placeholderId);
+        onRemovePlaceholder?.(placeholderId);
+        setActivePlaceholders(prev => prev.filter(id => id !== placeholderId));
+        activePlaceholdersRef.current = activePlaceholdersRef.current.filter(id => id !== placeholderId);
+      }
+    }, 60000); // 60 second timeout
+
     return placeholderId;
-  }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG, onCenterToShape]);
+  }, [selectedShapes, allShapes, onAddShape, onUpdateShape, createLoadingPlaceholderSVG, onCenterToShape, onRemovePlaceholder]);
 
   /**
    * Calculates edge-to-edge arrow points between two images
@@ -956,11 +1096,17 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       url: img.src
     }));
 
+    // Merge with uploaded images
+    const allImages = [...selectedImagesData, ...uploadedImages.map(img => ({
+      id: img.id,
+      url: img.url
+    }))];
+
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
       content: messageText,
-      selectedImages: selectedImagesData.length > 0 ? selectedImagesData : undefined,
+      selectedImages: allImages.length > 0 ? allImages : undefined,
       timestamp: new Date()
     };
 
@@ -987,6 +1133,45 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       console.log('📷 Getting selected images for compositing...');
       const selectedImages = await getSelectedImagesBase64();
 
+      // Also convert uploaded images to base64 metadata
+      const uploadedImagesBase64: SelectedImageMetadata[] = [];
+      for (const uploaded of uploadedImages) {
+        try {
+          const response = await fetch(uploaded.url);
+          const blob = await response.blob();
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          // Get image dimensions
+          const img = new Image();
+          img.src = uploaded.url;
+          await new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve;
+          });
+
+          uploadedImagesBase64.push({
+            id: uploaded.id,
+            base64: base64.replace(/^data:image\/\w+;base64,/, ''),
+            description: `Uploaded image - ${img.naturalWidth}x${img.naturalHeight}px`,
+            width: img.naturalWidth || 512,
+            height: img.naturalHeight || 512,
+            area: (img.naturalWidth || 512) * (img.naturalHeight || 512),
+            aspectRatio: (img.naturalWidth || 512) / (img.naturalHeight || 512)
+          });
+          console.log(`📷 Processed uploaded image: ${uploaded.url}`);
+        } catch (error) {
+          console.error('Failed to process uploaded image:', error);
+        }
+      }
+
+      // Combine all images for compositing
+      const allImagesForCompositing = [...selectedImages, ...uploadedImagesBase64];
+
       // Build FormData for multipart upload
       const formData = new FormData();
       formData.append('message', messageText);
@@ -1004,10 +1189,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         formData.append('projectId', projectId);
       }
 
-      // Append selected images for compositing
-      if (selectedImages.length > 0) {
-        formData.append('selectedImages', JSON.stringify(selectedImages));
-        console.log(`📷 Attached ${selectedImages.length} selected images for compositing`);
+      // Append all images for compositing (selected + uploaded)
+      if (allImagesForCompositing.length > 0) {
+        formData.append('selectedImages', JSON.stringify(allImagesForCompositing));
+        console.log(`📷 Attached ${allImagesForCompositing.length} images for compositing (${selectedImages.length} selected + ${uploadedImagesBase64.length} uploaded)`);
       }
 
       // Append PNG file if canvas has content
@@ -1071,6 +1256,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           await handleCanvasActions(data.actions || [], data.generatedImages || []);
         }
 
+        // === NEW: Cleanup orphaned placeholders ===
+        // If placeholder was created but no images generated (AI returned text instead)
+        if (placeholderId && (!data.generatedImages || data.generatedImages.length === 0)) {
+          console.log('🗑️ Removing orphaned placeholder - no images generated:', placeholderId);
+          stopPlaceholderAnimation(placeholderId);
+          onRemovePlaceholder?.(placeholderId);
+          setActivePlaceholders(prev => prev.filter(id => id !== placeholderId));
+          activePlaceholdersRef.current = activePlaceholdersRef.current.filter(id => id !== placeholderId);
+        }
+
         // Add assistant message
         const assistantMessage: Message = {
           id: `msg-${Date.now()}`,
@@ -1083,6 +1278,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         };
 
         setMessages(prev => [...prev, assistantMessage]);
+
+        // Clear uploaded images after successful send
+        setUploadedImages([]);
       } else {
         throw new Error(data.error || 'Failed to get response');
       }
@@ -1115,7 +1313,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation]);
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation, uploadedImages]);
 
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
@@ -1288,7 +1486,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   }`}
                 >
                   {message.role === 'assistant' ? (
-                    <MarkdownMessage content={message.content} />
+                    <MarkdownMessage content={cleanMarkdownImages(message.content)} />
                   ) : (
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   )}
@@ -1316,21 +1514,21 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Generated Images - only for user messages with attachments */}
-                  {message.role === 'user' && message.images && message.images.length > 0 && (
+                  {/* Generated Images - for both user and assistant messages */}
+                  {/* {message.images && message.images.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {message.images.map((img, i) => (
                         <div key={i} className="rounded-lg overflow-hidden border border-[#3a3a3a]">
                           <img
                             src={img.url}
-                            alt={img.prompt}
+                            alt={img.prompt || 'Generated image'}
                             className="w-full h-auto"
                             loading="lazy"
                           />
                         </div>
                       ))}
                     </div>
-                  )}
+                  )} */}
                 </div>
               </div>
             ))}
@@ -1373,6 +1571,58 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           </div>
         )}
 
+        {/* Uploaded Images Thumbnails */}
+        {uploadedImages.length > 0 && (
+          <div className="mb-2">
+            <div className="text-xs text-gray-400 mb-2">Uploaded Images</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {uploadedImages.map((img) => (
+                <div
+                  key={img.id}
+                  className="relative w-12 h-12 rounded-lg overflow-hidden border-2 border-purple-500/50 flex-shrink-0 group"
+                >
+                  <img
+                    src={img.url}
+                    alt="Uploaded"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                  {/* Remove button */}
+                  <button
+                    onClick={() => removeUploadedImage(img.id)}
+                    className="absolute top-0 right-0 bg-red-500 text-white rounded-bl px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove image"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Uploading Images Indicator */}
+        {uploadingImages.size > 0 && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              <span>Uploading {uploadingImages.size} image(s)...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Hidden file input for image upload */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+          multiple
+          className="hidden"
+        />
+
         {/* Input */}
         <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl overflow-hidden">
           <textarea
@@ -1385,7 +1635,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             className="w-full bg-transparent px-4 py-3 text-white text-sm resize-none focus:outline-none placeholder:text-gray-500"
             disabled={isLoading}
           />
-          <div className="flex items-center justify-end px-3 py-2 border-t border-[#2a2a2a]">
+          <div className="flex items-center justify-between px-3 py-2 border-t border-[#2a2a2a]">
+            {/* Upload Button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              className="p-1.5 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Upload image"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+
+            {/* Send Button */}
             <button
               onClick={() => sendMessage(inputValue)}
               disabled={!inputValue.trim() || isLoading}
