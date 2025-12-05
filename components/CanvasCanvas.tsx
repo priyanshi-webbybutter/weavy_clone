@@ -1462,9 +1462,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             },
           };
           engineRef.current.addShape(shape);
-          engineRef.current.selectShape(id);
-          setSelectedShapeId(id);
-          // Start editing text immediately
+
+          // Switch to select tool immediately
+          setTool('select');
+
+          // Start editing text immediately (don't select yet - selection will appear after editing)
           setTimeout(() => {
             setEditingTextId(id);
             setTextInputValue('Text');
@@ -1672,6 +1674,10 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     const shape = engineRef.current.hitTest(point);
     if (shape && shape.type === 'text') {
+      // Clear selection while editing
+      engineRef.current.clearSelection();
+      setSelectedShapeId(null);
+
       setEditingTextId(shape.id);
       setTextInputValue(shape.text);
       if (canvasRef.current) {
@@ -2005,14 +2011,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         {/* Navigation Icons */}
         <div className="flex flex-col gap-4 flex-1">
           <button
-            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
+            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
+              tool === 'select'
+                ? 'bg-yellow-500 text-black'
+                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+            }`}
             title="Pointer Tool"
             onClick={() => setTool('select')}
           >
             <MousePointer2 className="w-5 h-5" />
           </button>
           <button
-            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
+            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
+              tool === 'pan'
+                ? 'bg-[#8b5cf6] text-white'
+                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+            }`}
             title="Hand Tool"
             onClick={() => setTool('pan')}
           >
@@ -2212,7 +2226,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           <div className="relative" data-shapes-menu>
             <button
               className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-                isShapesMenuOpen ? 'bg-[#2a2a2a] text-white' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+                tool === 'rectangle' || tool === 'circle'
+                  ? 'bg-blue-500 text-white'
+                  : isShapesMenuOpen
+                    ? 'bg-[#2a2a2a] text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
               }`}
               title="Shapes"
               onClick={(e) => {
@@ -2227,26 +2245,30 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 <div className="text-[14px] font-medium mb-3">Shapes</div>
                 <div className="flex items-center gap-4">
                   {[
-                    { key: 'square', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E]" />, action: () => setTool('rectangle') },
-                    { key: 'circle', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E] rounded-full" />, action: () => setTool('circle') },
-                    { key: 'triangle', Icon: () => (
+                    { key: 'square', toolName: 'rectangle', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E]" />, action: () => setTool('rectangle') },
+                    { key: 'circle', toolName: 'circle', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E] rounded-full" />, action: () => setTool('circle') },
+                    { key: 'triangle', toolName: null, Icon: () => (
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
                         <path d="M12 5L4 19H20L12 5Z" />
                       </svg>
                     ), action: () => alert('Triangle coming soon') },
-                    { key: 'star', Icon: () => (
+                    { key: 'star', toolName: null, Icon: () => (
                       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
                         <path d="M12 3l2.09 6.26L20 9.27l-5 3.64L16.18 19 12 15.77 7.82 19 9 12.91l-5-3.64 5.91-.01L12 3z" />
                       </svg>
                     ), action: () => alert('Star coming soon') },
-                  ].map(({ key, Icon, action }) => (
+                  ].map(({ key, toolName, Icon, action }) => (
                     <button
                       key={key}
                       onClick={() => {
                         action();
                         setIsShapesMenuOpen(false);
                       }}
-                      className="w-8 h-8 flex items-center justify-center text-[#2E2E2E] hover:text-[#8b5cf6] transition-colors"
+                      className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
+                        toolName && tool === toolName
+                          ? 'bg-blue-500 text-white'
+                          : 'text-[#2E2E2E] hover:text-[#8b5cf6]'
+                      }`}
                       title={key}
                     >
                       <Icon />
@@ -2257,14 +2279,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             )}
           </div>
           <button
-            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
+            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
+              tool === 'text'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+            }`}
             title="Text Tool"
             onClick={() => setTool('text')}
           >
             <Type className="w-5 h-5" />
           </button>
           <button
-            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
+            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
+              tool === 'freehand'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
+            }`}
             title="Pencil Tool"
             onClick={() => setTool('freehand')}
           >
@@ -3427,6 +3457,10 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         saveCanvasState();
                         // Re-render to show the text shape again
                         engineRef.current.render();
+
+                        // Select the text shape after editing
+                        engineRef.current.selectShape(editingTextId);
+                        setSelectedShapeId(editingTextId);
                       }
                     }
                     setEditingTextId(null);
@@ -3455,6 +3489,10 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                             });
                             engineRef.current.saveState();
                             saveCanvasState();
+
+                            // Select the text shape after editing
+                            engineRef.current.selectShape(editingTextId);
+                            setSelectedShapeId(editingTextId);
                           }
                         }
                       }
@@ -3466,7 +3504,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     }
                   }}
                   autoFocus
-                  className="px-1 py-0 bg-transparent border-none text-black focus:outline-none"
+                  className="px-2 py-1 bg-transparent border-2 border-blue-500 rounded text-black focus:outline-none focus:ring-2 focus:ring-blue-400"
                   style={{
                     fontSize: `${shape.style.fontSize || 16}px`,
                     fontFamily: shape.style.fontFamily || 'Arial',
