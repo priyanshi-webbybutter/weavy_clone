@@ -17,6 +17,15 @@ export class CanvasEngine {
   // Callback for when an image shape is updated (for dynamic arrow updates)
   private onImageUpdateCallback?: (imageId: string) => void;
 
+  // Hover state for showing hover border
+  private hoveredShapeId: string | null = null;
+
+  // Hide selection flag for hiding selection during drag
+  private hideSelection: boolean = false;
+
+  // Temporarily store selected IDs during drag
+  private tempSelectedIds: Set<string> | null = null;
+
   constructor(initialState?: Partial<CanvasState>) {
     // Initialize state first
     const initialShapes = initialState?.shapes || new Map();
@@ -271,12 +280,44 @@ export class CanvasEngine {
     this.onImageUpdateCallback = callback;
   }
 
+  setHoveredShape(shapeId: string | null) {
+    this.hoveredShapeId = shapeId;
+    this.render(); // Re-render to show/hide hover border
+  }
+
+  setHideSelection(hide: boolean) {
+    this.hideSelection = hide;
+
+    if (hide) {
+      // Store current selection and clear it
+      this.tempSelectedIds = new Set(this.state.selectedIds);
+      this.state.selectedIds.clear();
+    } else {
+      // Restore selection
+      if (this.tempSelectedIds) {
+        this.state.selectedIds = new Set(this.tempSelectedIds);
+        this.tempSelectedIds = null;
+      }
+    }
+
+    this.render(); // Re-render to show/hide selection
+  }
+
   // Selection
   selectShape(id: string, multiSelect = false) {
     if (!multiSelect) {
       this.state.selectedIds.clear();
+      this.state.selectedIds.add(id);
+    } else {
+      // Multi-select mode: toggle the shape
+      if (this.state.selectedIds.has(id)) {
+        // Already selected - deselect it
+        this.state.selectedIds.delete(id);
+      } else {
+        // Not selected - select it
+        this.state.selectedIds.add(id);
+      }
     }
-    this.state.selectedIds.add(id);
     this.render();
   }
 
@@ -843,19 +884,34 @@ export class CanvasEngine {
       }
     }
 
-    // Draw selection
-    const selectedShapes = Array.from(this.state.selectedIds)
-      .map(id => this.state.shapes.get(id))
-      .filter((shape): shape is Shape => shape !== undefined);
-    
-    if (selectedShapes.length === 0) {
-      // No selection
-    } else if (selectedShapes.length === 1) {
-      // Single selection - draw individual selection box
-      this.drawSelection(selectedShapes[0]);
-    } else {
-      // Multiple selections - draw combined bounding box
-      this.drawGroupSelection(selectedShapes);
+    // Draw selection (only if not hidden)
+    if (!this.hideSelection) {
+      const selectedShapes = Array.from(this.state.selectedIds)
+        .map(id => this.state.shapes.get(id))
+        .filter((shape): shape is Shape => shape !== undefined);
+
+      if (selectedShapes.length === 0) {
+        // No selection
+      } else if (selectedShapes.length === 1) {
+        // Single selection - draw individual selection box
+        this.drawSelection(selectedShapes[0]);
+      } else {
+        // Multiple selections - draw combined bounding box
+        this.drawGroupSelection(selectedShapes);
+
+        // Draw individual borders for each selected element
+        for (const shape of selectedShapes) {
+          this.drawIndividualSelectionBorder(shape);
+        }
+      }
+    }
+
+    // Draw hover border (only for non-selected shapes)
+    if (this.hoveredShapeId && !this.state.selectedIds.has(this.hoveredShapeId)) {
+      const hoveredShape = this.state.shapes.get(this.hoveredShapeId);
+      if (hoveredShape) {
+        this.drawHoverBorder(hoveredShape);
+      }
     }
 
     this.ctx.restore();
@@ -995,13 +1051,14 @@ export class CanvasEngine {
         }
         break;
 
-      case 'line':
       case 'arrow':
+        // Arrows now rendered by CanvasArrows React component (SVG overlay)
+        // Skip canvas rendering to avoid duplicates
+        break;
+
+      case 'line':
       case 'freehand':
         this.drawPath(shape.points);
-        if (shape.type === 'arrow' && shape.points.length >= 2) {
-          this.drawArrowhead(shape.points[shape.points.length - 2], shape.points[shape.points.length - 1]);
-        }
         break;
 
       case 'text':
@@ -1348,32 +1405,30 @@ export class CanvasEngine {
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   }
 
-  private drawArrowhead(start: Point, end: Point) {
-    if (!this.ctx) return;
-
-    // Clear dash pattern so arrowhead is solid (not dashed)
-    this.ctx.setLineDash([]);
-
-    const angle = Math.atan2(end.y - start.y, end.x - start.x);
-    const arrowLength = 15 / this.state.viewport.zoom;
-    const arrowAngle = Math.PI / 6;
-
-    this.ctx.beginPath();
-    this.ctx.moveTo(end.x, end.y);
-    this.ctx.lineTo(
-      end.x - arrowLength * Math.cos(angle - arrowAngle),
-      end.y - arrowLength * Math.sin(angle - arrowAngle)
-    );
-    this.ctx.lineTo(
-      end.x - arrowLength * Math.cos(angle + arrowAngle),
-      end.y - arrowLength * Math.sin(angle + arrowAngle)
-    );
-    this.ctx.closePath();
-    this.ctx.fill();
-  }
+  // DEPRECATED: Arrows now rendered by CanvasArrows React component (SVG overlay)
+  // private drawArrowhead(start: Point, end: Point) {
+  //   if (!this.ctx) return;
+  //   // Clear dash pattern so arrowhead is solid (not dashed)
+  //   this.ctx.setLineDash([]);
+  //   const angle = Math.atan2(end.y - start.y, end.x - start.x);
+  //   const arrowLength = 15 / this.state.viewport.zoom;
+  //   const arrowAngle = Math.PI / 6;
+  //   this.ctx.beginPath();
+  //   this.ctx.moveTo(end.x, end.y);
+  //   this.ctx.lineTo(
+  //     end.x - arrowLength * Math.cos(angle - arrowAngle),
+  //     end.y - arrowLength * Math.sin(angle - arrowAngle)
+  //   );
+  //   this.ctx.lineTo(
+  //     end.x - arrowLength * Math.cos(angle + arrowAngle),
+  //     end.y - arrowLength * Math.sin(angle + arrowAngle)
+  //   );
+  //   this.ctx.closePath();
+  //   this.ctx.fill();
+  // }
 
   private drawSelection(shape: Shape) {
-    if (!this.ctx) return;
+    if (!this.ctx || this.hideSelection) return;
 
     this.ctx.save();
     
@@ -1436,7 +1491,7 @@ export class CanvasEngine {
   }
 
   private drawGroupSelection(shapes: Shape[]) {
-    if (!this.ctx || shapes.length === 0) return;
+    if (!this.ctx || shapes.length === 0 || this.hideSelection) return;
 
     // Calculate combined bounding box for all selected shapes
     let minX = Infinity;
@@ -1504,6 +1559,137 @@ export class CanvasEngine {
 
     // Draw resize handles for group selection (corners only)
     this.drawResizeHandles(groupBounds, false, true);
+  }
+
+  private drawHoverBorder(shape: Shape) {
+    if (!this.ctx) return;
+
+    this.ctx.save();
+
+    // Blue hover border
+    this.ctx.strokeStyle = '#3b82f6';  // Blue-500
+    this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+    this.ctx.setLineDash([]);  // Solid line (not dashed)
+
+    let bounds: { x: number; y: number; width: number; height: number };
+
+    switch (shape.type) {
+      case 'rectangle':
+        bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        break;
+      case 'text':
+        const textBounds = this.getTextBounds(shape as TextShape);
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: textBounds.width,
+          height: textBounds.height
+        };
+        break;
+      case 'circle':
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+        break;
+      case 'image':
+        bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        break;
+      case 'line':
+      case 'arrow':
+      case 'freehand':
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
+        bounds = {
+          x: Math.min(...xs) - 5,
+          y: Math.min(...ys) - 5,
+          width: Math.max(...xs) - Math.min(...xs) + 10,
+          height: Math.max(...ys) - Math.min(...ys) + 10,
+        };
+        break;
+      default:
+        this.ctx.restore();
+        return;
+    }
+
+    // Draw border with slight padding
+    const padding = 2;
+    this.ctx.strokeRect(
+      bounds.x - padding,
+      bounds.y - padding,
+      bounds.width + padding * 2,
+      bounds.height + padding * 2
+    );
+
+    this.ctx.restore();
+  }
+
+  private drawIndividualSelectionBorder(shape: Shape) {
+    if (!this.ctx) return;
+
+    this.ctx.save();
+
+    // Blue solid border for individual elements in group selection
+    this.ctx.strokeStyle = '#3b82f6';  // Blue-500 (same as hover)
+    this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+    this.ctx.setLineDash([]);  // Solid line (not dashed)
+
+    let bounds: { x: number; y: number; width: number; height: number };
+
+    // Calculate bounds based on shape type (reuse logic from drawHoverBorder)
+    switch (shape.type) {
+      case 'rectangle':
+        bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        break;
+      case 'text':
+        const textBounds = this.getTextBounds(shape as TextShape);
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: textBounds.width,
+          height: textBounds.height
+        };
+        break;
+      case 'circle':
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.radius * 2,
+          height: shape.radius * 2,
+        };
+        break;
+      case 'image':
+        bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+        break;
+      case 'line':
+      case 'arrow':
+      case 'freehand':
+        const xs = shape.points.map((p: Point) => p.x);
+        const ys = shape.points.map((p: Point) => p.y);
+        bounds = {
+          x: Math.min(...xs) - 5,
+          y: Math.min(...ys) - 5,
+          width: Math.max(...xs) - Math.min(...xs) + 10,
+          height: Math.max(...ys) - Math.min(...ys) + 10,
+        };
+        break;
+      default:
+        this.ctx.restore();
+        return;
+    }
+
+    // Draw border with slight padding
+    const padding = 2;
+    this.ctx.strokeRect(
+      bounds.x - padding,
+      bounds.y - padding,
+      bounds.width + padding * 2,
+      bounds.height + padding * 2
+    );
+
+    this.ctx.restore();
   }
 
   isPointInGroupBounds(point: Point, shapes: Shape[]): boolean {

@@ -26,6 +26,7 @@ import {
   Bot,
 } from 'lucide-react';
 import AIChatPanel from './AIChatPanel';
+import { CanvasArrows } from './CanvasArrows';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -56,6 +57,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [initialMouseWorldPos, setInitialMouseWorldPos] = useState<Point | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [selectedShapes, setSelectedShapes] = useState<Shape[]>([]);
+  const [dragUpdateTrigger, setDragUpdateTrigger] = useState(0);
+  const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
   const [allShapesState, setAllShapesState] = useState<Shape[]>([]);
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
@@ -1255,6 +1258,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         if (handle) {
           setIsResizing(true);
           setResizeHandle(handle);
+          engineRef.current.setHideSelection(true);
           // Store initial bounds for resizing
           let bounds: { x: number; y: number; width: number; height: number };
           if (selected[0].type === 'rectangle' || selected[0].type === 'text' || selected[0].type === 'image') {
@@ -1290,6 +1294,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           if (groupHandle) {
             setIsGroupResizing(true);
             setResizeHandle(groupHandle);
+            engineRef.current.setHideSelection(true);
             const groupBounds = engineRef.current.getGroupBounds(selected);
             if (groupBounds && engineRef.current) {
               setInitialGroupBounds(groupBounds);
@@ -1319,9 +1324,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           }
         
         // Check if clicking inside group bounds (for group move)
-        if (engineRef.current.isPointInGroupBounds(point, selected)) {
+        // Don't start group move if shift is held (allow element toggle instead)
+        if (engineRef.current.isPointInGroupBounds(point, selected) && !e.shiftKey) {
           // Start group move
           setIsGroupMoving(true);
+          engineRef.current.setHideSelection(true);
           const worldPoint = engineRef.current.screenToWorld(point);
           const positions = new Map<string, Point>();
           selected.forEach(s => {
@@ -1341,6 +1348,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         setSelectedShapeId(shape.id);
         updateSelectedShapesState();
         setIsDrawing(true); // Start dragging selected shape
+        engineRef.current.setHideSelection(true);
         // Store initial shape position and mouse position for smooth dragging
         const worldPoint = engineRef.current.screenToWorld(point);
         setInitialShapePos({ x: shape.x, y: shape.y });
@@ -1374,6 +1382,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       setSelectedShapeId(id);
       updateSelectedShapesState();
       setIsDrawing(true);
+      engineRef.current.setHideSelection(true);
     } else {
       const worldPoint = engineRef.current.screenToWorld(point);
       const id = `shape-${Date.now()}-${Math.random()}`;
@@ -1480,6 +1489,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       setSelectedShapeId(id);
       updateSelectedShapesState();
       setIsDrawing(true);
+      engineRef.current.setHideSelection(true);
     }
   };
 
@@ -1495,8 +1505,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     // Update cursor based on hover (but not when selecting)
     if (!isDrawing && !isPanning && !isResizing && !isSelecting && !isGroupResizing && !isGroupMoving && tool === 'select' && canvasRef.current) {
       const selected = engineRef.current.getSelectedShapes();
+      const hoveredShape = engineRef.current.hitTest(point);
+
+      // Update hover state for all shapes (selected or not)
+      setHoveredShapeId(hoveredShape?.id || null);
+
       if (selected.length === 1) {
-        const hoveredShape = engineRef.current.hitTest(point);
         if (hoveredShape && selected.includes(hoveredShape)) {
           const handle = engineRef.current.getResizeHandleAt(point, hoveredShape);
           if (handle) {
@@ -1506,6 +1520,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           }
           // Show move cursor when hovering over selected shape
           canvasRef.current.style.cursor = 'move';
+          setLastMousePos(point);
+          return;
+        } else if (hoveredShape) {
+          // Show pointer cursor for non-selected shapes
+          canvasRef.current.style.cursor = 'pointer';
           setLastMousePos(point);
           return;
         }
@@ -1523,6 +1542,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           setLastMousePos(point);
           return;
         }
+        // Show pointer cursor for non-selected shapes when multiple selected
+        if (hoveredShape && !selected.includes(hoveredShape)) {
+          canvasRef.current.style.cursor = 'pointer';
+          setLastMousePos(point);
+          return;
+        }
+      } else if (hoveredShape) {
+        // No selection but hovering over a shape
+        canvasRef.current.style.cursor = 'pointer';
+        setLastMousePos(point);
+        return;
       }
       canvasRef.current.style.cursor = 'default';
     }
@@ -1555,8 +1585,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       const worldCurrent = engineRef.current.screenToWorld(point);
       const deltaX = worldCurrent.x - initialMouseWorldPos.x;
       const deltaY = worldCurrent.y - initialMouseWorldPos.y;
-      const selected = engineRef.current.getSelectedShapes();
+      // Get selected shapes from initialGroupPositions keys
+      const selected = Array.from(initialGroupPositions.keys())
+        .map(id => engineRef.current.getShape(id))
+        .filter((shape): shape is Shape => shape !== undefined);
       engineRef.current.moveGroup(selected, initialGroupPositions, deltaX, deltaY);
+      setDragUpdateTrigger(prev => prev + 1); // Force arrow update
       updatePropertiesPanelPosition();
       return;
     }
@@ -1584,6 +1618,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           x: initialShapePos.x + deltaX,
           y: initialShapePos.y + deltaY,
         }, false);
+        setDragUpdateTrigger(prev => prev + 1); // Force arrow update
         updatePropertiesPanelPosition();
       } else if (tool === 'freehand') {
         if (shape.type === 'freehand') {
@@ -1718,6 +1753,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
     
     if ((isDrawing || isResizing || isGroupResizing || isGroupMoving) && engineRef.current) {
+      engineRef.current.setHideSelection(false);
       engineRef.current.saveState();
       saveCanvasState();
       const zoom = engineRef.current.getState().viewport.zoom;
@@ -1745,6 +1781,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     setInitialShapePos(null);
     setInitialMouseWorldPos(null);
     setLastMousePos(null);
+    setHoveredShapeId(null);
   };
 
   const getCursorForHandle = (handle: ResizeHandle): string => {
@@ -1858,7 +1895,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        // Select all shapes
+        const allShapes = engineRef.current.getAllShapes();
+        allShapes.forEach(shape => {
+          engineRef.current?.selectShape(shape.id, true);
+        });
+        updateSelectedShapesState();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         engineRef.current.undo();
         const zoom = engineRef.current.getState().viewport.zoom;
@@ -1901,6 +1946,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editingTextId]);
+
+  // Sync hover state with canvas engine
+  useEffect(() => {
+    if (engineRef.current) {
+      engineRef.current.setHoveredShape(hoveredShapeId);
+    }
+  }, [hoveredShapeId]);
 
   const handleUndo = () => {
     if (engineRef.current) {
@@ -2376,6 +2428,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             className="w-full h-full cursor-crosshair"
             style={{ display: 'block' }}
           />
+
+          {/* Arrow Overlay - SVG arrows connecting reference to generated images */}
+          {engineRef.current && (
+            <CanvasArrows
+              shapes={engineRef.current.getAllShapes()}
+              viewport={engineRef.current.getState().viewport}
+              updateTrigger={dragUpdateTrigger}
+              isSelecting={isSelecting}
+            />
+          )}
+
           {/* Selection Box Overlay */}
           {isSelecting && selectionBox && (
             <div

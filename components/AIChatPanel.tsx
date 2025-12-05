@@ -588,14 +588,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
         onAddShape(imageShape);
 
-        // Create reference arrows if references exist
-        const refIds = currentReferenceIdsRef.current;
-        if (refIds.length > 0) {
-          console.log('✅ Creating arrows for image:', imageShape.id);
-          setTimeout(() => {
-            createReferenceArrows(imageShape, refIds);
-          }, 50);
-        }
+        // Arrows now render automatically from CanvasArrows component based on generationMetadata.referenceImageIds
       }
     }
 
@@ -957,6 +950,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   /**
    * Creates reference arrows from reference images to generated image
    */
+  // DEPRECATED: Arrows now rendered by CanvasArrows React component (SVG overlay)
+  // Arrows automatically render from generationMetadata.referenceImageIds
+  /*
   const createReferenceArrows = useCallback((
     generatedImage: ImageShape,
     referenceImageIds: string[]
@@ -1020,6 +1016,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     console.log(`🎯 Created ${referenceShapes.length} reference arrows`);
   }, [allShapes, onAddShape, calculateEdgeToEdgePoints]);
+  */
 
   /**
    * Stops the animation for a placeholder
