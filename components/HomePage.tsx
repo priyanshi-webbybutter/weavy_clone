@@ -3,13 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown } from 'lucide-react';
+import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
 import ProtectedRoute from './auth/ProtectedRoute';
 
 interface Project {
   id: string;
   name: string;
   description: string | null;
+  type?: 'canvas' | 'workflow';
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +28,7 @@ function HomePageContent() {
   const [isCreateMenuOpenSidebar, setIsCreateMenuOpenSidebar] = useState(false);
   const [isCreateMenuOpenHeader, setIsCreateMenuOpenHeader] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'workflow' | 'canvas' | 'tutorials'>('workflow');
 
   // Fetch projects
   const fetchProjects = async () => {
@@ -91,6 +93,18 @@ function HomePageContent() {
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (project.description && project.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // Further filter by active tab
+  const displayedProjects = filteredProjects.filter(project => {
+    if (activeTab === 'canvas') {
+      return project.type === 'canvas';
+    }
+    if (activeTab === 'workflow') {
+      return project.type === 'workflow';
+    }
+    // Tutorials or other tabs show no projects (for now)
+    return false;
+  });
 
   // Handle create new project
   const handleCreateProject = async (type: 'workflow' | 'canvas' = 'canvas') => {
@@ -357,10 +371,36 @@ function HomePageContent() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b border-[#2a2a2a]">
-          <button className="px-4 py-2 border-b-2 border-white text-sm font-medium">
+          <button
+            onClick={() => setActiveTab('workflow')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'workflow'
+                ? 'border-b-2 border-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
             Workflow library
           </button>
-          <button className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+
+          <button
+            onClick={() => setActiveTab('canvas')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'canvas'
+                ? 'border-b-2 border-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Canvas Library
+          </button>
+
+          <button
+            onClick={() => setActiveTab('tutorials')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'tutorials'
+                ? 'border-b-2 border-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
             Tutorials
           </button>
         </div>
@@ -413,13 +453,19 @@ function HomePageContent() {
             <div className="text-center py-12 text-gray-400">
               Loading projects...
             </div>
-          ) : filteredProjects.length === 0 ? (
+          ) : displayedProjects.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
-              {searchQuery ? 'No projects found matching your search.' : 'No projects yet. Create your first project to get started!'}
+              {searchQuery
+                ? 'No projects found matching your search.'
+                : activeTab === 'canvas'
+                  ? 'No canvas projects yet. Create your first canvas project!'
+                  : activeTab === 'workflow'
+                    ? 'No workflow projects yet. Create your first workflow project!'
+                    : 'No projects yet. Create your first project to get started!'}
             </div>
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProjects.map((project) => (
+              {displayedProjects.map((project) => (
                 <button
                   key={project.id}
                   onClick={() => handleProjectClick(project.id, project.type)}
@@ -427,9 +473,21 @@ function HomePageContent() {
                 >
                   <div className="aspect-video bg-[#0a0a0a] rounded mb-3 flex items-center justify-center overflow-hidden">
                     <div className="w-16 h-16 text-gray-600 group-hover:text-[#8b5cf6] transition-colors">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M8 6h8M8 12h8M8 18h8M4 6h.01M4 12h.01M4 18h.01" strokeLinecap="round"/>
-                      </svg>
+                      {project.type === 'workflow' ? (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5">
+                          <rect x="9" y="2" width="6" height="4" rx="0.5" />
+                          <path d="M12 6v3" />
+                          <rect x="2" y="11" width="6" height="4" rx="0.5" />
+                          <rect x="16" y="11" width="6" height="4" rx="0.5" />
+                          <path d="M12 9L5 11M12 9L19 11" />
+                          <rect x="9" y="18" width="6" height="4" rx="0.5" />
+                          <path d="M5 15L12 18M19 15L12 18" />
+                        </svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5">
+                          <path d="M8 6h8M8 12h8M8 18h8M4 6h.01M4 12h.01M4 18h.01" strokeLinecap="round"/>
+                        </svg>
+                      )}
                     </div>
                   </div>
                   <div className="font-medium mb-1 truncate">{project.name}</div>
@@ -441,14 +499,18 @@ function HomePageContent() {
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredProjects.map((project) => (
+              {displayedProjects.map((project) => (
                 <button
                   key={project.id}
                   onClick={() => handleProjectClick(project.id, project.type)}
                   className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left flex items-center gap-4"
                 >
                   <div className="w-12 h-12 bg-[#0a0a0a] rounded flex items-center justify-center flex-shrink-0">
-                    <FolderOpen className="w-6 h-6 text-gray-600" />
+                    {project.type === 'workflow' ? (
+                      <Workflow className="w-6 h-6 text-gray-600" />
+                    ) : (
+                      <FolderOpen className="w-6 h-6 text-gray-600" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium mb-1 truncate">{project.name}</div>
