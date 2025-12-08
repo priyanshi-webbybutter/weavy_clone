@@ -526,10 +526,18 @@ export class CanvasEngine {
 
     const worldPoint = this.screenToWorld(point);
 
-    // Only check corner handles for images
-    const handlesToCheck = isImageShape 
-      ? ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as ResizeHandle[]
-      : (Object.keys(handles) as ResizeHandle[]);
+    // Determine which handles to check based on shape type
+    let handlesToCheck: ResizeHandle[];
+    if (isImageShape) {
+      // Images: corners only (4 handles)
+      handlesToCheck = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
+    } else if (shape.type === 'text') {
+      // Text: corners + left/right, no top/bottom center (6 handles)
+      handlesToCheck = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight', 'left', 'right'];
+    } else {
+      // Rectangles/circles: all 8 handles
+      handlesToCheck = Object.keys(handles) as ResizeHandle[];
+    }
 
     for (const handleName of handlesToCheck) {
       const handlePos = handles[handleName];
@@ -731,12 +739,28 @@ export class CanvasEngine {
           }, false);
         } else if (isWidthResize) {
           // Width is changing (left/right or corner handles)
-          const isCornerHandle = handle === 'topLeft' || handle === 'topRight' || 
+          const isCornerHandle = handle === 'topLeft' || handle === 'topRight' ||
                                 handle === 'bottomLeft' || handle === 'bottomRight';
-          
-          if (newWidth < initialBounds.width) {
-            // Making smaller - auto-adjust height based on wrapping and clip text
-              const calculatedHeight = this.calculateTextHeight(textShape.text, newWidth, textShape.style.fontSize || 16, textShape.style.fontFamily || 'Arial', textShape.style.fontWeight);
+
+          if (isCornerHandle) {
+            // Corner handles - scale font size based on height change (like bottom handle)
+            const baseFontSize = initialFontSize !== undefined ? initialFontSize : (textShape.style.fontSize || 16);
+            const heightRatio = newHeight / initialBounds.height;
+            const newFontSize = Math.max(8, Math.min(200, baseFontSize * heightRatio));
+
+            this.updateShape(shape.id, {
+              x: newX,
+              y: newY,
+              width: newWidth,
+              height: newHeight,
+              style: {
+                ...textShape.style,
+                fontSize: newFontSize,
+              },
+            }, false);
+          } else if (newWidth < initialBounds.width) {
+            // Edge handles making smaller - auto-adjust height based on wrapping and clip text
+            const calculatedHeight = this.calculateTextHeight(textShape.text, newWidth, textShape.style.fontSize || 16, textShape.style.fontFamily || 'Arial', textShape.style.fontWeight);
             this.updateShape(shape.id, {
               x: newX,
               y: newY,
@@ -744,24 +768,14 @@ export class CanvasEngine {
               height: calculatedHeight, // Auto-adjust height when making smaller
             }, false);
           } else {
-            // Making bigger
-            if (isCornerHandle) {
-              // Corner handles - use dragged height (both width and height as dragged)
-              this.updateShape(shape.id, {
-                x: newX,
-                y: newY,
-                width: newWidth,
-                height: newHeight, // Use dragged height from corner resize
-              }, false);
-            } else {
-              // Edge handles (left/right) - height not affected, width can be any size
-              this.updateShape(shape.id, {
-                x: newX,
-                y: newY,
-                width: newWidth,
-                height: newHeight, // Keep the dragged height, don't auto-adjust
-              }, false);
-            }
+            // Edge handles making bigger
+            // Edge handles (left/right) - height not affected, width can be any size
+            this.updateShape(shape.id, {
+              x: newX,
+              y: newY,
+              width: newWidth,
+              height: newHeight, // Keep the dragged height, don't auto-adjust
+            }, false);
           }
         } else {
           // Fallback: update normally
@@ -1486,7 +1500,8 @@ export class CanvasEngine {
     // Draw resize handles for rectangles, circles, text, and images
     if (shape.type === 'rectangle' || shape.type === 'circle' || shape.type === 'text' || shape.type === 'image') {
       const isImageShape = shape.type === 'image';
-      this.drawResizeHandles(bounds, false, isImageShape); // Use consistent style for all shapes
+      const isTextShape = shape.type === 'text';
+      this.drawResizeHandles(bounds, isTextShape, isImageShape);
     }
   }
 
@@ -1983,22 +1998,39 @@ export class CanvasEngine {
     this.ctx.lineWidth = 1 / this.state.viewport.zoom;
     this.ctx.setLineDash([]); // Clear dashed line for handles
 
-    // For images, only show corner handles
-    const handles = cornersOnly ? [
-      { x: bounds.x, y: bounds.y }, // topLeft
-      { x: bounds.x + bounds.width, y: bounds.y }, // topRight
-      { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
-      { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
-    ] : [
-      { x: bounds.x, y: bounds.y }, // topLeft
-      { x: bounds.x + bounds.width, y: bounds.y }, // topRight
-      { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
-      { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
-      { x: bounds.x + bounds.width / 2, y: bounds.y }, // top
-      { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height }, // bottom
-      { x: bounds.x, y: bounds.y + bounds.height / 2 }, // left
-      { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 }, // right
-    ];
+    // Determine which handles to show based on shape type
+    let handles;
+    if (cornersOnly) {
+      // Images and groups - corners only (4 handles)
+      handles = [
+        { x: bounds.x, y: bounds.y }, // topLeft
+        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
+        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
+      ];
+    } else if (isTextShape) {
+      // Text - corners + left/right, no top/bottom center (6 handles)
+      handles = [
+        { x: bounds.x, y: bounds.y }, // topLeft
+        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
+        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
+        { x: bounds.x, y: bounds.y + bounds.height / 2 }, // left
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 }, // right
+      ];
+    } else {
+      // Rectangles and circles - all 8 handles
+      handles = [
+        { x: bounds.x, y: bounds.y }, // topLeft
+        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
+        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
+        { x: bounds.x + bounds.width / 2, y: bounds.y }, // top
+        { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height }, // bottom
+        { x: bounds.x, y: bounds.y + bounds.height / 2 }, // left
+        { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 }, // right
+      ];
+    }
 
     handles.forEach(handle => {
       this.ctx?.fillRect(handle.x - halfHandleSize, handle.y - halfHandleSize, handleSize, handleSize);
