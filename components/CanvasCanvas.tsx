@@ -109,6 +109,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const canvasLoadedRef = useRef<boolean>(false);
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
 
+  // Text editing states
+  const [isEditingText, setIsEditingText] = useState(false);
+  const [extractedTextRegions, setExtractedTextRegions] = useState<Array<{
+    text: string;
+    location?: string;
+  }>>([]);
+  const [editedTextRegions, setEditedTextRegions] = useState<string[]>([]);
+  const [isExtractingText, setIsExtractingText] = useState(false);
+  const [isGeneratingEditedImage, setIsGeneratingEditedImage] = useState(false);
+  const [textEditingImageId, setTextEditingImageId] = useState<string | null>(null);
+  const [textEditPopupPos, setTextEditPopupPos] = useState<{ x: number; y: number } | null>(null);
+  const [textExtractionError, setTextExtractionError] = useState<string | null>(null);
+
   // Initialize engine
   useEffect(() => {
     if (canvasRef.current && !engineRef.current) {
@@ -284,6 +297,33 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     });
   };
 
+  const updateTextEditPopupPosition = () => {
+    if (!engineRef.current || !canvasRef.current || !textEditingImageId) {
+      setTextEditPopupPos(null);
+      return;
+    }
+
+    const shape = engineRef.current.getShape(textEditingImageId);
+    if (!shape) {
+      setTextEditPopupPos(null);
+      return;
+    }
+
+    const bounds = engineRef.current.getShapeBoundsInScreen(shape);
+    if (!bounds) {
+      setTextEditPopupPos(null);
+      return;
+    }
+
+    const canvasRect = canvasRef.current.getBoundingClientRect();
+    const gap = 20; // Gap between image and popup
+
+    setTextEditPopupPos({
+      x: canvasRect.left + bounds.x + bounds.width + gap,  // To the right
+      y: canvasRect.top + bounds.y,  // Top-aligned with image
+    });
+  };
+
   useEffect(() => {
     updatePropertiesPanelPosition();
   }, [selectedShapeId]);
@@ -300,6 +340,27 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       return () => cancelAnimationFrame(animationFrameId);
     }
   }, [selectedShapeId, isDrawing, isResizing, isGroupResizing, isGroupMoving, isPanning]);
+
+  // Update text edit popup position when editing starts/changes
+  useEffect(() => {
+    if (isEditingText && textEditingImageId) {
+      updateTextEditPopupPosition();
+    }
+  }, [textEditingImageId, isEditingText]);
+
+  // Update text edit popup position smoothly during interactions
+  useEffect(() => {
+    if (engineRef.current && textEditingImageId && isEditingText &&
+        (isDrawing || isResizing || isPanning)) {
+      let animationFrameId: number;
+      const update = () => {
+        updateTextEditPopupPosition();
+        animationFrameId = requestAnimationFrame(update);
+      };
+      animationFrameId = requestAnimationFrame(update);
+      return () => cancelAnimationFrame(animationFrameId);
+    }
+  }, [textEditingImageId, isEditingText, isDrawing, isResizing, isPanning]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -2561,6 +2622,186 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             </div>
           )}
 
+          {/* Text Editing Popup */}
+          {isEditingText && textEditPopupPos && textEditingImageId && (
+            <div
+              className="absolute bg-white rounded-xl shadow-2xl border border-gray-200 z-50"
+              style={{
+                left: `${textEditPopupPos.x}px`,
+                top: `${textEditPopupPos.y}px`,
+                width: '300px',
+                maxHeight: '600px',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <Type className="w-5 h-5 text-gray-700" />
+                  <h3 className="text-lg font-semibold text-gray-900">Edit Text</h3>
+                </div>
+              </div>
+
+              {/* Text Fields */}
+              <div className="px-5 py-4 max-h-[400px] overflow-y-auto">
+                {extractedTextRegions.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Type className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                    <p>No text detected</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {extractedTextRegions.map((region, index) => (
+                      <div key={index} className="relative">
+                        <input
+                          type="text"
+                          value={editedTextRegions[index] || ''}
+                          onChange={(e) => {
+                            const newRegions = [...editedTextRegions];
+                            newRegions[index] = e.target.value;
+                            setEditedTextRegions(newRegions);
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900"
+                          placeholder="Enter text..."
+                        />
+                        {editedTextRegions[index] !== region.text && (
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full" title="Modified" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Error Message */}
+              {textExtractionError && (
+                <div className="px-5 py-3 bg-red-50 border-t border-red-100">
+                  <p className="text-sm text-red-600">{textExtractionError}</p>
+                </div>
+              )}
+
+              {/* Footer Buttons */}
+              <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
+                <button
+                  onClick={() => {
+                    setIsEditingText(false);
+                    setExtractedTextRegions([]);
+                    setEditedTextRegions([]);
+                    setTextEditingImageId(null);
+                    setTextEditPopupPos(null);
+                    setTextExtractionError(null);
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={isGeneratingEditedImage}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={async () => {
+                    if (!engineRef.current || !textEditingImageId) return;
+
+                    const imageShape = engineRef.current.getShape(textEditingImageId) as ImageShape;
+                    if (!imageShape) return;
+
+                    // Check if any text was actually changed
+                    const hasChanges = extractedTextRegions.some(
+                      (region, index) => region.text !== editedTextRegions[index]
+                    );
+
+                    if (!hasChanges) {
+                      alert('No changes detected. Please edit at least one text field.');
+                      return;
+                    }
+
+                    setIsGeneratingEditedImage(true);
+                    setTextExtractionError(null);
+
+                    try {
+                      // Build prompt for Reve Edit
+                      const replacements = extractedTextRegions
+                        .map((region, index) => {
+                          if (region.text !== editedTextRegions[index]) {
+                            return `Replace "${region.text}" with "${editedTextRegions[index]}"`;
+                          }
+                          return null;
+                        })
+                        .filter(Boolean);
+
+                      const prompt = replacements.join('. ') + '.';
+
+                      console.log('🎨 Generating edited image with prompt:', prompt);
+
+                      // Call image generation API with Reve Edit model
+                      const response = await fetch(`${API_BASE_URL}/generate-image`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          modelId: 'reve/edit',
+                          image: imageShape.src,
+                          prompt: prompt,
+                          version: 'latest',
+                        }),
+                      });
+
+                      if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'Failed to generate edited image');
+                      }
+
+                      const data = await response.json();
+
+                      if (!data.success || !data.imageUrl) {
+                        throw new Error('No image URL returned from generation');
+                      }
+
+                      console.log('✅ Generated edited image:', data.imageUrl);
+
+                      // Update the image shape with new URL
+                      const updatedShape: ImageShape = {
+                        ...imageShape,
+                        src: data.imageUrl,
+                      };
+
+                      engineRef.current.updateShape(imageShape.id, updatedShape);
+                      updateSelectedShapesState();
+                      saveCanvasState();
+
+                      // Close popup
+                      setIsEditingText(false);
+                      setExtractedTextRegions([]);
+                      setEditedTextRegions([]);
+                      setTextEditingImageId(null);
+                      setTextEditPopupPos(null);
+                      setTextExtractionError(null);
+
+                    } catch (error: any) {
+                      console.error('❌ Error generating edited image:', error);
+                      setTextExtractionError(error.message || 'Failed to generate edited image');
+                    } finally {
+                      setIsGeneratingEditedImage(false);
+                    }
+                  }}
+                  className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  disabled={isGeneratingEditedImage || extractedTextRegions.length === 0}
+                >
+                  {isGeneratingEditedImage ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    `Generate`
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Properties Panel */}
           {propertiesPanelPos && selectedShapeId && engineRef.current && (() => {
             const shape = engineRef.current.getShape(selectedShapeId);
@@ -2655,6 +2896,71 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     title="Download Image"
                   >
                     <Download className="w-4 h-4" />
+                  </button>
+
+                  {/* Edit Text Button */}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!engineRef.current) return;
+
+                      const imageShape = shape as ImageShape;
+
+                      // Start extraction
+                      setIsExtractingText(true);
+                      setTextExtractionError(null);
+                      setTextEditingImageId(imageShape.id);
+
+                      try {
+                        // Call OCR API
+                        const response = await fetch(`${API_BASE_URL}/extract-text`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ imageUrl: imageShape.src }),
+                        });
+
+                        if (!response.ok) {
+                          const errorData = await response.json();
+                          throw new Error(errorData.message || 'Failed to extract text');
+                        }
+
+                        const data = await response.json();
+
+                        if (!data.success) {
+                          throw new Error(data.message || 'Text extraction failed');
+                        }
+
+                        // Check if any text was found
+                        if (!data.textRegions || data.textRegions.length === 0) {
+                          setTextExtractionError('No text detected in this image. Please try an image with visible text.');
+                          setIsExtractingText(false);
+                          return;
+                        }
+
+                        console.log(`✅ Extracted ${data.textRegions.length} text region(s)`);
+
+                        // Store extracted text
+                        setExtractedTextRegions(data.textRegions);
+                        setEditedTextRegions(data.textRegions.map((r: any) => r.text));
+
+                        // Position will be updated by useEffect hook
+                        setIsEditingText(true);
+                      } catch (error: any) {
+                        console.error('❌ Error extracting text:', error);
+                        setTextExtractionError(error.message || 'Failed to extract text from image');
+                      } finally {
+                        setIsExtractingText(false);
+                      }
+                    }}
+                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded relative"
+                    title="Edit Text"
+                    disabled={isExtractingText}
+                  >
+                    {isExtractingText ? (
+                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Type className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               );
@@ -3685,6 +3991,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           </div>
         </div>
       </div>
+
     </div>
   );
 }

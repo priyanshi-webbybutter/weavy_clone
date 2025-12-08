@@ -8,6 +8,7 @@ const authRoute = require('./routes/auth');
 const projectsRoute = require('./routes/projects');
 const uploadCanvasImageRoute = require('./routes/upload-canvas-image');
 const aiChatRoute = require('./routes/ai-chat');
+const extractTextRoute = require('./routes/extract-text');
 
 // Load environment variables
 dotenv.config();
@@ -44,6 +45,7 @@ app.use('/api', authRoute);
 app.use('/api', projectsRoute);
 app.use('/api', uploadCanvasImageRoute);
 app.use('/api/ai-chat', aiChatRoute);
+app.use('/api', extractTextRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {
