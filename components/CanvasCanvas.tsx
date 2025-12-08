@@ -477,6 +477,27 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   };
 
   // Save canvas state to backend (for persistence across devices)
+  // Extract Supabase Storage image URLs for preview
+  const extractPreviewImages = (canvasData: any): string[] => {
+    if (!canvasData?.shapes) return [];
+
+    // Extract image shapes with Supabase Storage URLs only
+    // Note: shapes are stored as tuples [shapeId, shapeData]
+    const supabaseStorageImages = canvasData.shapes
+      .filter((shapeEntry: any) => {
+        // shapeEntry is a tuple: [shapeId, shapeData]
+        const shape = shapeEntry[1]; // Access the shape data from tuple
+        if (!shape || shape.type !== 'image' || !shape.src) return false;
+
+        // Only include Supabase Storage URLs (exclude base64 and other URLs)
+        return shape.src.includes('.supabase.co/storage/');
+      })
+      .slice(0, 4) // Max 4 images
+      .map((shapeEntry: any) => shapeEntry[1].src); // Access src from tuple
+
+    return supabaseStorageImages;
+  };
+
   const saveCanvasState = async (force: boolean = false) => {
     // Don't save while uploading - wait for upload to complete with Supabase URL
     if (uploadingImageId) return;
@@ -521,23 +542,55 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       }
 
       saveTimeoutRef.current = setTimeout(async () => {
-        // Save to backend for persistence
-        const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            canvas_state: canvasData,
-          }),
-        });
+        try {
+          // Extract preview images (Supabase Storage URLs only)
+          const previewImages = extractPreviewImages(canvasData);
+          console.log('🖼️ Extracted preview images:', previewImages);
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ Failed to save canvas to backend:', response.status, errorText);
-        } else {
-          console.log('✅ Canvas saved to backend successfully');
+          // Save canvas state to backend for persistence
+          const response = await fetch(`${API_BASE_URL}/workflows/${currentProjectId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              canvas_state: canvasData,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('❌ Failed to save canvas to backend:', response.status, errorText);
+          } else {
+            console.log('✅ Canvas saved to backend successfully');
+          }
+
+          // Update preview_images in projects table (non-blocking)
+          try {
+            const previewResponse = await fetch(`${API_BASE_URL}/projects/${currentProjectId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                preview_images: previewImages,
+              }),
+            });
+
+            if (!previewResponse.ok) {
+              const errorText = await previewResponse.text();
+              console.error('❌ Failed to update preview images:', previewResponse.status, errorText);
+            } else {
+              console.log('✅ Preview images updated successfully:', previewImages.length, 'images');
+            }
+          } catch (previewError) {
+            // Don't block canvas save if preview update fails
+            console.warn('⚠️ Could not update preview images (canvas still saved):', previewError);
+          }
+        } catch (error) {
+          console.error('❌ Error saving to backend:', error);
         }
       }, 500); // 500ms debounce
     } catch (error) {

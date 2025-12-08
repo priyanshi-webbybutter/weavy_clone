@@ -19,7 +19,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3002'], // Allow both frontend ports
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: ['Content-Length', 'X-Requested-With'],
 }));

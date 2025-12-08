@@ -312,18 +312,24 @@ router.patch('/projects/:id', async (req, res) => {
     }
 
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, preview_images } = req.body;
 
     // Validate at least one field to update
-    if (name === undefined && description === undefined) {
+    if (name === undefined && description === undefined && preview_images === undefined) {
       return res.status(400).json({
-        error: 'At least one field (name or description) must be provided',
+        error: 'At least one field (name, description, or preview_images) must be provided',
       });
     }
 
     if (name !== undefined && (typeof name !== 'string' || name.trim().length === 0)) {
       return res.status(400).json({
         error: 'Project name must be a non-empty string',
+      });
+    }
+
+    if (preview_images !== undefined && !Array.isArray(preview_images)) {
+      return res.status(400).json({
+        error: 'preview_images must be an array',
       });
     }
 
@@ -335,6 +341,9 @@ router.patch('/projects/:id', async (req, res) => {
     }
     if (description !== undefined) {
       updateData.description = description?.trim() || null;
+    }
+    if (preview_images !== undefined) {
+      updateData.preview_images = preview_images;
     }
 
     const { data, error } = await supabaseClient

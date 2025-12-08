@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
 import ProtectedRoute from './auth/ProtectedRoute';
+import CanvasPreview from './CanvasPreview';
 
 interface Project {
   id: string;
   name: string;
   description: string | null;
   type?: 'canvas' | 'workflow';
+  preview_images?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -472,8 +474,10 @@ function HomePageContent() {
                   className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left group"
                 >
                   <div className="aspect-video bg-[#0a0a0a] rounded mb-3 flex items-center justify-center overflow-hidden">
-                    <div className="w-16 h-16 text-gray-600 group-hover:text-[#8b5cf6] transition-colors">
-                      {project.type === 'workflow' ? (
+                    {project.type === 'canvas' ? (
+                      <CanvasPreview images={project.preview_images} />
+                    ) : (
+                      <div className="w-16 h-16 text-gray-600 group-hover:text-[#8b5cf6] transition-colors">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5">
                           <rect x="9" y="2" width="6" height="4" rx="0.5" />
                           <path d="M12 6v3" />
@@ -483,12 +487,8 @@ function HomePageContent() {
                           <rect x="9" y="18" width="6" height="4" rx="0.5" />
                           <path d="M5 15L12 18M19 15L12 18" />
                         </svg>
-                      ) : (
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5">
-                          <path d="M8 6h8M8 12h8M8 18h8M4 6h.01M4 12h.01M4 18h.01" strokeLinecap="round"/>
-                        </svg>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                   <div className="font-medium mb-1 truncate">{project.name}</div>
                   <div className="text-xs text-gray-400">
