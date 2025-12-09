@@ -258,7 +258,26 @@ export class CanvasEngine {
     }
     const shape = this.state.shapes.get(id);
     if (shape) {
+      // Check if position is being updated and calculate delta for child shapes
+      const deltaX = updates.x !== undefined ? updates.x - shape.x : 0;
+      const deltaY = updates.y !== undefined ? updates.y - shape.y : 0;
+      const hasMoved = deltaX !== 0 || deltaY !== 0;
+
       this.state.shapes.set(id, { ...shape, ...updates } as Shape);
+
+      // Move child shapes (e.g., dots attached to images) when parent moves
+      if (hasMoved) {
+        this.getAllShapes().forEach(childShape => {
+          if (childShape.parentId === id) {
+            this.state.shapes.set(childShape.id, {
+              ...childShape,
+              x: childShape.x + deltaX,
+              y: childShape.y + deltaY,
+            } as Shape);
+          }
+        });
+      }
+
       this.render();
 
       // Notify callback if an image was updated (for dynamic arrow updates)
@@ -483,6 +502,11 @@ export class CanvasEngine {
   // Resize handle detection
   getResizeHandleAt(point: Point, shape: Shape): ResizeHandle | null {
     if (!this.canvas || !this.ctx) return null;
+
+    // Don't show resize handles for locked shapes
+    if (shape.locked) {
+      return null;
+    }
 
     const handleSizeWorld = this.HANDLE_SIZE / this.state.viewport.zoom;
     const halfHandleSize = handleSizeWorld / 2;
@@ -1445,7 +1469,31 @@ export class CanvasEngine {
     if (!this.ctx || this.hideSelection) return;
 
     this.ctx.save();
-    
+
+    // Special handling for locked circle shapes (red dots)
+    if (shape.locked && shape.type === 'circle') {
+      const circleShape = shape as CircleShape;
+
+      // Draw blue circle border for locked circles
+      this.ctx.strokeStyle = '#3b82f6'; // Blue color
+      this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+      this.ctx.setLineDash([]); // Solid line, not dashed
+
+      // Draw circle border at the shape's position
+      this.ctx.beginPath();
+      this.ctx.arc(
+        circleShape.x + circleShape.radius,
+        circleShape.y + circleShape.radius,
+        circleShape.radius + 2, // Slightly larger than the shape
+        0,
+        Math.PI * 2
+      );
+      this.ctx.stroke();
+
+      this.ctx.restore();
+      return; // Skip normal selection drawing
+    }
+
     // Use consistent purple dashed style for all shapes
     this.ctx.strokeStyle = '#8b5cf6'; // Purple for all shapes
     this.ctx.lineWidth = 2 / this.state.viewport.zoom;

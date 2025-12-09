@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
-import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape } from '@/lib/canvas/types';
+import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape, CircleShape } from '@/lib/canvas/types';
 import ColorPicker from './ColorPicker';
 import ShapeSettingsPanel from './ShapeSettingsPanel';
 import {
@@ -264,6 +264,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     const shape = engineRef.current.getShape(selectedShapeId);
     if (!shape) {
+      setPropertiesPanelPos(null);
+      return;
+    }
+
+    // Don't show properties panel for red dots (locked circles)
+    if (shape.locked && shape.type === 'circle') {
       setPropertiesPanelPos(null);
       return;
     }
@@ -1354,6 +1360,70 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     // Don't handle canvas interactions in crop mode
     if (isCropping) return;
+
+    // Detect Ctrl+Click to place red dot
+    if ((e.ctrlKey || e.metaKey) && e.button === 0) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const screenPoint: Point = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      };
+
+      // Check if clicked on an image
+      const clickedShape = engineRef.current.hitTest(screenPoint);
+      if (clickedShape && clickedShape.type === 'image') {
+        // Convert to world coordinates
+        const worldPoint = engineRef.current.screenToWorld(screenPoint);
+        const imageShape = clickedShape as ImageShape;
+
+        // Calculate normalized coordinates (0-1 range) relative to image bounds
+        const normalizedX = (worldPoint.x - imageShape.x) / imageShape.width;
+        const normalizedY = (worldPoint.y - imageShape.y) / imageShape.height;
+        const interestX = Math.max(0, Math.min(1, normalizedX));
+        const interestY = Math.max(0, Math.min(1, normalizedY));
+
+        // Calculate bounding box (12.5% padding)
+        const boxPadding = 0.0625;
+        const bboxXMin = Math.max(0, interestX - boxPadding);
+        const bboxYMin = Math.max(0, interestY - boxPadding);
+        const bboxXMax = Math.min(1, interestX + boxPadding);
+        const bboxYMax = Math.min(1, interestY + boxPadding);
+
+        // Log coordinates
+        console.log('Interest Point: [' + interestX.toFixed(2) + ', ' + interestY.toFixed(2) + ']');
+        console.log('Bounding Box: [' +
+          bboxXMin.toFixed(2) + ', ' +
+          bboxYMin.toFixed(2) + ', ' +
+          bboxXMax.toFixed(2) + ', ' +
+          bboxYMax.toFixed(2) + ']'
+        );
+
+        // Create small red circle at click position
+        const redDot: CircleShape = {
+          id: `dot-${Date.now()}`,
+          type: 'circle',
+          x: worldPoint.x - 5,  // Offset by radius for center positioning
+          y: worldPoint.y - 5,
+          radius: 5,  // Small 5px radius (10px diameter)
+          style: {
+            fill: '#ef4444',  // Red color (Tailwind red-500)
+            stroke: '#ffffff',  // White outline
+            strokeWidth: 1,
+            opacity: 1
+          },
+          visible: true,
+          locked: true,  // Prevent resizing
+          parentId: clickedShape.id  // Track which image this dot belongs to
+        };
+
+        engineRef.current.addShape(redDot);
+        console.log('✅ Red dot placed');
+      } else {
+        console.log('❌ Must click on an image to place dot');
+      }
+
+      return; // Don't process as normal click
+    }
 
     const rect = canvasRef.current.getBoundingClientRect();
     const point: Point = {

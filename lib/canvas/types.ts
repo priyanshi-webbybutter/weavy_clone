@@ -44,6 +44,7 @@ export interface BaseShape {
   style: ShapeStyle;
   locked?: boolean;
   visible?: boolean;
+  parentId?: string; // ID of parent shape (e.g., image that this shape is attached to)
 }
 
 export interface RectangleShape extends BaseShape {
