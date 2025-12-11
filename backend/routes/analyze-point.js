@@ -120,7 +120,37 @@ Examples:
 
     const response = await result.response;
     const text = response.text();
-    let suggestions = JSON.parse(text);
+
+    // Parse and validate response
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(text);
+    } catch (parseError) {
+      console.error('❌ Failed to parse Gemini response:', parseError);
+      console.error('Raw response:', text);
+      return res.status(500).json({
+        error: 'Invalid API response format',
+        details: parseError.message
+      });
+    }
+
+    // Validate it's an array
+    if (!Array.isArray(parsedResponse)) {
+      console.error('❌ Gemini response is not an array:', typeof parsedResponse);
+      console.error('Response:', parsedResponse);
+
+      // If it's an object with results property, extract it
+      if (parsedResponse && typeof parsedResponse === 'object' && Array.isArray(parsedResponse.results)) {
+        console.log('✅ Found results array in response object');
+        parsedResponse = parsedResponse.results;
+      } else {
+        // Wrap single object in array as fallback
+        console.log('⚠️ Wrapping non-array response in array');
+        parsedResponse = parsedResponse ? [parsedResponse] : [];
+      }
+    }
+
+    let suggestions = parsedResponse;
 
     // Convert clicked point to [0, 1] normalized coordinates
     const clickedPointNormalized = [point[0] / 1000, point[1] / 1000]; // [y, x]
@@ -156,16 +186,23 @@ Examples:
       const pointX = clickedPointNormalized[1]; // x coordinate
       const pointY = clickedPointNormalized[0]; // y coordinate
 
+      // Add tolerance for Gemini's bbox inaccuracy (often 50-100px off)
+      const TOLERANCE = 0.1; // 100 pixel tolerance - Gemini bboxes are often inaccurate
+
       const isInside = (
-        pointX >= bbox.x &&
-        pointX <= bbox.x + bbox.width &&
-        pointY >= bbox.y &&
-        pointY <= bbox.y + bbox.height
+        pointX >= bbox.x - TOLERANCE &&
+        pointX <= bbox.x + bbox.width + TOLERANCE &&
+        pointY >= bbox.y - TOLERANCE &&
+        pointY <= bbox.y + bbox.height + TOLERANCE
       );
 
       if (!isInside) {
         console.log(`⚠️ Filtered out "${s.label}" - bbox doesn't contain clicked point`);
-        console.log(`   Point: (${pointX.toFixed(3)}, ${pointY.toFixed(3)}) not in bbox: [${bbox.x.toFixed(3)}, ${bbox.y.toFixed(3)}, ${(bbox.x + bbox.width).toFixed(3)}, ${(bbox.y + bbox.height).toFixed(3)}]`);
+        console.log(`   Point: (${pointX.toFixed(3)}, ${pointY.toFixed(3)})`);
+        console.log(`   BBox: x:[${bbox.x.toFixed(3)}, ${(bbox.x + bbox.width).toFixed(3)}], y:[${bbox.y.toFixed(3)}, ${(bbox.y + bbox.height).toFixed(3)}]`);
+        console.log(`   X inside: ${pointX >= bbox.x - TOLERANCE && pointX <= bbox.x + bbox.width + TOLERANCE}`);
+        console.log(`   Y inside: ${pointY >= bbox.y - TOLERANCE && pointY <= bbox.y + bbox.height + TOLERANCE}`);
+        console.log(`   Distance from edges: left=${(pointX - bbox.x).toFixed(3)}, right=${(bbox.x + bbox.width - pointX).toFixed(3)}, top=${(pointY - bbox.y).toFixed(3)}, bottom=${(bbox.y + bbox.height - pointY).toFixed(3)}`);
       }
 
       return isInside;
@@ -203,6 +240,13 @@ Examples:
       const priorityStr = typeof s.priority_index === 'number' ? `priority=${s.priority_index}` : 'NO PRIORITY';
       console.log(`  ${idx + 1}. "${s.label}" (${priorityStr}, area: ${area}px²)`);
     });
+
+    // Warning if all suggestions were filtered out
+    if (validSuggestions.length === 0 && suggestions.length > 0) {
+      console.log(`\n⚠️ WARNING: All ${suggestions.length} suggestions were filtered out!`);
+      console.log(`   This likely means bbox validation is too strict or coordinates are misaligned.`);
+      console.log(`   Clicked point: (${clickedPointNormalized[1].toFixed(3)}, ${clickedPointNormalized[0].toFixed(3)})`);
+    }
 
     if (validSuggestions.length > 0) {
       const first = validSuggestions[0];

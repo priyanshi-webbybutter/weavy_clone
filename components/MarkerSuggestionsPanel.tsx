@@ -18,6 +18,7 @@ interface MarkerSuggestionsPanelProps {
   position: { x: number; y: number };
   onClose: () => void;
   onSelectSuggestion: (suggestion: any) => void;
+  onDelete: (markerId: string) => void;
 }
 
 export function MarkerSuggestionsPanel({
@@ -25,6 +26,7 @@ export function MarkerSuggestionsPanel({
   position,
   onClose,
   onSelectSuggestion,
+  onDelete,
 }: MarkerSuggestionsPanelProps) {
   return (
     <div
@@ -39,12 +41,25 @@ export function MarkerSuggestionsPanel({
           </div>
           <span className="text-sm font-medium text-gray-300">Detected Objects</span>
         </div>
-        <button
-          onClick={onClose}
-          className="text-gray-400 hover:text-white text-lg leading-none"
-        >
-          ×
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Delete Button */}
+          <button
+            onClick={() => onDelete(marker.id)}
+            className="text-red-400 hover:text-red-300 text-sm transition-colors"
+            title="Delete marker"
+          >
+            Delete
+          </button>
+
+          {/* Close Button */}
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white text-lg leading-none"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Detection Results */}

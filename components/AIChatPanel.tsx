@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Send, Paperclip, Sparkles, RefreshCw } from 'lucide-react';
+import { X, Plus, Send, Paperclip, Sparkles, RefreshCw, Info } from 'lucide-react';
 import { Shape, ImageShape, TextShape, ArrowShape, Point } from '@/lib/canvas/types';
 import { findOptimalPlacement, findMultiPlacement } from '@/lib/canvas/placementUtils';
 import MarkdownMessage from './MarkdownMessage';
+import { MarkerResultChip, MarkerResult } from './MarkerResultChip';
 
 interface Message {
   id: string;
@@ -14,6 +15,11 @@ interface Message {
   images?: { url: string; prompt: string }[];
   selectedImages?: { id: string; url: string }[];
   actions?: CanvasAction[];
+  markerData?: {
+    imageUrl: string;
+    label: string;
+    bbox: number[]; // [x1, y1, x2, y2] in normalized [0, 1] coordinates
+  };
   timestamp: Date;
 }
 
@@ -125,6 +131,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const currentReferenceIdsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Marker results state
+  const [markerResults, setMarkerResults] = useState<MarkerResult[]>([]);
+  const [analyzingMarkers, setAnalyzingMarkers] = useState<Set<string>>(new Set());
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -198,6 +208,71 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setHistoryLoaded(false);
     setMessages([]); // Clear messages when switching projects
   }, [projectId]);
+
+  // Handle marker analysis results
+  const handleMarkerAnalyzed = useCallback((markerData: any) => {
+    if (!markerData.detectionResults || markerData.detectionResults.length === 0) {
+      // Remove from analyzing set if no results
+      setAnalyzingMarkers(prev => {
+        const next = new Set(prev);
+        next.delete(markerData.id);
+        return next;
+      });
+      return;
+    }
+
+    // Get image shape for thumbnail
+    const imageShape = allShapes.find(s => s.id === markerData.imageId) as ImageShape;
+    if (!imageShape) {
+      console.warn('Image shape not found for marker:', markerData.imageId);
+      return;
+    }
+
+    // Create marker result
+    const result: MarkerResult = {
+      markerId: markerData.id,
+      markerNumber: markerData.number,
+      label: markerData.detectionResults[0].label,
+      imageUrl: imageShape.src,
+      markerPosition: {
+        x: markerData.normalizedPosition[1] / 1000, // x coordinate
+        y: markerData.normalizedPosition[0] / 1000  // y coordinate
+      },
+      zoomRegion: markerData.detectionResults[0].bbox
+    };
+
+    // Add to results and remove from analyzing
+    setMarkerResults(prev => [...prev, result]);
+    setAnalyzingMarkers(prev => {
+      const next = new Set(prev);
+      next.delete(markerData.id);
+      return next;
+    });
+  }, [allShapes]);
+
+  // Listen for marker events from CanvasCanvas
+  useEffect(() => {
+    const handleMarkerEvent = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { type, marker } = customEvent.detail;
+
+      if (type === 'marker-analyzing') {
+        setAnalyzingMarkers(prev => new Set(prev).add(marker.id));
+      } else if (type === 'marker-analyzed') {
+        handleMarkerAnalyzed(marker);
+      } else if (type === 'marker-error') {
+        // Remove from analyzing on error
+        setAnalyzingMarkers(prev => {
+          const next = new Set(prev);
+          next.delete(marker.id);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('marker-event', handleMarkerEvent);
+    return () => window.removeEventListener('marker-event', handleMarkerEvent);
+  }, [handleMarkerAnalyzed]);
 
   /**
    * Fixes malformed markdown image syntax where alt text contains newlines
@@ -1099,11 +1174,56 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       url: img.url
     }))];
 
+    // Build mention_list from ALL active markerResults (Phase 5: Auto-attach markers)
+    const mentionList = markerResults
+      .filter(marker => marker.zoomRegion) // Only include markers with valid bbox
+      .map((marker, index) => ({
+        type: "image",
+        value: `element-image-${marker.markerId}`,
+        label: marker.label,
+        thumbnail: marker.imageUrl,
+        source: "mark",
+        bbox: [
+          marker.zoomRegion!.x,
+          marker.zoomRegion!.y,
+          marker.zoomRegion!.x + marker.zoomRegion!.width,
+          marker.zoomRegion!.y + marker.zoomRegion!.height
+        ]
+      }));
+
+    // Build image_list from markers
+    const imageList = mentionList.map(mention => ({
+      image_url: mention.thumbnail
+    }));
+
+    // Update message text to include marker references
+    let finalMessageText = messageText;
+    if (mentionList.length > 0) {
+      const refs = mentionList
+        .map((m, i) => `[@image:#${i + 1}:${m.label}]`)
+        .join(' ');
+      finalMessageText = `${refs} ${messageText}`;
+    }
+
+    // Store markerData in message for display (first marker only for now)
+    const firstMarker = markerResults.find(m => m.zoomRegion);
+    const markerDataForDisplay = firstMarker && firstMarker.zoomRegion ? {
+      imageUrl: firstMarker.imageUrl,
+      label: firstMarker.label,
+      bbox: [
+        firstMarker.zoomRegion.x,
+        firstMarker.zoomRegion.y,
+        firstMarker.zoomRegion.x + firstMarker.zoomRegion.width,
+        firstMarker.zoomRegion.y + firstMarker.zoomRegion.height
+      ]
+    } : undefined;
+
     const userMessage: Message = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: messageText,
+      content: finalMessageText,
       selectedImages: allImages.length > 0 ? allImages : undefined,
+      markerData: markerDataForDisplay,
       timestamp: new Date()
     };
 
@@ -1171,11 +1291,21 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
       // Build FormData for multipart upload
       const formData = new FormData();
-      formData.append('message', messageText);
+      formData.append('message', finalMessageText); // Use finalMessageText with marker references
       formData.append('conversationHistory', JSON.stringify(
         messages.map(m => ({ role: m.role, content: m.content }))
       ));
       formData.append('canvasContext', JSON.stringify(buildCanvasContext()));
+
+      // Append mention_list and image_list if markers present (Phase 5)
+      if (mentionList.length > 0) {
+        formData.append('mention_list', JSON.stringify(mentionList));
+        formData.append('image_list', JSON.stringify(imageList));
+        console.log('🎯 Attached marker data (reference agent format):', {
+          markers: mentionList.length,
+          labels: mentionList.map(m => m.label)
+        });
+      }
 
       if (brandBible) {
         formData.append('brandBible', JSON.stringify(brandBible));
@@ -1190,6 +1320,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       if (allImagesForCompositing.length > 0) {
         formData.append('selectedImages', JSON.stringify(allImagesForCompositing));
         console.log(`📷 Attached ${allImagesForCompositing.length} images for compositing (${selectedImages.length} selected + ${uploadedImagesBase64.length} uploaded)`);
+      }
+
+      // Append marker data if present (image, label, bbox coordinates)
+      if (userMessage.markerData) {
+        formData.append('markerData', JSON.stringify(userMessage.markerData));
+        console.log('🎯 Attached marker data:', {
+          label: userMessage.markerData.label,
+          bbox: userMessage.markerData.bbox
+        });
       }
 
       // Append PNG file if canvas has content
@@ -1482,6 +1621,22 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                       : 'text-gray-200'
                   }`}
                 >
+                  {/* Inline Marker Chip (Phase 3) - Show before message content */}
+                  {message.role === 'user' && message.markerData && (
+                    <div className="flex items-center gap-2 flex-wrap mb-2 pb-2 border-b border-gray-700/50">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 border border-blue-500/50 rounded-full text-xs">
+                        <img
+                          src={message.markerData.imageUrl}
+                          alt={message.markerData.label}
+                          className="w-4 h-4 rounded-full object-cover"
+                        />
+                        <Info className="w-3 h-3 text-blue-400" />
+                        <span className="text-blue-300">{message.markerData.label}</span>
+                      </span>
+                      <span className="text-gray-500 text-xs">|</span>
+                    </div>
+                  )}
+
                   {message.role === 'assistant' ? (
                     <MarkdownMessage content={cleanMarkdownImages(message.content)} />
                   ) : (
@@ -1508,6 +1663,48 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                           />
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Marked Image Display - Thumbnail with Zoom (Phase 4) */}
+                  {message.role === 'user' && message.markerData && (
+                    <div className="mt-3 relative group">
+                      {/* Thumbnail Image */}
+                      <div className="relative w-64 h-64 overflow-hidden rounded-lg border border-[#2a2a2a] cursor-pointer">
+                        <img
+                          src={message.markerData.imageUrl}
+                          alt={message.markerData.label}
+                          className="w-full h-full object-cover"
+                        />
+
+                        {/* Visual Marker Pin Overlay */}
+                        <div
+                          className="absolute bg-blue-500 w-3 h-3 rounded-full border-2 border-white shadow-lg"
+                          style={{
+                            left: `${message.markerData.bbox[0] * 100}%`,
+                            top: `${message.markerData.bbox[1] * 100}%`,
+                            transform: 'translate(-50%, -50%)'
+                          }}
+                        />
+                      </div>
+
+                      {/* Zoom on Hover - Enlarged View */}
+                      <div className="hidden group-hover:block absolute top-0 left-full ml-4 w-96 h-96 rounded-lg border-2 border-blue-500 shadow-2xl z-50 bg-black overflow-hidden">
+                        <img
+                          src={message.markerData.imageUrl}
+                          alt={message.markerData.label}
+                          className="w-full h-full object-contain"
+                        />
+                        {/* Marker pin in zoomed view */}
+                        <div
+                          className="absolute bg-blue-500 w-4 h-4 rounded-full border-2 border-white shadow-lg"
+                          style={{
+                            left: `${message.markerData.bbox[0] * 100}%`,
+                            top: `${message.markerData.bbox[1] * 100}%`,
+                            transform: 'translate(-50%, -50%)'
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -1619,6 +1816,52 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           multiple
           className="hidden"
         />
+
+        {/* Active Marker Chips - Auto-attach on send (Phase 6) */}
+        {(markerResults.length > 0 || analyzingMarkers.size > 0) && (
+          <div className="mb-3">
+            <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
+              <Info className="w-3 h-3" />
+              <span>Active Markers ({markerResults.filter(m => m.zoomRegion).length})</span>
+              <span className="text-gray-500">• Will be sent with your message</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Loading chips for analyzing markers */}
+              {Array.from(analyzingMarkers).map(markerId => (
+                <MarkerResultChip
+                  key={`loading-${markerId}`}
+                  marker={{
+                    markerId,
+                    markerNumber: 0,
+                    label: '',
+                    imageUrl: '',
+                    markerPosition: { x: 0, y: 0 }
+                  }}
+                  onRemove={() => {}}
+                  isLoading={true}
+                />
+              ))}
+
+              {/* Result chips */}
+              {markerResults.map(marker => (
+                <MarkerResultChip
+                  key={marker.markerId}
+                  marker={marker}
+                  onRemove={(id) => {
+                    // Remove chip from chat panel
+                    setMarkerResults(prev => prev.filter(m => m.markerId !== id));
+
+                    // Emit event to remove marker from canvas
+                    window.dispatchEvent(new CustomEvent('marker-delete', {
+                      detail: { markerId: id }
+                    }));
+                  }}
+                  isLoading={analyzingMarkers.has(marker.markerId)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Input */}
         <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl overflow-hidden">

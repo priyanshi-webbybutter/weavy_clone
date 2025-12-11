@@ -1078,6 +1078,94 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
       selectedImages = [];
     }
 
+    // === PHASE 1: Parse marker data (mention_list and image_list) ===
+    let mentionList = [];
+    let imageList = [];
+    let markerData = null;
+
+    if (req.body.mention_list) {
+      try {
+        mentionList = JSON.parse(req.body.mention_list);
+        console.log(`🎯 Received ${mentionList.length} marker(s) with labels:`, mentionList.map(m => m.label));
+      } catch (parseError) {
+        console.error('❌ Failed to parse mention_list:', parseError.message);
+      }
+    }
+
+    if (req.body.image_list) {
+      try {
+        imageList = JSON.parse(req.body.image_list);
+        console.log(`📸 Received ${imageList.length} marked image(s)`);
+      } catch (parseError) {
+        console.error('❌ Failed to parse image_list:', parseError.message);
+      }
+    }
+
+    if (req.body.markerData) {
+      try {
+        markerData = JSON.parse(req.body.markerData);
+        console.log('🎯 Legacy marker data:', markerData);
+      } catch (parseError) {
+        console.error('❌ Failed to parse markerData:', parseError.message);
+      }
+    }
+    // ==================================================================
+
+    // === PHASE 3: Combine marked images with selected images for processing ===
+    if (imageList.length > 0) {
+      console.log('📥 Fetching marked images for compositing...');
+
+      for (const markedImg of imageList) {
+        try {
+          const response = await fetch(markedImg.image_url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const buffer = await response.arrayBuffer();
+          const base64 = Buffer.from(buffer).toString('base64');
+
+          // Find corresponding marker metadata
+          const marker = mentionList.find(m => m.thumbnail === markedImg.image_url);
+
+          // Add to selectedImages array with marker context
+          selectedImages.push({
+            id: `marker-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            base64: base64,
+            description: marker ? `Marked image with ${marker.label} at coordinates [${marker.bbox.join(', ')}]` : 'Marked image',
+            isMarked: true,
+            markerLabel: marker?.label,
+            markerBbox: marker?.bbox,
+            width: 1024, // Default dimensions
+            height: 1024,
+            area: 1024 * 1024,
+            aspectRatio: 1.0
+          });
+
+          console.log(`✅ Fetched marked image: ${marker?.label || 'unknown'} (${Math.round(base64.length / 1024)}KB)`);
+        } catch (error) {
+          console.error('❌ Failed to fetch marked image:', error.message);
+        }
+      }
+
+      console.log(`📷 Combined images: ${selectedImages.length} total (including ${imageList.length} marked)`);
+    }
+    // ===========================================================================
+
+    // === PHASE 4: Clean message by removing marker references ===
+    let cleanMessage = message;
+    if (mentionList.length > 0) {
+      // Remove [@image:#N:label] patterns
+      const originalMessage = message;
+      cleanMessage = message.replace(/\[@image:#\d+:[^\]]+\]\s*/g, '').trim();
+
+      if (originalMessage !== cleanMessage) {
+        console.log('🧹 Original message:', originalMessage);
+        console.log('🧹 Cleaned message:', cleanMessage);
+      }
+    }
+    // ==============================================================
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -1226,6 +1314,33 @@ Fill in the {{variables}} with information from the user's request.\n`;
       systemContext += `These images will be automatically sent for compositing when you call call_image_generator.\n`;
     }
 
+    // === PHASE 2: Add marker context if present ===
+    if (mentionList.length > 0) {
+      systemContext += `\n\n🎯 MARKED REGIONS FOR EDITING:\n`;
+      systemContext += `The user has marked ${mentionList.length} specific region(s) in the image(s) for editing:\n\n`;
+
+      mentionList.forEach((marker, index) => {
+        systemContext += `Marker ${index + 1}: "${marker.label}"\n`;
+        systemContext += `  - Object: ${marker.label}\n`;
+        systemContext += `  - Coordinates: [${marker.bbox.map(c => c.toFixed(3)).join(', ')}]\n`;
+        systemContext += `  - Format: [x1, y1, x2, y2] normalized (0-1 range)\n`;
+        systemContext += `  - Image URL: ${marker.thumbnail}\n`;
+        systemContext += `  - Source: User placed marker on canvas\n\n`;
+      });
+
+      systemContext += `\n⚡ IMPORTANT INSTRUCTIONS FOR MARKERS:\n`;
+      systemContext += `1. The user message refers to these marked regions\n`;
+      systemContext += `2. Extract the user's intent from their brief message (e.g., "remove it" means remove the marked object)\n`;
+      systemContext += `3. Generate a DETAILED prompt that:\n`;
+      systemContext += `   - Specifies the exact editing action (remove, replace, modify, enhance, etc.)\n`;
+      systemContext += `   - References the marked object by its label\n`;
+      systemContext += `   - Uses the bbox coordinates for precise region targeting\n`;
+      systemContext += `   - Describes the desired result in detail\n`;
+      systemContext += `4. The marked images are provided as reference images for compositing\n`;
+      systemContext += `5. Use the coordinates to focus on the specific region that needs editing\n\n`;
+    }
+    // ===============================================
+
     // Add brand bible ONLY if established (don't require it)
     if (brandBible) {
       systemContext += `\nBrand guidelines available: ${JSON.stringify(brandBible)}\n`;
@@ -1257,11 +1372,11 @@ Fill in the {{variables}} with information from the user's request.\n`;
     console.log('🚀 Starting 9-step decision process...');
 
     // Step 1: Read and understand
-    const analysis = analyzeUserInput(message, canvasContext, selectedImages, conversationHistory);
+    const analysis = analyzeUserInput(cleanMessage, canvasContext, selectedImages, conversationHistory);
     console.log('📖 Step 1: Analyzed input');
 
     // Step 2: Identify key elements
-    const elements = identifyKeyElements(message, analysis);
+    const elements = identifyKeyElements(cleanMessage, analysis);
     console.log('🔍 Step 2: Key elements:', elements);
 
     // Step 3: Determine task type
@@ -1289,8 +1404,62 @@ Fill in the {{variables}} with information from the user's request.\n`;
       systemContext += `\n\n🎨 STRUCTURED GENERATION GUIDE:\n${structuredPrompt.structuredPrompt}\n`;
     }
 
+    // === PHASE 5: Enhance prompt with marker-aware intent inference ===
+    // Helper function to infer editing intent from user message
+    function inferEditingIntent(message, objectLabel) {
+      const msg = message.toLowerCase();
+      if (msg.includes('remove') || msg.includes('delete') || msg === 'remove it' || msg === 'delete it') {
+        return 'remove';
+      }
+      if (msg.includes('replace') || msg.includes('change to')) {
+        return 'replace';
+      }
+      if (msg.includes('modify') || msg.includes('change') || msg.includes('edit')) {
+        return 'modify';
+      }
+      // Default: assume removal if user just says "it" or object name
+      if (msg === 'it' || msg.includes(objectLabel?.toLowerCase() || '')) {
+        return 'remove';
+      }
+      return 'modify';
+    }
+
+    // Helper function to extract replacement object from message
+    function extractReplacementObject(message) {
+      // Extract what to replace with (e.g., "replace with a hat" -> "a hat")
+      const match = message.match(/(?:replace|change).*(?:with|to)\s+(.+)/i);
+      return match ? match[1] : 'something else';
+    }
+
+    // Enhance message with marker context if markers are present
+    let enhancedMessage = cleanMessage;
+
+    if (mentionList.length > 0) {
+      const marker = mentionList[0]; // Use first marker
+
+      // Infer intent from user's brief message
+      const intent = inferEditingIntent(cleanMessage, marker.label);
+
+      // Generate detailed prompt based on intent
+      if (intent === 'remove') {
+        enhancedMessage = `Edit this image: Remove the ${marker.label} from the marked area (coordinates: [${marker.bbox.join(', ')}]). `;
+        enhancedMessage += `Completely remove the ${marker.label}. Restore the background naturally with realistic textures, lighting, and colors that match the surrounding area. Ensure seamless blending with no visible artifacts or traces of the removed object. Maintain proper shadows and perspective.`;
+      } else if (intent === 'replace') {
+        const replacementObj = extractReplacementObject(cleanMessage);
+        enhancedMessage = `Edit this image: Replace the ${marker.label} in the marked area (coordinates: [${marker.bbox.join(', ')}]) with ${replacementObj}. `;
+        enhancedMessage += `Match the lighting, style, and perspective of the original scene. Blend seamlessly with the background.`;
+      } else {
+        // Modify/change
+        enhancedMessage = `Edit this image: Modify the ${marker.label} in the marked area (coordinates: [${marker.bbox.join(', ')}]). `;
+        enhancedMessage += `${cleanMessage}. Maintain consistency with the rest of the image in terms of lighting, color, and style.`;
+      }
+
+      console.log('📝 Generated detailed prompt from marker context:', enhancedMessage);
+    }
+    // ===================================================================
+
     // Modify user message based on task type and confidence
-    let userMessageText = message;
+    let userMessageText = enhancedMessage || cleanMessage;
 
     if (taskType.confidence === 'high' && taskType.tool) {
       // High confidence - tell Gemini exactly which tool to use
@@ -1306,17 +1475,17 @@ Follow the design guidelines provided above.`;
       }
 
       instruction += `]`;
-      userMessageText = `${message}\n\n${instruction}`;
+      userMessageText = `${enhancedMessage || cleanMessage}\n\n${instruction}`;
       console.log('⚡ Step 7: Added high-confidence execution instruction');
     } else if (taskType.taskType === 'suggestion') {
       // Suggestion mode
-      userMessageText = `${message}
+      userMessageText = `${enhancedMessage || cleanMessage}
 
 [SYSTEM INSTRUCTION: User wants IDEAS/SUGGESTIONS only. Provide 2-3 options in text. DO NOT execute tools.]`;
       console.log('💡 Step 7: Suggestion mode activated');
     } else {
       // Low confidence - let Gemini decide but encourage execution
-      userMessageText = `${message}
+      userMessageText = `${enhancedMessage || cleanMessage}
 
 [SYSTEM INSTRUCTION: DIRECT COMMAND - analyze the request and call the appropriate tool if applicable.]`;
       console.log('🤔 Step 7: Letting Gemini decide (low confidence)');
@@ -1455,6 +1624,7 @@ Follow the design guidelines provided above.`;
     // Format response with markdown and inject images
     const markdownResponse = formatMarkdownResponse(cleanResponse, generatedImages);
 
+    // === PHASE 7: Return AI prompt in response (for debugging) ===
     res.json({
       success: true,
       response: markdownResponse,
@@ -1462,8 +1632,14 @@ Follow the design guidelines provided above.`;
       generatedImages: generatedImages,
       generatedContent: generatedContent,
       brandBible: parsedBrandBible,
-      phase: detectPhase(cleanResponse, actions, generatedImages)
+      phase: detectPhase(cleanResponse, actions, generatedImages),
+      aiPrompt: enhancedMessage || cleanMessage,  // Include generated prompt for debugging
+      markerContext: mentionList.length > 0 ? {
+        markers: mentionList.length,
+        labels: mentionList.map(m => m.label)
+      } : null
     });
+    // ==============================================================
 
   } catch (error) {
     console.error('❌ AI Chat error:', error.message);

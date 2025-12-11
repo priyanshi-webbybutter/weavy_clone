@@ -1378,6 +1378,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Analyze object at marker point using Gemini API
   const analyzeMarkerPoint = async (marker: MarkedPoint) => {
     try {
+      // Emit analyzing event
+      window.dispatchEvent(new CustomEvent('marker-event', {
+        detail: { type: 'marker-analyzing', marker }
+      }));
+
       const imageShape = engineRef.current.getShape(marker.imageId) as ImageShape;
       if (!imageShape) {
         console.error('Image shape not found for marker:', marker.id);
@@ -1436,9 +1441,23 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           : m
       ));
 
+      // Emit analyzed event
+      window.dispatchEvent(new CustomEvent('marker-event', {
+        detail: {
+          type: 'marker-analyzed',
+          marker: { ...marker, detectionResults: data.suggestions }
+        }
+      }));
+
       return data;
     } catch (error) {
       console.error('❌ Failed to analyze marker:', error);
+
+      // Emit error event
+      window.dispatchEvent(new CustomEvent('marker-event', {
+        detail: { type: 'marker-error', marker, error }
+      }));
+
       throw error;
     }
   };
@@ -2264,6 +2283,30 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           return; // Let the input handle backspace
         }
 
+        // DELETE MARKER IF SELECTED
+        if (selectedMarkerId) {
+          const markerToDelete = markedPoints.find(m => m.id === selectedMarkerId);
+          if (markerToDelete) {
+            // Remove from state
+            setMarkedPoints(prev => prev.filter(m => m.id !== selectedMarkerId));
+
+            // Remove shapes from canvas
+            engineRef.current?.removeShape(markerToDelete.shapeId); // Blue circle
+            const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
+            engineRef.current?.removeShape(textShapeId); // Number text
+
+            // Clear selection
+            setSelectedMarkerId(null);
+            setShowMarkerSuggestions(false);
+
+            // Save state
+            saveCanvasState();
+
+            console.log('🗑️ Deleted marker #' + markerToDelete.number);
+            return; // Don't continue to shape deletion
+          }
+        }
+
         const selected = engineRef.current.getSelectedShapes();
         selected.forEach(shape => {
           engineRef.current?.removeShape(shape.id);
@@ -2283,6 +2326,39 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }, [editingTextId]);
+
+  // Listen for marker delete events from AIChatPanel
+  useEffect(() => {
+    const handleMarkerDelete = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { markerId } = customEvent.detail;
+
+      const markerToDelete = markedPoints.find(m => m.id === markerId);
+      if (markerToDelete) {
+        // Remove from state
+        setMarkedPoints(prev => prev.filter(m => m.id !== markerId));
+
+        // Remove shapes
+        engineRef.current?.removeShape(markerToDelete.shapeId);
+        const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
+        engineRef.current?.removeShape(textShapeId);
+
+        // Clear selection if this marker was selected
+        if (selectedMarkerId === markerId) {
+          setSelectedMarkerId(null);
+          setShowMarkerSuggestions(false);
+        }
+
+        // Save
+        saveCanvasState();
+
+        console.log('🗑️ Deleted marker via chat panel');
+      }
+    };
+
+    window.addEventListener('marker-delete', handleMarkerDelete);
+    return () => window.removeEventListener('marker-delete', handleMarkerDelete);
+  }, [markedPoints, selectedMarkerId]);
 
   // Sync hover state with canvas engine
   useEffect(() => {
@@ -2802,6 +2878,27 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 console.log('Selected suggestion:', suggestion);
                 // TODO: Store selection or trigger editing
                 setShowMarkerSuggestions(false);
+              }}
+              onDelete={(markerId) => {
+                // Remove from state
+                setMarkedPoints(prev => prev.filter(m => m.id !== markerId));
+
+                // Remove shapes
+                const markerToDelete = markedPoints.find(m => m.id === markerId);
+                if (markerToDelete) {
+                  engineRef.current?.removeShape(markerToDelete.shapeId);
+                  const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
+                  engineRef.current?.removeShape(textShapeId);
+                }
+
+                // Close panel
+                setShowMarkerSuggestions(false);
+                setSelectedMarkerId(null);
+
+                // Save
+                saveCanvasState();
+
+                console.log('🗑️ Deleted marker via panel');
               }}
             />
           );
