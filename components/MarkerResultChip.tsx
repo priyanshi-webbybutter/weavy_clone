@@ -1,6 +1,18 @@
 import React, { useState, useMemo } from 'react';
 import { X, Loader2 } from 'lucide-react';
 
+export interface Detection {
+  label: string;
+  kind: string;
+  priority_index: number;
+  bbox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
 export interface MarkerResult {
   markerId: string;
   markerNumber: number;
@@ -13,6 +25,8 @@ export interface MarkerResult {
     width: number;
     height: number;
   };
+  detections?: Detection[]; // All detected objects from this marker
+  selectedDetectionIndex?: number; // Currently selected detection (default 0)
 }
 
 interface MarkerResultChipProps {

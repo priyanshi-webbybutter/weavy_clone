@@ -6,6 +6,7 @@ import { Shape, ImageShape, TextShape, ArrowShape, Point } from '@/lib/canvas/ty
 import { findOptimalPlacement, findMultiPlacement } from '@/lib/canvas/placementUtils';
 import MarkdownMessage from './MarkdownMessage';
 import { MarkerResultChip, MarkerResult } from './MarkerResultChip';
+import { MarkerChipWithDropdown } from './MarkerChipWithDropdown';
 
 interface Message {
   id: string;
@@ -130,10 +131,18 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const activePlaceholdersRef = useRef<string[]>([]);
   const currentReferenceIdsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const allShapesRef = useRef<Shape[]>(allShapes);
 
   // Marker results state
   const [markerResults, setMarkerResults] = useState<MarkerResult[]>([]);
   const [analyzingMarkers, setAnalyzingMarkers] = useState<Set<string>>(new Set());
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
+
+  // Sync allShapesRef when allShapes changes
+  useEffect(() => {
+    allShapesRef.current = allShapes;
+  }, [allShapes]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -211,34 +220,40 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
   // Handle marker analysis results
   const handleMarkerAnalyzed = useCallback((markerData: any) => {
-    if (!markerData.detectionResults || markerData.detectionResults.length === 0) {
-      // Remove from analyzing set if no results
-      setAnalyzingMarkers(prev => {
-        const next = new Set(prev);
-        next.delete(markerData.id);
-        return next;
-      });
+    console.log('🔍 handleMarkerAnalyzed called:', markerData);
+
+    // Use imageUrl directly from marker data (no need to look up in allShapes)
+    if (!markerData.imageUrl) {
+      console.warn('⚠️ No imageUrl in marker data:', markerData);
       return;
     }
 
-    // Get image shape for thumbnail
-    const imageShape = allShapes.find(s => s.id === markerData.imageId) as ImageShape;
-    if (!imageShape) {
-      console.warn('Image shape not found for marker:', markerData.imageId);
-      return;
+    // Handle empty or missing detections - use objectName as fallback
+    let label = markerData.objectName || 'Unknown';
+    let zoomRegion = null;
+    let detections = markerData.detections || [];
+
+    // If we have detections, use first one
+    if (detections.length > 0) {
+      label = detections[0].label;
+      zoomRegion = detections[0].bbox;
+    } else {
+      console.warn('⚠️ No detections for marker, using objectName:', label);
     }
 
-    // Create marker result
+    // Create marker result (even with empty detections)
     const result: MarkerResult = {
       markerId: markerData.id,
       markerNumber: markerData.number,
-      label: markerData.detectionResults[0].label,
-      imageUrl: imageShape.src,
+      label: label,
+      imageUrl: markerData.imageUrl,  // Use imageUrl directly from marker data
       markerPosition: {
-        x: markerData.normalizedPosition[1] / 1000, // x coordinate
-        y: markerData.normalizedPosition[0] / 1000  // y coordinate
+        x: markerData.normalizedX,
+        y: markerData.normalizedY
       },
-      zoomRegion: markerData.detectionResults[0].bbox
+      zoomRegion: zoomRegion,
+      detections: detections,
+      selectedDetectionIndex: 0
     };
 
     // Add to results and remove from analyzing
@@ -248,7 +263,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       next.delete(markerData.id);
       return next;
     });
-  }, [allShapes]);
+
+    console.log('✅ Marker result added:', result);
+  }, []);
 
   // Listen for marker events from CanvasCanvas
   useEffect(() => {
@@ -259,6 +276,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       if (type === 'marker-analyzing') {
         setAnalyzingMarkers(prev => new Set(prev).add(marker.id));
       } else if (type === 'marker-analyzed') {
+        console.log('📥 Received marker-analyzed event:', marker);
         handleMarkerAnalyzed(marker);
       } else if (type === 'marker-error') {
         // Remove from analyzing on error
@@ -273,6 +291,75 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     window.addEventListener('marker-event', handleMarkerEvent);
     return () => window.removeEventListener('marker-event', handleMarkerEvent);
   }, [handleMarkerAnalyzed]);
+
+  // Handle marker selection for chat context
+  const handleSelectMarker = useCallback((markerId: string, detectionIndex?: number) => {
+    setSelectedMarkerId(markerId);
+
+    const marker = markerResults.find(m => m.markerId === markerId);
+    if (!marker) return;
+
+    // If detectionIndex provided, update the marker to use that detection
+    if (detectionIndex !== undefined && marker.detections && marker.detections[detectionIndex]) {
+      const selectedDetection = marker.detections[detectionIndex];
+
+      // Update the marker with the selected detection
+      setMarkerResults(prev => prev.map(m =>
+        m.markerId === markerId
+          ? {
+              ...m,
+              label: selectedDetection.label,
+              zoomRegion: selectedDetection.bbox,
+              selectedDetectionIndex: detectionIndex
+            }
+          : m
+      ));
+
+      console.log(`✅ Changed marker #${marker.markerNumber} to: ${selectedDetection.label}`);
+    }
+
+    // Get the selected detection (default to first if not specified)
+    const selectedDetection = detectionIndex !== undefined && marker.detections
+      ? marker.detections[detectionIndex]
+      : marker.detections?.[0] || { label: marker.label };
+
+    // Pre-fill input with marker context
+    const markerContext = `Tell me more about the ${selectedDetection.label} marked as #${marker.markerNumber}.`;
+
+    if (inputRef.current) {
+      inputRef.current.value = markerContext;
+      setInputValue(markerContext);
+      inputRef.current.focus();
+    }
+
+    console.log(`🎯 Selected marker #${marker.markerNumber}: ${selectedDetection.label}`);
+  }, [markerResults]);
+
+  // Handle dropdown toggle
+  const handleToggleDropdown = useCallback((markerId: string) => {
+    setDropdownOpenId(prevId => prevId === markerId ? null : markerId);
+  }, []);
+
+  // Handle marker removal
+  const handleRemoveMarker = useCallback((markerId: string) => {
+    // Remove chip from chat panel
+    setMarkerResults(prev => prev.filter(m => m.markerId !== markerId));
+
+    // Clear selection if removing selected marker
+    if (selectedMarkerId === markerId) {
+      setSelectedMarkerId(null);
+    }
+
+    // Close dropdown if it was open
+    if (dropdownOpenId === markerId) {
+      setDropdownOpenId(null);
+    }
+
+    // Emit event to remove marker from canvas
+    window.dispatchEvent(new CustomEvent('marker-delete', {
+      detail: { markerId }
+    }));
+  }, [selectedMarkerId, dropdownOpenId]);
 
   /**
    * Fixes malformed markdown image syntax where alt text contains newlines
@@ -1919,15 +2006,20 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           className="hidden"
         />
 
-        {/* Active Marker Chips - Auto-attach on send (Phase 6) */}
+        {/* Active Markers - Interactive Chips with Dropdown */}
         {(markerResults.length > 0 || analyzingMarkers.size > 0) && (
-          <div className="mb-3">
-            <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
-              <Info className="w-3 h-3" />
-              <span>Active Markers ({markerResults.filter(m => m.zoomRegion).length})</span>
-              <span className="text-gray-500">• Will be sent with your message</span>
+          <div className="mb-4 p-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                <span className="text-sm font-medium text-gray-300">
+                  Active Markers ({markerResults.length})
+                </span>
+                <span className="text-xs text-gray-500">• Will be sent with your message</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+
+            <div className="flex flex-wrap gap-2">
               {/* Loading chips for analyzing markers */}
               {Array.from(analyzingMarkers).map(markerId => (
                 <MarkerResultChip
@@ -1944,21 +2036,17 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 />
               ))}
 
-              {/* Result chips */}
+              {/* Interactive chips with dropdown */}
               {markerResults.map(marker => (
-                <MarkerResultChip
+                <MarkerChipWithDropdown
                   key={marker.markerId}
                   marker={marker}
-                  onRemove={(id) => {
-                    // Remove chip from chat panel
-                    setMarkerResults(prev => prev.filter(m => m.markerId !== id));
-
-                    // Emit event to remove marker from canvas
-                    window.dispatchEvent(new CustomEvent('marker-delete', {
-                      detail: { markerId: id }
-                    }));
-                  }}
-                  isLoading={analyzingMarkers.has(marker.markerId)}
+                  allMarkers={markerResults}
+                  isSelected={selectedMarkerId === marker.markerId}
+                  isDropdownOpen={dropdownOpenId === marker.markerId}
+                  onToggleDropdown={handleToggleDropdown}
+                  onSelectMarker={handleSelectMarker}
+                  onRemoveMarker={handleRemoveMarker}
                 />
               ))}
             </div>

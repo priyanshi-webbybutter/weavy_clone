@@ -124,15 +124,29 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [textExtractionError, setTextExtractionError] = useState<string | null>(null);
 
   // Multi-point marking system states (simplified to match reference demo)
+  interface Detection {
+    label: string;
+    kind: string;
+    priority_index: number;
+    bbox: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+  }
+
   interface MarkedPoint {
     id: string;                    // Unique marker ID
     number: number;                // Display number (1, 2, 3...)
     shapeId: string;               // ID of the marker shape (CircleShape)
     imageId: string;               // ID of parent image
+    imageUrl: string;              // URL/src of the parent image (for chat panel)
     normalizedX: number;           // [0-1] normalized X coordinate relative to image
     normalizedY: number;           // [0-1] normalized Y coordinate relative to image
     timestamp: number;             // When marked
-    objectName: string | null;     // Simple object name from AI analysis
+    objectName: string | null;     // Best match label (for backward compatibility)
+    detections: Detection[] | null; // Full detection results with bboxes
     isAnalyzing: boolean;          // Loading state
   }
 
@@ -1511,8 +1525,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     });
   };
 
-  // Call backend API to analyze point (simplified, matches reference demo logic)
-  const analyzePoint = async (normalizedX: number, normalizedY: number, imageShape: ImageShape): Promise<string> => {
+  // Call backend API to analyze point (structured output with bounding boxes)
+  const analyzePoint = async (
+    normalizedX: number,
+    normalizedY: number,
+    imageShape: ImageShape
+  ): Promise<{ objectName: string; detections: Detection[] }> => {
     try {
       // Get ORIGINAL image as base64 (normalized coords work on any size)
       let imageBase64: string;
@@ -1559,13 +1577,24 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       }
 
       const data = await response.json();
-      console.log(`✅ Detected object: "${data.objectName}"`);
 
-      return data.objectName || 'Unknown';
+      // Extract best match (first item has highest priority)
+      const bestMatch = data.detections?.[0];
+      const objectName = bestMatch?.label || 'Unknown';
+
+      console.log(`✅ Detected ${data.detections?.length || 0} objects, best: "${objectName}"`);
+
+      return {
+        objectName,
+        detections: data.detections || []
+      };
 
     } catch (error) {
       console.error('❌ Analysis failed:', error);
-      return 'Error';
+      return {
+        objectName: 'Error',
+        detections: []
+      };
     }
   };
 
@@ -1628,10 +1657,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           number: markerNumber,
           shapeId: markerDot.id,
           imageId: imageShape.id,
+          imageUrl: imageShape.src,  // Include image URL so chat panel doesn't need to look it up
           normalizedX,
           normalizedY,
           timestamp: Date.now(),
           objectName: null,
+          detections: null,
           isAnalyzing: true
         };
 
@@ -1643,21 +1674,26 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
         // Analyze point (backend API call)
         analyzePoint(normalizedX, normalizedY, imageShape)
-          .then(objectName => {
+          .then(({ objectName, detections }) => {
             // Update marker with result
             setMarkedPoints(prev => prev.map(m =>
               m.id === newMarker.id
-                ? { ...m, objectName, isAnalyzing: false }
+                ? { ...m, objectName, detections, isAnalyzing: false }
                 : m
             ));
 
-            console.log(`✅ Marker #${markerNumber} detected: "${objectName}"`);
+            console.log(`✅ Marker #${markerNumber} detected: "${objectName}" (${detections.length} total objects)`);
+            console.log('📤 Dispatching marker-analyzed event:', {
+              id: newMarker.id,
+              objectName,
+              detectionsCount: detections.length
+            });
 
             // Emit analyzed event
             window.dispatchEvent(new CustomEvent('marker-event', {
               detail: {
                 type: 'marker-analyzed',
-                marker: { ...newMarker, objectName, isAnalyzing: false }
+                marker: { ...newMarker, objectName, detections, isAnalyzing: false }
               }
             }));
           })

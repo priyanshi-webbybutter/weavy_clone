@@ -43,31 +43,99 @@ router.post('/analyze-point', async (req, res) => {
 
     console.log(`🔍 Analyzing point [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}]`);
 
-    // Simple, direct Gemini API call (exactly like reference demo)
+    // Structured output with bounding boxes and priority system
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp'
     });
 
-    const prompt = `Analyze this image. What is the single, most prominent object or feature located at the normalized coordinates [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}]? Normalized coordinates are 0.0 (top/left) to 1.0 (bottom/right). Return only the name of the object or feature, nothing else.`;
+    const prompt = `You are a precise object detection AI. A user clicked at normalized coordinates [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}] on this image (where 0.0 is top/left and 1.0 is bottom/right).
 
-    const result = await retryWithBackoff(async () => {
-      return await model.generateContent([
-        {
-          inlineData: {
-            mimeType: 'image/png',
-            data: image_base64
+Your task:
+1. FIRST, identify the SPECIFIC object that the user clicked on at those exact coordinates
+2. THEN, detect other prominent objects in the image
+
+For each detected object, return:
+- label: Short name (e.g., 'sunglasses', 'hat', 'person', 'bottle')
+- kind: Category (e.g., 'object', 'person', 'text', 'accessory')
+- priority_index:
+  * Use 1 for the object AT the clicked coordinates (highest priority)
+  * Use 2-6 for other important items (Glasses, Hats, Bottles, Hands, Faces, Text)
+  * Use 999 for background/other objects
+- bbox: Normalized bounding box {x, y, width, height} where x,y is top-left corner
+
+IMPORTANT: The first object in the array MUST be the object at the clicked coordinates with priority_index: 1
+
+Return ONLY a JSON array of detected objects.`;
+
+    const responseSchema = {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          "label": { "type": "STRING" },
+          "kind": { "type": "STRING" },
+          "priority_index": { "type": "INTEGER" },
+          "bbox": {
+            "type": "OBJECT",
+            "properties": {
+              "x": { "type": "NUMBER" },
+              "y": { "type": "NUMBER" },
+              "width": { "type": "NUMBER" },
+              "height": { "type": "NUMBER" }
+            },
+            "required": ["x", "y", "width", "height"]
           }
         },
-        prompt
-      ]);
+        "required": ["label", "kind", "priority_index", "bbox"]
+      }
+    };
+
+    const result = await retryWithBackoff(async () => {
+      return await model.generateContent({
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: 'image/png',
+                data: image_base64
+              }
+            }
+          ]
+        }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: responseSchema
+        }
+      });
     });
 
     const response = await result.response;
-    const objectName = response.text().trim();
+    const jsonText = response.text().trim();
 
-    console.log(`✅ Detected object: "${objectName}"`);
+    let detections = [];
+    try {
+      detections = JSON.parse(jsonText);
+      if (!Array.isArray(detections)) {
+        throw new Error("Response is not an array");
+      }
+    } catch (parseError) {
+      console.error('❌ JSON parsing error:', parseError);
+      return res.status(500).json({
+        error: 'Failed to parse AI response',
+        message: parseError.message
+      });
+    }
 
-    res.json({ objectName });
+    // Sort by priority (lower = higher priority)
+    detections.sort((a, b) => a.priority_index - b.priority_index);
+
+    console.log(`✅ Detected ${detections.length} objects`);
+    detections.slice(0, 3).forEach(d => {
+      console.log(`   - ${d.label} (priority: ${d.priority_index})`);
+    });
+
+    res.json({ detections });
 
   } catch (error) {
     console.error('❌ Error analyzing point:', error);
