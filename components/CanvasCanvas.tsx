@@ -1672,6 +1672,14 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
         console.log(`✅ Marker #${markerNumber} placed`);
 
+        // Dispatch analyzing event immediately
+        window.dispatchEvent(new CustomEvent('marker-event', {
+          detail: {
+            type: 'marker-analyzing',
+            marker: newMarker
+          }
+        }));
+
         // Analyze point (backend API call)
         analyzePoint(normalizedX, normalizedY, imageShape)
           .then(({ objectName, detections }) => {

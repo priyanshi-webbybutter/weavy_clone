@@ -218,6 +218,41 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setMessages([]); // Clear messages when switching projects
   }, [projectId]);
 
+  // Handle marker analysis start - create loading marker result immediately
+  const handleMarkerAnalyzing = useCallback((markerData: any) => {
+    console.log('🔍 handleMarkerAnalyzing called:', markerData);
+
+    if (!markerData.imageUrl) {
+      console.warn('⚠️ No imageUrl in marker data:', markerData);
+      return;
+    }
+
+    // Create loading marker result immediately
+    const loadingResult: MarkerResult = {
+      markerId: markerData.id,
+      markerNumber: markerData.number,
+      label: 'Analyzing...',
+      imageUrl: markerData.imageUrl,
+      markerPosition: {
+        x: markerData.normalizedX,
+        y: markerData.normalizedY
+      },
+      detections: [],
+      selectedDetectionIndex: 0,
+      isLoading: true
+    };
+
+    // Add to results immediately
+    setMarkerResults(prev => {
+      // Check if marker already exists (shouldn't happen, but be safe)
+      const exists = prev.find(m => m.markerId === markerData.id);
+      if (exists) return prev;
+      return [...prev, loadingResult];
+    });
+
+    console.log('✅ Loading marker result created:', loadingResult);
+  }, []);
+
   // Handle marker analysis results
   const handleMarkerAnalyzed = useCallback((markerData: any) => {
     console.log('🔍 handleMarkerAnalyzed called:', markerData);
@@ -241,30 +276,28 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       console.warn('⚠️ No detections for marker, using objectName:', label);
     }
 
-    // Create marker result (even with empty detections)
-    const result: MarkerResult = {
-      markerId: markerData.id,
-      markerNumber: markerData.number,
-      label: label,
-      imageUrl: markerData.imageUrl,  // Use imageUrl directly from marker data
-      markerPosition: {
-        x: markerData.normalizedX,
-        y: markerData.normalizedY
-      },
-      zoomRegion: zoomRegion,
-      detections: detections,
-      selectedDetectionIndex: 0
-    };
+    // Update existing marker result (should already exist from analyzing event)
+    setMarkerResults(prev => prev.map(m => 
+      m.markerId === markerData.id
+        ? {
+            ...m,
+            label: label,
+            zoomRegion: zoomRegion,
+            detections: detections,
+            selectedDetectionIndex: 0,
+            isLoading: false
+          }
+        : m
+    ));
 
-    // Add to results and remove from analyzing
-    setMarkerResults(prev => [...prev, result]);
+    // Remove from analyzing set
     setAnalyzingMarkers(prev => {
       const next = new Set(prev);
       next.delete(markerData.id);
       return next;
     });
 
-    console.log('✅ Marker result added:', result);
+    console.log('✅ Marker result updated:', { markerId: markerData.id, label, detectionsCount: detections.length });
   }, []);
 
   // Listen for marker events from CanvasCanvas
@@ -274,12 +307,18 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       const { type, marker } = customEvent.detail;
 
       if (type === 'marker-analyzing') {
+        handleMarkerAnalyzing(marker);
         setAnalyzingMarkers(prev => new Set(prev).add(marker.id));
       } else if (type === 'marker-analyzed') {
         console.log('📥 Received marker-analyzed event:', marker);
         handleMarkerAnalyzed(marker);
       } else if (type === 'marker-error') {
-        // Remove from analyzing on error
+        // Remove from analyzing on error and update marker
+        setMarkerResults(prev => prev.map(m => 
+          m.markerId === marker.id
+            ? { ...m, label: 'Error', isLoading: false }
+            : m
+        ));
         setAnalyzingMarkers(prev => {
           const next = new Set(prev);
           next.delete(marker.id);
@@ -290,7 +329,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     window.addEventListener('marker-event', handleMarkerEvent);
     return () => window.removeEventListener('marker-event', handleMarkerEvent);
-  }, [handleMarkerAnalyzed]);
+  }, [handleMarkerAnalyzing, handleMarkerAnalyzed]);
 
   // Handle marker selection for chat context
   const handleSelectMarker = useCallback((markerId: string, detectionIndex?: number) => {
@@ -2020,23 +2059,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {/* Loading chips for analyzing markers */}
-              {Array.from(analyzingMarkers).map(markerId => (
-                <MarkerResultChip
-                  key={`loading-${markerId}`}
-                  marker={{
-                    markerId,
-                    markerNumber: 0,
-                    label: '',
-                    imageUrl: '',
-                    markerPosition: { x: 0, y: 0 }
-                  }}
-                  onRemove={() => {}}
-                  isLoading={true}
-                />
-              ))}
-
-              {/* Interactive chips with dropdown */}
+              {/* All markers (including loading ones) with dropdown */}
               {markerResults.map(marker => (
                 <MarkerChipWithDropdown
                   key={marker.markerId}

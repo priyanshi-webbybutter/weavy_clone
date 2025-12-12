@@ -27,6 +27,7 @@ export interface MarkerResult {
   };
   detections?: Detection[]; // All detected objects from this marker
   selectedDetectionIndex?: number; // Currently selected detection (default 0)
+  isLoading?: boolean; // Whether marker is currently being analyzed
 }
 
 interface MarkerResultChipProps {
