@@ -1125,13 +1125,26 @@ export class CanvasEngine {
 
     const cacheKey = shape.src;
 
+    // Check if this is a marker (locked image with marker- id)
+    const isMarker = shape.locked && shape.id.startsWith('marker-');
+
     // Check if image is in cache
     const cachedImg = this.imageCache.get(cacheKey);
     if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
       // Draw from cache immediately
       this.ctx.save();
       this.ctx.globalAlpha = shape.style.opacity ?? 1;
-      this.ctx.drawImage(cachedImg, shape.x, shape.y, shape.width, shape.height);
+
+      // Apply inverse zoom scaling for markers to keep constant screen size
+      const displayWidth = isMarker
+        ? shape.width / this.state.viewport.zoom   // Inverse scaling
+        : shape.width;                             // Normal images scale normally
+
+      const displayHeight = isMarker
+        ? shape.height / this.state.viewport.zoom  // Inverse scaling
+        : shape.height;                            // Normal images scale normally
+
+      this.ctx.drawImage(cachedImg, shape.x, shape.y, displayWidth, displayHeight);
       this.ctx.restore();
       return;
     }
@@ -1170,16 +1183,23 @@ export class CanvasEngine {
   private drawImagePlaceholder(shape: ImageShape) {
     if (!this.ctx) return;
 
+    // Check if this is a marker
+    const isMarker = shape.locked && shape.id.startsWith('marker-');
+
+    // Apply inverse zoom scaling for markers
+    const displayWidth = isMarker ? shape.width / this.state.viewport.zoom : shape.width;
+    const displayHeight = isMarker ? shape.height / this.state.viewport.zoom : shape.height;
+
     // Draw a subtle loading placeholder
     this.ctx.save();
     this.ctx.fillStyle = '#2a2a2a';
-    this.ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+    this.ctx.fillRect(shape.x, shape.y, displayWidth, displayHeight);
 
     // Loading indicator border
     this.ctx.strokeStyle = '#3a3a3a';
     this.ctx.lineWidth = 2 / this.state.viewport.zoom;
     this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
-    this.ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
+    this.ctx.strokeRect(shape.x, shape.y, displayWidth, displayHeight);
     this.ctx.setLineDash([]);
 
     this.ctx.restore();

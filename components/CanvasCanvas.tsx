@@ -123,25 +123,40 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [textEditPopupPos, setTextEditPopupPos] = useState<{ x: number; y: number } | null>(null);
   const [textExtractionError, setTextExtractionError] = useState<string | null>(null);
 
-  // Multi-point marking system states
+  // Multi-point marking system states (simplified to match reference demo)
   interface MarkedPoint {
     id: string;                    // Unique marker ID
     number: number;                // Display number (1, 2, 3...)
-    shapeId: string;               // ID of the blue circle shape
+    shapeId: string;               // ID of the marker shape (CircleShape)
     imageId: string;               // ID of parent image
-    worldPosition: Point;          // Position in world coordinates
-    normalizedPosition: [number, number]; // [y, x] in [0, 1000] scale
-    detectionResults?: {           // Results from analyze-point API
-      label: string;
-      kind: string;
-      bbox: { x: number; y: number; width: number; height: number };
-    }[];
+    normalizedX: number;           // [0-1] normalized X coordinate relative to image
+    normalizedY: number;           // [0-1] normalized Y coordinate relative to image
     timestamp: number;             // When marked
+    objectName: string | null;     // Simple object name from AI analysis
+    isAnalyzing: boolean;          // Loading state
   }
 
   const [markedPoints, setMarkedPoints] = useState<MarkedPoint[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   // Removed: showMarkerSuggestions state - popup no longer used
+
+  // Helper function to update marker positions when parent image changes
+  const updateMarkersForImage = useCallback((imageId: string) => {
+    const imageShape = engineRef.current?.getShape(imageId) as ImageShape;
+    if (!imageShape) return;
+
+    // Find all markers for this image
+    const imageMarkers = markedPoints.filter(m => m.imageId === imageId);
+
+    imageMarkers.forEach(marker => {
+      // Simple positioning - circle center at the exact coordinate
+      const x = imageShape.x + (marker.normalizedX * imageShape.width);
+      const y = imageShape.y + (marker.normalizedY * imageShape.height);
+
+      // Update marker shape position (without saving state to avoid cluttering undo history)
+      engineRef.current?.updateShape(marker.shapeId, { x, y }, false);
+    });
+  }, [markedPoints]);
 
   // Initialize engine
   useEffect(() => {
@@ -707,6 +722,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           if (engineRef.current) {
             engineRef.current.removeShape(id);
           }
+          return;
+        }
+        // Skip marker pins (SVG data URLs, not uploadable images)
+        if (id.startsWith('marker-')) {
+          console.log(`Skipping marker pin: ${id}`);
           return;
         }
         if (imageShape.src.startsWith('data:image/')) {
@@ -1375,28 +1395,135 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
   };
 
-  // Analyze object at marker point using Gemini API
-  const analyzeMarkerPoint = async (marker: MarkedPoint) => {
+  // Helper: Convert screen coordinates to normalized [0-1] coordinates (matches reference demo)
+  const screenToNormalized = (screenX: number, screenY: number, imageShape: ImageShape): { normalizedX: number; normalizedY: number } | null => {
+    if (!engineRef.current) return null;
+
+    // Get viewport state
+    const viewport = (engineRef.current as any).state.viewport;
+
+    console.log('=== DETAILED COORDINATE DEBUG ===');
+    console.log('1. Raw screen click:', { x: screenX, y: screenY });
+    console.log('2. Viewport state:', {
+      pan: { x: viewport.x.toFixed(2), y: viewport.y.toFixed(2) },
+      zoom: viewport.zoom.toFixed(3)
+    });
+
+    // Get canvas size
+    const canvas = canvasRef.current;
+    const canvasRect = canvas?.getBoundingClientRect();
+    console.log('3. Canvas size:', {
+      width: canvasRect?.width,
+      height: canvasRect?.height
+    });
+
+    // Convert screen to world coordinates (accounts for pan/zoom)
+    const worldPoint = engineRef.current.screenToWorld({ x: screenX, y: screenY });
+    console.log('4. World coordinates:', {
+      x: worldPoint.x.toFixed(2),
+      y: worldPoint.y.toFixed(2)
+    });
+
+    // Image shape in world space
+    console.log('5. Image shape (world space):', {
+      position: { x: imageShape.x.toFixed(2), y: imageShape.y.toFixed(2) },
+      size: { w: imageShape.width.toFixed(2), h: imageShape.height.toFixed(2) }
+    });
+
+    // Calculate image-relative coordinates
+    const imageRelativeX = worldPoint.x - imageShape.x;
+    const imageRelativeY = worldPoint.y - imageShape.y;
+    console.log('6. Image-relative (world units):', {
+      x: imageRelativeX.toFixed(2),
+      y: imageRelativeY.toFixed(2)
+    });
+
+    // Normalize to [0-1]
+    const normalizedX = imageRelativeX / imageShape.width;
+    const normalizedY = imageRelativeY / imageShape.height;
+    console.log('7. Normalized [0-1]:', {
+      x: normalizedX.toFixed(4),
+      y: normalizedY.toFixed(4)
+    });
+
+    // Expected pixel location on original image (if image was 1000px wide)
+    const expectedPixelX = Math.round(normalizedX * 1000);
+    const expectedPixelY = Math.round(normalizedY * 1000);
+    console.log('8. Expected pixel (on 1000px image):', {
+      x: expectedPixelX,
+      y: expectedPixelY
+    });
+
+    // Validate bounds
+    if (normalizedX < 0 || normalizedX > 1 || normalizedY < 0 || normalizedY > 1) {
+      console.log('❌ Click outside image bounds');
+      return null; // Click outside image
+    }
+
+    return { normalizedX, normalizedY };
+  };
+
+  // Helper: Capture image as base64 JPEG (matches reference demo approach)
+  const captureImageAsBase64 = (imageShape: ImageShape): Promise<string> => {
+    // Create temporary canvas for just this image
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+
+    if (!tempCtx) {
+      throw new Error('Failed to get canvas context');
+    }
+
+    // Set canvas size to match image dimensions (use reasonable max size)
+    const maxSize = 1000;
+    let canvasWidth = imageShape.width;
+    let canvasHeight = imageShape.height;
+
+    // Scale down if too large (maintain aspect ratio)
+    if (canvasWidth > maxSize || canvasHeight > maxSize) {
+      const scale = Math.min(maxSize / canvasWidth, maxSize / canvasHeight);
+      canvasWidth = Math.floor(canvasWidth * scale);
+      canvasHeight = Math.floor(canvasHeight * scale);
+    }
+
+    tempCanvas.width = canvasWidth;
+    tempCanvas.height = canvasHeight;
+
+    // Create image element from imageShape.src
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    return new Promise<string>((resolve, reject) => {
+      img.onload = () => {
+        // Draw image to temp canvas
+        tempCtx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+
+        // Export as JPEG (like reference demo)
+        const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.95);
+        const base64 = dataUrl.split(',')[1];
+        resolve(base64);
+      };
+
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
+
+      img.src = imageShape.src;
+    });
+  };
+
+  // Call backend API to analyze point (simplified, matches reference demo logic)
+  const analyzePoint = async (normalizedX: number, normalizedY: number, imageShape: ImageShape): Promise<string> => {
     try {
-      // Emit analyzing event
-      window.dispatchEvent(new CustomEvent('marker-event', {
-        detail: { type: 'marker-analyzing', marker }
-      }));
-
-      const imageShape = engineRef.current.getShape(marker.imageId) as ImageShape;
-      if (!imageShape) {
-        console.error('Image shape not found for marker:', marker.id);
-        return;
-      }
-
-      // Get image as base64
+      // Get ORIGINAL image as base64 (normalized coords work on any size)
       let imageBase64: string;
 
       if (imageShape.src.startsWith('data:image/')) {
         // Already a data URL, extract base64 part
         imageBase64 = imageShape.src.split(',')[1];
+        console.log('📷 Using original image (data URL)');
       } else {
         // Fetch from URL and convert to base64
+        console.log('📷 Fetching original image from:', imageShape.src);
         const response = await fetch(imageShape.src);
         const blob = await response.blob();
 
@@ -1411,54 +1538,34 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         });
 
         imageBase64 = base64;
+        console.log('📷 Original image fetched and converted');
       }
 
-      console.log('🔍 Analyzing marker #' + marker.number + ' at [' + marker.normalizedPosition[0] + ', ' + marker.normalizedPosition[1] + ']');
+      console.log(`🔍 Analyzing point [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}] on ORIGINAL image`);
 
-      // Call analyze-point API
+      // Send to simplified backend API
       const response = await fetch('http://localhost:3001/api/analyze-point', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: marker.id,
           image_base64: imageBase64,
-          point: marker.normalizedPosition, // [y, x] in [0, 1000]
-          lang: 'en'
+          normalizedX,
+          normalizedY
         })
       });
 
       if (!response.ok) {
-        throw new Error('Analysis failed: ' + response.statusText);
+        throw new Error(`API request failed: ${response.status}`);
       }
 
       const data = await response.json();
-      console.log('✅ Marker analysis complete:', data);
+      console.log(`✅ Detected object: "${data.objectName}"`);
 
-      // Update marker with detection results
-      setMarkedPoints(prev => prev.map(m =>
-        m.id === marker.id
-          ? { ...m, detectionResults: data.suggestions }
-          : m
-      ));
+      return data.objectName || 'Unknown';
 
-      // Emit analyzed event
-      window.dispatchEvent(new CustomEvent('marker-event', {
-        detail: {
-          type: 'marker-analyzed',
-          marker: { ...marker, detectionResults: data.suggestions }
-        }
-      }));
-
-      return data;
     } catch (error) {
-      console.error('❌ Failed to analyze marker:', error);
-
-      // Emit error event
-      window.dispatchEvent(new CustomEvent('marker-event', {
-        detail: { type: 'marker-error', marker, error }
-      }));
-
-      throw error;
+      console.error('❌ Analysis failed:', error);
+      return 'Error';
     }
   };
 
@@ -1469,100 +1576,101 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     // Don't handle canvas interactions in crop mode
     if (isCropping) return;
 
-    // Detect Ctrl+Click to place red dot
+    // Detect Ctrl+Click to place red dot (rebuilt to match reference demo)
     if ((e.ctrlKey || e.metaKey) && e.button === 0) {
       const rect = canvasRef.current.getBoundingClientRect();
-      const screenPoint: Point = {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      };
+      const screenX = e.clientX - rect.left;
+      const screenY = e.clientY - rect.top;
 
       // Check if clicked on an image
-      const clickedShape = engineRef.current.hitTest(screenPoint);
+      const clickedShape = engineRef.current.hitTest({ x: screenX, y: screenY });
       if (clickedShape && clickedShape.type === 'image') {
-        // Convert to world coordinates
-        const worldPoint = engineRef.current.screenToWorld(screenPoint);
         const imageShape = clickedShape as ImageShape;
 
-        // Calculate normalized coordinates (0-1 range) relative to image bounds
-        const normalizedX = (worldPoint.x - imageShape.x) / imageShape.width;
-        const normalizedY = (worldPoint.y - imageShape.y) / imageShape.height;
+        // Convert screen coordinates to normalized [0-1] (like reference demo)
+        const coords = screenToNormalized(screenX, screenY, imageShape);
+        if (!coords) {
+          console.log('❌ Click outside image bounds');
+          return;
+        }
 
-        // Convert to [0, 1000] scale for Gemini API
-        const interestX = Math.floor(Math.max(0, Math.min(1, normalizedX)) * 1000);
-        const interestY = Math.floor(Math.max(0, Math.min(1, normalizedY)) * 1000);
+        const { normalizedX, normalizedY } = coords;
+        console.log(`📍 Marker at normalized: [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}]`);
 
         // Get next marker number for this image
         const markerNumber = markedPoints.filter(p => p.imageId === imageShape.id).length + 1;
 
-        // Log coordinates in [0, 1000] scale
-        console.log('Interest Point: [' + interestY + ', ' + interestX + ']'); // [y, x] format
-        console.log('Marker number:', markerNumber);
+        // Get current zoom for inverse scaling (like reference demo)
+        const zoom = (engineRef.current as any).state.viewport.zoom;
 
-        // Create blue numbered marker
-        const blueMarker: CircleShape = {
+        // Create red dot marker at exact click coordinates with inverse scaling
+        const markerDot: CircleShape = {
           id: `marker-${Date.now()}-${markerNumber}`,
           type: 'circle',
-          x: worldPoint.x - 5,   // Smaller radius (5px)
-          y: worldPoint.y - 5,
-          radius: 5,             // 5px radius = 10px diameter
+          x: imageShape.x + (normalizedX * imageShape.width),
+          y: imageShape.y + (normalizedY * imageShape.height),
+          radius: 7 / zoom,  // Inverse scaling (matches reference demo's 7 / scale)
           style: {
-            fill: '#3b82f6',     // Tailwind blue-500
-            stroke: '#ffffff',   // White outline
-            strokeWidth: 2,
-            opacity: 0.9
-          },
-          visible: true,
-          locked: true,
-          parentId: imageShape.id  // Track which image this marker belongs to
-        };
-
-        // Create text shape for the number (centered in the circle)
-        const markerText: TextShape = {
-          id: `marker-text-${Date.now()}-${markerNumber}`,
-          type: 'text',
-          x: worldPoint.x - 5,   // Align with circle left edge
-          y: worldPoint.y - 3,   // Vertically center text
-          width: 10,             // Match circle diameter (5px radius * 2)
-          height: 10,            // Match circle diameter
-          text: markerNumber.toString(),  // Fixed: use 'text' not 'content'
-          style: {
-            fontFamily: 'Arial',
-            fontSize: 10,        // Smaller font for smaller marker
-            fontWeight: 'bold',
-            color: '#ffffff',     // White text
-            textAlign: 'center',
+            fill: 'red',
+            stroke: 'white',
+            strokeWidth: 2 / zoom,  // Also scale stroke width
             opacity: 1
           },
           visible: true,
-          locked: true,
-          parentId: imageShape.id  // Link to same parent
+          locked: true  // Enable selection border rendering
         };
 
-        // Store marker metadata
+        console.log(`🎯 Marker radius: ${(7 / zoom).toFixed(2)} (zoom: ${zoom.toFixed(2)}x)`);
+
+        // Create marker metadata (simplified)
         const newMarker: MarkedPoint = {
-          id: blueMarker.id,
+          id: markerDot.id,
           number: markerNumber,
-          shapeId: blueMarker.id,
+          shapeId: markerDot.id,
           imageId: imageShape.id,
-          worldPosition: worldPoint,
-          normalizedPosition: [interestY, interestX], // [y, x] in [0, 1000] scale
-          timestamp: Date.now()
+          normalizedX,
+          normalizedY,
+          timestamp: Date.now(),
+          objectName: null,
+          isAnalyzing: true
         };
 
-        // Add shapes to canvas and update state
-        engineRef.current.addShape(blueMarker);
-        engineRef.current.addShape(markerText);
+        // Add to canvas and state
+        engineRef.current.addShape(markerDot);
         setMarkedPoints(prev => [...prev, newMarker]);
 
-        console.log('✅ Blue marker #' + markerNumber + ' placed at [' + interestY + ', ' + interestX + ']');
+        console.log(`✅ Marker #${markerNumber} placed`);
 
-        // Analyze the marked point asynchronously
-        analyzeMarkerPoint(newMarker).catch(error => {
-          console.error('Analysis failed for marker #' + markerNumber + ':', error);
-        });
+        // Analyze point (backend API call)
+        analyzePoint(normalizedX, normalizedY, imageShape)
+          .then(objectName => {
+            // Update marker with result
+            setMarkedPoints(prev => prev.map(m =>
+              m.id === newMarker.id
+                ? { ...m, objectName, isAnalyzing: false }
+                : m
+            ));
+
+            console.log(`✅ Marker #${markerNumber} detected: "${objectName}"`);
+
+            // Emit analyzed event
+            window.dispatchEvent(new CustomEvent('marker-event', {
+              detail: {
+                type: 'marker-analyzed',
+                marker: { ...newMarker, objectName, isAnalyzing: false }
+              }
+            }));
+          })
+          .catch(error => {
+            console.error(`❌ Analysis failed for marker #${markerNumber}:`, error);
+            setMarkedPoints(prev => prev.map(m =>
+              m.id === newMarker.id
+                ? { ...m, objectName: 'Error', isAnalyzing: false }
+                : m
+            ));
+          });
       } else {
-        console.log('❌ Must click on an image to place dot');
+        console.log('❌ Must click on an image to place marker');
       }
 
       return; // Don't process as normal click
@@ -1676,7 +1784,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
           if (marker) {
             console.log('🔵 Clicked marker #' + marker.number);
-            setSelectedMarkerId(marker.id);
+            engineRef.current.selectShape(marker.shapeId);  // Register with engine for visual feedback
+            setSelectedMarkerId(marker.id);  // Track selected marker for deletion
 
             // Removed: analyzeMarkerPoint call - no longer needed for popup
             // Removed: setShowMarkerSuggestions(true) - popup removed
@@ -1701,6 +1810,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         if (!e.shiftKey) {
           engineRef.current.clearSelection();
           setSelectedShapeId(null);
+          setSelectedMarkerId(null);  // Also clear marker selection
           updateSelectedShapesState();
         }
         setIsSelecting(true);
@@ -2104,6 +2214,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     if ((isDrawing || isResizing || isGroupResizing || isGroupMoving) && engineRef.current) {
       engineRef.current.setHideSelection(false);
       engineRef.current.saveState();
+
+      // Update marker positions for all images (in case any were moved/resized)
+      // This ensures markers stay at the correct relative position on their parent images
+      const allShapes = engineRef.current.getAllShapes();
+      const imageShapes = allShapes.filter(s => s.type === 'image' && !s.id.startsWith('marker-'));
+      imageShapes.forEach(imageShape => {
+        updateMarkersForImage(imageShape.id);
+      });
+
       saveCanvasState();
       const zoom = engineRef.current.getState().viewport.zoom;
       setZoomLevel(Math.round(zoom * 100));
@@ -2283,12 +2402,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             // Remove from state
             setMarkedPoints(prev => prev.filter(m => m.id !== selectedMarkerId));
 
-            // Remove shapes from canvas
-            engineRef.current?.removeShape(markerToDelete.shapeId); // Blue circle
-            const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
-            engineRef.current?.removeShape(textShapeId); // Number text
+            // Remove marker shape from canvas (pin marker with embedded number)
+            engineRef.current?.removeShape(markerToDelete.shapeId);
 
             // Clear selection
+            engineRef.current?.clearSelection();  // Clear from CanvasEngine
             setSelectedMarkerId(null);
             setShowMarkerSuggestions(false);
 
@@ -2331,10 +2449,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         // Remove from state
         setMarkedPoints(prev => prev.filter(m => m.id !== markerId));
 
-        // Remove shapes
+        // Remove marker shape from canvas (pin marker with embedded number)
         engineRef.current?.removeShape(markerToDelete.shapeId);
-        const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
-        engineRef.current?.removeShape(textShapeId);
 
         // Clear selection if this marker was selected
         if (selectedMarkerId === markerId) {

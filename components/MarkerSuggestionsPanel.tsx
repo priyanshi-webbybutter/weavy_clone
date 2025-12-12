@@ -3,14 +3,11 @@ interface MarkedPoint {
   number: number;
   shapeId: string;
   imageId: string;
-  worldPosition: { x: number; y: number };
-  normalizedPosition: [number, number];
-  detectionResults?: {
-    label: string;
-    kind: string;
-    bbox: { x: number; y: number; width: number; height: number };
-  }[];
+  normalizedX: number;
+  normalizedY: number;
   timestamp: number;
+  objectName: string | null;
+  isAnalyzing: boolean;
 }
 
 interface MarkerSuggestionsPanelProps {
@@ -25,7 +22,6 @@ export function MarkerSuggestionsPanel({
   marker,
   position,
   onClose,
-  onSelectSuggestion,
   onDelete,
 }: MarkerSuggestionsPanelProps) {
   return (
@@ -36,10 +32,10 @@ export function MarkerSuggestionsPanel({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
+          <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-xs font-bold">
             {marker.number}
           </div>
-          <span className="text-sm font-medium text-gray-300">Detected Objects</span>
+          <span className="text-sm font-medium text-gray-300">Detected Object</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -62,57 +58,40 @@ export function MarkerSuggestionsPanel({
         </div>
       </div>
 
-      {/* Detection Results */}
-      {marker.detectionResults && marker.detectionResults.length > 0 ? (
-        <div className="space-y-1">
-          {marker.detectionResults.map((result, idx) => (
-            <button
-              key={idx}
-              onClick={() => onSelectSuggestion(result)}
-              className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#2a2a2a] rounded-md transition-colors text-left"
+      {/* Object Name Display */}
+      {marker.isAnalyzing ? (
+        <div className="mb-4 p-3 bg-gray-500/10 border border-gray-500/30 rounded-md">
+          <div className="flex items-center gap-2 text-gray-400">
+            <svg
+              className="w-4 h-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
             >
-              <div className="flex-1">
-                <div className="text-sm font-medium text-white">{result.label}</div>
-                <div className="text-xs text-gray-500">{result.kind}</div>
-              </div>
-              {idx === 0 && (
-                <svg
-                  className="w-4 h-4 text-green-500 flex-shrink-0 ml-2"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              )}
-            </button>
-          ))}
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              />
+            </svg>
+            <span className="text-sm">Analyzing...</span>
+          </div>
+        </div>
+      ) : marker.objectName ? (
+        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-md">
+          <div className="text-xs text-blue-400 mb-1 uppercase tracking-wide">Object</div>
+          <div className="text-xl font-bold text-white capitalize">{marker.objectName}</div>
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center text-gray-500 py-6">
-          <svg
-            className="w-8 h-8 mb-2 animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-          <span className="text-sm">Analyzing...</span>
+        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+          <div className="text-sm text-red-400">Analysis failed</div>
         </div>
       )}
 
@@ -122,12 +101,12 @@ export function MarkerSuggestionsPanel({
           <div className="flex justify-between items-center">
             <span>Position:</span>
             <span className="font-mono">
-              [{marker.normalizedPosition[0]}, {marker.normalizedPosition[1]}]
+              [{marker.normalizedX.toFixed(4)}, {marker.normalizedY.toFixed(4)}]
             </span>
           </div>
           <div className="flex justify-between items-center mt-1">
             <span>Scale:</span>
-            <span className="font-mono">[0, 1000]</span>
+            <span className="font-mono">[0.0, 1.0]</span>
           </div>
         </div>
       </div>
