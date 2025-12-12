@@ -564,9 +564,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
   // Handle canvas actions from AI with placeholder system
   const handleCanvasActions = useCallback(async (actions: CanvasAction[], images: { url: string; prompt: string }[]) => {
+    console.log('🎨 handleCanvasActions called:', {
+      actionsCount: actions.length,
+      imagesCount: images.length,
+      imageUrls: images.map(img => img.url.substring(0, 50))
+    });
+
     // Handle generated images with smart placement
     if (images.length > 0) {
-      console.log(`🎨 Loading ${images.length} generated images to get dimensions...`);
+      console.log(`🎨 Processing ${images.length} generated images...`);
 
       // Load all images first to get actual dimensions
       const imageData: Array<{
@@ -622,6 +628,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         .map(s => s.id);
 
       // Find optimal positions for all images at once using smart placement
+      console.log('📍 Finding optimal placements for images...');
       const positions = findMultiPlacement(
         imageData.map(img => ({ width: img.width, height: img.height })),
         allShapes,
@@ -662,6 +669,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         };
 
         onAddShape(imageShape);
+        console.log('✅ Image added to canvas:', imageId);
 
         // Arrows now render automatically from CanvasArrows component based on generationMetadata.referenceImageIds
       }
@@ -730,7 +738,26 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
    * Detects if the user message will trigger image generation
    * Based on keywords and context
    */
-  const detectImageGeneration = useCallback((message: string, shapes: Shape[]): boolean => {
+  const detectImageGeneration = useCallback((message: string, shapes: Shape[], markerResults: MarkerResult[] = []): boolean => {
+    console.log('🔍 detectImageGeneration called:', {
+      message: message.substring(0, 100),
+      markerCount: markerResults.length,
+      shapesCount: shapes.length
+    });
+
+    // NEW: Check for active markers FIRST (marker-based editing always generates images)
+    if (markerResults.length > 0) {
+      console.log('✅ Marker-based generation detected');
+      return true;
+    }
+
+    // NEW: Check for marker pattern in text (e.g., [@image:#1:label])
+    const markerPattern = /\[@image:#\d+:[^\]]+\]/g;
+    if (markerPattern.test(message)) {
+      console.log('✅ Marker pattern found in message text');
+      return true;
+    }
+
     const lowerMessage = message.toLowerCase();
 
     // HIGH CONFIDENCE ONLY - explicit generation commands
@@ -1229,16 +1256,45 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
+
+    // Clear markers after sending message
+    if (markerResults.length > 0) {
+      console.log('🧹 Clearing markers after message sent');
+
+      // Remove all markers from canvas
+      markerResults.forEach(marker => {
+        window.dispatchEvent(new CustomEvent('marker-delete', {
+          detail: { markerId: marker.markerId }
+        }));
+      });
+
+      // Clear marker state
+      setMarkerResults([]);
+    }
+
+    // NEW: Debug logging before detection
+    console.log('🔍 DEBUG: Detection phase:', {
+      messageText,
+      hasMarkers: markerResults.length > 0,
+      markerCount: markerResults.length,
+      markerLabels: markerResults.map(m => m.label),
+      selectedShapes: selectedShapes.length
+    });
+
     setIsLoading(true);
 
     // === PLACEHOLDER LOGIC: Detect if image generation expected ===
     // Declare outside try block so it's accessible in catch
-    const willGenerateImage = detectImageGeneration(messageText, selectedShapes);
+    const willGenerateImage = detectImageGeneration(messageText, selectedShapes, markerResults);
     let placeholderId: string | null = null;
 
     if (willGenerateImage) {
-      console.log('🎨 Image generation detected - adding placeholder');
+      console.log('🎨 Image generation detected - adding placeholder:', {
+        reason: markerResults.length > 0 ? 'markers' : 'keywords',
+        markerCount: markerResults.length
+      });
       placeholderId = addGenerationPlaceholder();
+      console.log('✅ Placeholder created:', placeholderId);
     }
 
     try {
@@ -1353,16 +1409,47 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         body: formData,
       });
 
+      // Check HTTP status before parsing JSON
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
 
+      // NEW: Debug logging for response
+      console.log('🔍 DEBUG: Full backend response:', {
+        success: data.success,
+        hasResponse: !!data.response,
+        hasActions: !!data.actions,
+        actionsLength: data.actions?.length || 0,
+        hasGeneratedImages: !!data.generatedImages,
+        generatedImagesLength: data.generatedImages?.length || 0,
+        markerContext: data.markerContext
+      });
+
       if (data.success) {
+        // NEW: Validate generatedImages structure
+        if (data.generatedImages && data.generatedImages.length > 0) {
+          console.log('✅ Generated images received:', data.generatedImages.map(img => ({
+            hasUrl: !!img.url,
+            hasPrompt: !!img.prompt,
+            urlPreview: img.url?.substring(0, 50)
+          })));
+        }
+
         // Update brand bible if returned
         if (data.brandBible) {
           setBrandBible(data.brandBible);
         }
 
+        // NEW: Explicit condition checks
+        const hasActions = Array.isArray(data.actions) && data.actions.length > 0;
+        const hasImages = Array.isArray(data.generatedImages) && data.generatedImages.length > 0;
+
+        console.log('🔍 Processing check:', { hasActions, hasImages });
+
         // Handle canvas actions
-        if ((data.actions && data.actions.length > 0) || (data.generatedImages && data.generatedImages.length > 0)) {
+        if (hasActions || hasImages) {
           // === DEBUG: Check placeholder state before removal ===
           console.log('🔍 DEBUG: Checking placeholders for removal:', {
             activePlaceholdersLength: activePlaceholders.length,
@@ -1389,7 +1476,12 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           }
 
           // Handle canvas actions with real images
-          await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          try {
+            await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          } catch (canvasError) {
+            console.error('Canvas action error:', canvasError);
+            // Error already logged, continue to response handling
+          }
         }
 
         // === NEW: Cleanup orphaned placeholders ===
@@ -1709,20 +1801,30 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   )}
 
                   {/* Generated Images - for both user and assistant messages */}
-                  {/* {message.images && message.images.length > 0 && (
+                  {message.images && message.images.length > 0 && (
                     <div className="mt-3 space-y-2">
+                      <div className="text-xs text-gray-400 mb-2">Generated Images:</div>
                       {message.images.map((img, i) => (
-                        <div key={i} className="rounded-lg overflow-hidden border border-[#3a3a3a]">
+                        <div key={i} className="rounded-lg overflow-hidden border border-[#3a3a3a] bg-[#1a1a1a]">
                           <img
                             src={img.url}
                             alt={img.prompt || 'Generated image'}
                             className="w-full h-auto"
                             loading="lazy"
+                            onError={(e) => {
+                              console.error('❌ Failed to load image:', img.url);
+                              e.currentTarget.style.display = 'none';
+                            }}
                           />
+                          {img.prompt && (
+                            <div className="p-2 text-xs text-gray-500 border-t border-[#2a2a2a]">
+                              {img.prompt}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
-                  )} */}
+                  )}
                 </div>
               </div>
             ))}

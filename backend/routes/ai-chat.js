@@ -1087,6 +1087,17 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
       try {
         mentionList = JSON.parse(req.body.mention_list);
         console.log(`🎯 Received ${mentionList.length} marker(s) with labels:`, mentionList.map(m => m.label));
+
+        // Comprehensive marker logging
+        if (mentionList.length > 0) {
+          console.log('🎯 MARKER MODE ACTIVATED');
+          console.log('📊 Marker summary:', {
+            count: mentionList.length,
+            labels: mentionList.map(m => m.label),
+            bboxes: mentionList.map(m => m.bbox),
+            imageUrls: mentionList.map(m => m.thumbnail)
+          });
+        }
       } catch (parseError) {
         console.error('❌ Failed to parse mention_list:', parseError.message);
       }
@@ -1166,6 +1177,125 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
     }
     // ==============================================================
 
+    // === PHASE 5: AI-Based Detailed Prompt Generation ===
+    /**
+     * Use Gemini AI to generate a detailed image editing prompt
+     * @param {string} userMessage - The user's original message
+     * @param {Array} markers - Array of marker objects with label and bbox
+     * @param {Object} genAI - Gemini AI instance
+     * @returns {Promise<string>} - Detailed editing prompt
+     */
+    async function generateEditingPromptWithAI(userMessage, markers, genAI) {
+      console.log('🤖 Generating detailed prompt with AI...');
+
+      // Create a fresh Gemini chat for prompt generation
+      const promptModel = genAI.getGenerativeModel({
+        model: "gemini-2.0-flash-exp",
+        generationConfig: {
+          temperature: 0.3,  // Lower temperature for more consistent formatting
+          maxOutputTokens: 500,
+        },
+      });
+
+      // Build marker description
+      const markerDescriptions = markers.map((m, i) =>
+        `Marker ${i + 1}: "${m.label}" at coordinates [${m.bbox.map(c => c.toFixed(2)).join(', ')}]`
+      ).join('\n');
+
+      // Instruction prompt for Gemini
+      const instructionPrompt = `You are an expert image editing prompt generator. Your task is to generate a detailed, single-line editing prompt based on the user's instruction and the marked regions.
+
+**User's Instruction**: "${userMessage}"
+
+**Marked Regions**:
+${markerDescriptions}
+
+**Decision Logic and Template Selection**:
+
+1.  **Count Markers**: Determine the number of markers provided in 'Marked Regions'.
+2.  **Analyze Intent**: Check if the 'User's Instruction' contains action words like "move", "transfer", "remove", "delete", "erase", or "replace".
+
+***
+
+### **Case 1: Single Marked Object (marker_count == 1 OR instruction is "remove/delete/erase")**
+
+**Action Focus**: Removal or modification of a single object.
+
+**Prompt Template**:
+"Edit this image: [ACTION] the [OBJECT] from the marked area completely. [RESTORATION/PLACEMENT DETAILS]. The area should look completely natural and unedited. Use the coordinates [X1, Y1, X2, Y2] to identify the exact area where the [OBJECT] is [ACTION]. Blend the edges naturally to match the surrounding [FILLER: e.g., skin, background, water] and lighting, ensuring realistic shadows and texture."
+
+**Example Fulfillment**:
+*User Instruction: remove it*
+*Marker Description: A pair of sunglasses at [0.28, 0.10, 0.70, 0.26]*
+*Generated Prompt: Edit this image: Remove the sunglasses from the marked area completely. Restore the natural eye area with realistic skin texture, natural eye color, and appropriate lighting. The area should look completely natural and unedited. Use the coordinates [0.28, 0.10, 0.70, 0.26] to identify the exact area where the sunglasses are removed. Blend the edges naturally to match the surrounding skin and lighting, ensuring realistic shadows and texture.*
+
+***
+
+### **Case 2: Multiple Marked Objects (marker_count > 1 OR instruction is "move/transfer/replace")**
+
+**Action Focus**: Moving, transferring, or replacing an object between two specific areas.
+
+**Prompt Template**:
+"Edit this image: [ACTION] the [OBJECT] from the [SOURCE AREA DESCRIPTION] (source coordinates [X1, Y1, X2, Y2]) to the [TARGET AREA DESCRIPTION] (target coordinates [X3, Y3, X4, Y4]). [INTEGRATION DETAILS]. Use the coordinates to identify the source and target locations. The [OBJECT] should maintain its appearance but now be positioned at the new location, ensuring proper lighting, realistic grip/positioning, and accurate shadows."
+
+**Example Fulfillment**:
+*User Instruction: move hat to hand*
+*Marker Descriptions: 1. Hat at [0.00, 0.00, 1.00, 0.45], 2. Hand at [0.00, 0.50, 0.30, 1.00]*
+*Generated Prompt: Edit this image: Move the hat from the brim area (source coordinates [0.00, 0.00, 1.00, 0.45]) to the hand area (target coordinates [0.00, 0.50, 0.30, 1.00]). The hat should be held naturally in the hand with realistic grip and position. Use the coordinates to identify the source and target locations. The hat should maintain its appearance but now be positioned at the new location, ensuring proper lighting, realistic grip/positioning, and accurate shadows.*
+
+***
+
+**Requirements for Final Output**:
+1.  **Start with "Edit this image:"**
+2.  **Include ALL marker coordinates** in the prompt (as source/target pairs or a single removal location).
+3.  **Ensure detailed instructions** for realistic blending, lighting, shadows, and natural positioning/texture are present in the chosen template.
+4.  **Output only the detailed editing prompt, nothing else.**`;
+
+      try {
+        const result = await Promise.race([
+          promptModel.generateContent(instructionPrompt),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('AI prompt generation timeout')), 15000)
+          )
+        ]);
+
+        const generatedPrompt = result.response.text().trim();
+        console.log('✅ AI-generated prompt:', generatedPrompt);
+        return generatedPrompt;
+
+      } catch (error) {
+        console.error('❌ AI prompt generation failed:', error.message);
+
+        // Fallback: Generate basic prompt ourselves
+        if (markers.length === 1) {
+          const m = markers[0];
+          return `Edit this image: ${userMessage}. Use the coordinates [${m.bbox.join(', ')}] to identify the marked area ("${m.label}"). Apply the edit naturally with proper lighting and blending.`;
+        } else {
+          const coords = markers.map((m, i) =>
+            `[${m.bbox.join(', ')}] for "${m.label}"`
+          ).join(' and ');
+          return `Edit this image: ${userMessage}. Use the coordinates ${coords}. Apply the edit naturally with proper lighting and blending.`;
+        }
+      }
+    }
+
+    // Enhance message with marker context if markers are present
+    let enhancedMessage = cleanMessage;
+
+    if (mentionList.length > 0) {
+      console.log('📍 Markers detected:', mentionList.length);
+
+      // Use AI to generate detailed editing prompt
+      enhancedMessage = await generateEditingPromptWithAI(
+        cleanMessage,
+        mentionList,
+        genAI
+      );
+
+      console.log('📝 Enhanced prompt:', enhancedMessage);
+    }
+    // ===================================================================
+
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
@@ -1222,10 +1352,23 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
     }
 
     // Initialize the model with function calling
-    const model = genAI.getGenerativeModel({
+    const modelConfig = {
       model: "gemini-2.0-flash",
       tools: tools,
-    });
+    };
+
+    // FORCE tool calling when markers present
+    if (mentionList.length > 0) {
+      modelConfig.toolConfig = {
+        functionCallingConfig: {
+          mode: "ANY",  // Force model to call at least one function
+          allowedFunctionNames: ["call_image_generator"]  // Only allow image generation
+        }
+      };
+      console.log('🎯 MARKER MODE: Forcing call_image_generator tool');
+    }
+
+    const model = genAI.getGenerativeModel(modelConfig);
 
     // Build conversation history for Gemini
     const history = [];
@@ -1328,16 +1471,17 @@ Fill in the {{variables}} with information from the user's request.\n`;
         systemContext += `  - Source: User placed marker on canvas\n\n`;
       });
 
-      systemContext += `\n⚡ IMPORTANT INSTRUCTIONS FOR MARKERS:\n`;
-      systemContext += `1. The user message refers to these marked regions\n`;
-      systemContext += `2. Extract the user's intent from their brief message (e.g., "remove it" means remove the marked object)\n`;
-      systemContext += `3. Generate a DETAILED prompt that:\n`;
-      systemContext += `   - Specifies the exact editing action (remove, replace, modify, enhance, etc.)\n`;
-      systemContext += `   - References the marked object by its label\n`;
-      systemContext += `   - Uses the bbox coordinates for precise region targeting\n`;
-      systemContext += `   - Describes the desired result in detail\n`;
-      systemContext += `4. The marked images are provided as reference images for compositing\n`;
-      systemContext += `5. Use the coordinates to focus on the specific region that needs editing\n\n`;
+      systemContext += `\n⚡ MARKER MODE: DIRECT EXECUTION\n`;
+      systemContext += `When markers are present, the system has ALREADY:\n`;
+      systemContext += `1. ✅ Generated the editing prompt: "${enhancedMessage?.substring(0, 100)}..."\n`;
+      systemContext += `2. ✅ Called call_image_generator with this prompt\n`;
+      systemContext += `3. ✅ Generated the edited image\n\n`;
+      systemContext += `YOUR TASK: Write a 2-3 sentence response explaining what was changed.\n`;
+      systemContext += `- Reference the marked object by name: "${mentionList[0]?.label}"\n`;
+      systemContext += `- Confirm the edit was applied\n`;
+      systemContext += `- Ask if they want adjustments\n`;
+      systemContext += `- Use markdown formatting\n`;
+      systemContext += `- Be accurate - the edit has already been done\n\n`;
     }
     // ===============================================
 
@@ -1404,57 +1548,30 @@ Fill in the {{variables}} with information from the user's request.\n`;
       systemContext += `\n\n🎨 STRUCTURED GENERATION GUIDE:\n${structuredPrompt.structuredPrompt}\n`;
     }
 
-    // === PHASE 5: Enhance prompt with marker-aware intent inference ===
-    // Helper function to infer editing intent from user message
-    function inferEditingIntent(message, objectLabel) {
-      const msg = message.toLowerCase();
-      if (msg.includes('remove') || msg.includes('delete') || msg === 'remove it' || msg === 'delete it') {
-        return 'remove';
-      }
-      if (msg.includes('replace') || msg.includes('change to')) {
-        return 'replace';
-      }
-      if (msg.includes('modify') || msg.includes('change') || msg.includes('edit')) {
-        return 'modify';
-      }
-      // Default: assume removal if user just says "it" or object name
-      if (msg === 'it' || msg.includes(objectLabel?.toLowerCase() || '')) {
-        return 'remove';
-      }
-      return 'modify';
-    }
+    // === PHASE 5.5: Direct function execution for marker-based edits ===
+    let markerBasedToolCall = null;
 
-    // Helper function to extract replacement object from message
-    function extractReplacementObject(message) {
-      // Extract what to replace with (e.g., "replace with a hat" -> "a hat")
-      const match = message.match(/(?:replace|change).*(?:with|to)\s+(.+)/i);
-      return match ? match[1] : 'something else';
-    }
+    if (mentionList.length > 0 && enhancedMessage) {
+      // Calculate aspect ratio from marked image
+      const largestImage = selectedImages.reduce((max, img) =>
+        img.area > max.area ? img : max
+      );
+      const aspectRatio = mapNumericRatioToString(largestImage.aspectRatio);
 
-    // Enhance message with marker context if markers are present
-    let enhancedMessage = cleanMessage;
+      // Build function call directly - don't rely on AI to build it
+      markerBasedToolCall = {
+        name: 'call_image_generator',
+        args: {
+          prompt: enhancedMessage,  // Use our enhanced prompt directly
+          aspect_ratio: aspectRatio
+        }
+      };
 
-    if (mentionList.length > 0) {
-      const marker = mentionList[0]; // Use first marker
-
-      // Infer intent from user's brief message
-      const intent = inferEditingIntent(cleanMessage, marker.label);
-
-      // Generate detailed prompt based on intent
-      if (intent === 'remove') {
-        enhancedMessage = `Edit this image: Remove the ${marker.label} from the marked area (coordinates: [${marker.bbox.join(', ')}]). `;
-        enhancedMessage += `Completely remove the ${marker.label}. Restore the background naturally with realistic textures, lighting, and colors that match the surrounding area. Ensure seamless blending with no visible artifacts or traces of the removed object. Maintain proper shadows and perspective.`;
-      } else if (intent === 'replace') {
-        const replacementObj = extractReplacementObject(cleanMessage);
-        enhancedMessage = `Edit this image: Replace the ${marker.label} in the marked area (coordinates: [${marker.bbox.join(', ')}]) with ${replacementObj}. `;
-        enhancedMessage += `Match the lighting, style, and perspective of the original scene. Blend seamlessly with the background.`;
-      } else {
-        // Modify/change
-        enhancedMessage = `Edit this image: Modify the ${marker.label} in the marked area (coordinates: [${marker.bbox.join(', ')}]). `;
-        enhancedMessage += `${cleanMessage}. Maintain consistency with the rest of the image in terms of lighting, color, and style.`;
-      }
-
-      console.log('📝 Generated detailed prompt from marker context:', enhancedMessage);
+      console.log('🎯 Pre-built marker-based tool call:', {
+        tool: markerBasedToolCall.name,
+        promptPreview: markerBasedToolCall.args.prompt.substring(0, 100) + '...',
+        aspectRatio: markerBasedToolCall.args.aspect_ratio
+      });
     }
     // ===================================================================
 
@@ -1491,64 +1608,193 @@ Follow the design guidelines provided above.`;
       console.log('🤔 Step 7: Letting Gemini decide (low confidence)');
     }
 
-    // Build message parts - include image if available
-    const messageParts = [];
-    if (canvasImageData) {
-      messageParts.push(canvasImageData);
-      messageParts.push({ text: `[CANVAS SCREENSHOT ATTACHED - Analyze this design]\n\nUser message: ${userMessageText}` });
-      console.log('📷 Sending message with canvas image to Gemini');
-    } else {
-      messageParts.push({ text: userMessageText });
-      console.log('📝 Sending text-only message to Gemini');
-    }
-
-    // Send message with optional image
-    let result = await chat.sendMessage(messageParts);
-    let response = result.response;
-
-    // Check for function calls
-    const functionCalls = response.functionCalls();
+    // === MODIFIED: Direct execution path for marker-based edits ===
     const actions = [];
     let generatedImages = [];
     let generatedContent = [];
+    let response;
+    let functionCalls = null; // Track function calls for logging
 
-    if (functionCalls && functionCalls.length > 0) {
-      // Execute each function call
-      for (const call of functionCalls) {
-        console.log(`Executing tool: ${call.name}`, call.args);
-        // Pass selected images for compositing when calling image generator
-        const toolResult = await executeToolCall(call.name, call.args, selectedImages, projectId, token);
+    if (markerBasedToolCall) {
+      // MARKER MODE: Execute tool call directly without asking Gemini first
+      console.log('🎯 MARKER MODE: Executing pre-built tool call...');
 
-        if (toolResult.success) {
-          if (toolResult.imageUrl) {
-            generatedImages.push({
-              url: toolResult.imageUrl,
-              prompt: toolResult.prompt,
-              aspectRatio: toolResult.aspectRatio
-            });
-          }
-          if (toolResult.content) {
-            generatedContent.push({
-              content: toolResult.content,
-              topic: toolResult.topic,
-              goal: toolResult.goal
-            });
-          }
-          if (toolResult.action) {
-            actions.push(toolResult.action);
-          }
+      const toolResult = await executeToolCall(
+        markerBasedToolCall.name,
+        markerBasedToolCall.args,
+        selectedImages,
+        projectId,
+        token
+      );
+
+      if (toolResult.success && toolResult.imageUrl) {
+        console.log('✅ Marker-based edit successful:', {
+          imageUrl: toolResult.imageUrl.substring(0, 50) + '...',
+          prompt: toolResult.prompt?.substring(0, 100) + '...'
+        });
+
+        generatedImages.push({
+          url: toolResult.imageUrl,
+          prompt: toolResult.prompt,
+          aspectRatio: toolResult.aspectRatio
+        });
+
+        // NOW ask Gemini to describe what was done (text response only)
+        // Create a FRESH chat session for description (avoids state issues)
+        console.log('💬 Creating fresh chat session for description...');
+
+        const descriptionChat = model.startChat({
+          history: [],  // Fresh session with no history
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 500,  // Short description only
+          },
+        });
+
+        const descriptionRequest = `The user requested: "${cleanMessage}"
+
+I marked the following region(s) for editing:
+${mentionList.map((m, i) => `- ${m.label} at [${m.bbox.map(c => c.toFixed(3)).join(', ')}]`).join('\n')}
+
+I've generated an edited image with this prompt:
+"${enhancedMessage}"
+
+The edit has been successfully completed. Write a brief 2-3 sentence response to the user:
+1. Explain what was changed (reference marked objects by name)
+2. Confirm the edit was applied successfully
+3. Ask if they want any adjustments
+
+Use markdown formatting. Be concise and accurate.`;
+
+        try {
+          console.log('🤖 Requesting description from Gemini...');
+          const descResult = await Promise.race([
+            descriptionChat.sendMessage([{ text: descriptionRequest }]),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Description request timeout')), 10000)
+            )
+          ]);
+
+          response = descResult.response;
+          console.log('✅ Description received from Gemini');
+
+        } catch (descError) {
+          console.error('❌ Description generation failed:', descError.message);
+
+          // Fallback: Generate description ourselves
+          const objectDescriptions = mentionList.map(m => m.label).join(', ');
+          const fallbackText = `I've successfully edited the image as requested. ${
+            mentionList.length === 1
+              ? `The ${mentionList[0].label} has been modified`
+              : `The marked regions (${objectDescriptions}) have been updated`
+          } according to your instructions.\n\nWould you like me to make any adjustments?`;
+
+          response = {
+            text: () => fallbackText
+          };
+
+          console.log('📝 Using fallback description');
         }
 
-        // Send function result back to model
-        result = await chat.sendMessage([{
-          functionResponse: {
-            name: call.name,
-            response: toolResult
+      } else {
+        // Tool execution failed
+        console.error('❌ Marker-based tool execution failed:', toolResult.error);
+
+        // Create a mock response object with error message
+        response = {
+          text: () => `I encountered an error while editing the marked region: ${toolResult.error || 'Unknown error'}. Please try again.`
+        };
+      }
+
+    } else {
+      // NORMAL MODE: Send message to Gemini as before
+      console.log('📝 NORMAL MODE: Sending message to Gemini...');
+
+      // Build message parts - include image if available
+      const messageParts = [];
+      if (canvasImageData) {
+        messageParts.push(canvasImageData);
+        messageParts.push({ text: `[CANVAS SCREENSHOT ATTACHED - Analyze this design]\n\nUser message: ${userMessageText}` });
+        console.log('📷 Sending message with canvas image to Gemini');
+      } else {
+        messageParts.push({ text: userMessageText });
+        console.log('📝 Sending text-only message to Gemini');
+      }
+
+      // Send message with optional image
+      let result = await chat.sendMessage(messageParts);
+      response = result.response;
+
+      // Check for function calls
+      functionCalls = response.functionCalls();
+
+      // Log function call detection
+      console.log('🔍 Function calls detected:', {
+        hasFunctionCalls: !!functionCalls,
+        functionCallsLength: functionCalls?.length || 0,
+        functionNames: functionCalls?.map(fc => fc.name) || []
+      });
+
+      if (functionCalls && functionCalls.length > 0) {
+        // Execute each function call
+        for (const call of functionCalls) {
+          console.log(`Executing tool: ${call.name}`, call.args);
+          // Pass selected images for compositing when calling image generator
+          const toolResult = await executeToolCall(call.name, call.args, selectedImages, projectId, token);
+
+          if (toolResult.success) {
+            console.log('✅ Tool executed successfully:', call.name);
+            if (toolResult.imageUrl) {
+              console.log('🎨 Image generated:', {
+                url: toolResult.imageUrl.substring(0, 50) + '...',
+                prompt: toolResult.prompt?.substring(0, 100) + '...'
+              });
+              generatedImages.push({
+                url: toolResult.imageUrl,
+                prompt: toolResult.prompt,
+                aspectRatio: toolResult.aspectRatio
+              });
+            }
+            if (toolResult.content) {
+              generatedContent.push({
+                content: toolResult.content,
+                topic: toolResult.topic,
+                goal: toolResult.goal
+              });
+            }
+            if (toolResult.action) {
+              actions.push(toolResult.action);
+            }
+          } else {
+            console.log('❌ Tool execution failed:', {
+              tool: call.name,
+              error: toolResult.error
+            });
           }
-        }]);
-        response = result.response;
+
+          // Send function result back to model
+          result = await chat.sendMessage([{
+            functionResponse: {
+              name: call.name,
+              response: toolResult
+            }
+          }]);
+          response = result.response;
+        }
+      } else {
+        // No function calls detected
+        console.log('⚠️ No function calls detected - AI responded with text only');
       }
     }
+    // ===================================================================
+
+    // Log tool execution summary
+    console.log('📊 Tool execution summary:', {
+      totalFunctionCalls: functionCalls?.length || 0,
+      generatedImagesCount: generatedImages.length,
+      actionsCount: actions.length,
+      generatedContentCount: generatedContent.length
+    });
 
     // Get the final text response
     const textResponse = response.text();
@@ -1614,6 +1860,47 @@ Follow the design guidelines provided above.`;
       }
     }
 
+    // === STEP 8.5: VALIDATE MARKER-BASED RESPONSES ===
+    if (mentionList.length > 0) {
+      console.log('🔍 Validating marker-based response...');
+
+      // Check 1: Was a tool called?
+      if (generatedImages.length === 0) {
+        console.error('❌ VALIDATION FAILED: Markers present but no images generated');
+        console.error('Marker labels:', mentionList.map(m => m.label));
+
+        // Could add retry logic here or return error
+        // For now, log critical error
+      } else {
+        console.log('✅ Validation passed: Image generated for marker-based edit');
+      }
+
+      // Check 2: Does the prompt reference the marked object?
+      const generatedPrompt = generatedImages[0]?.prompt || '';
+      const markedLabel = mentionList[0].label;
+
+      if (!generatedPrompt.toLowerCase().includes(markedLabel.toLowerCase())) {
+        console.warn('⚠️ VALIDATION WARNING: Prompt does not reference marked object:', {
+          markedLabel,
+          promptPreview: generatedPrompt.substring(0, 100)
+        });
+      } else {
+        console.log('✅ Validation passed: Prompt references marked object');
+      }
+
+      // Check 3: Does the response text mention the marked object?
+      const responseText = cleanResponse.toLowerCase();
+      if (!responseText.includes(markedLabel.toLowerCase())) {
+        console.warn('⚠️ VALIDATION WARNING: Response does not mention marked object:', {
+          markedLabel,
+          responsePreview: responseText.substring(0, 100)
+        });
+      } else {
+        console.log('✅ Validation passed: Response mentions marked object');
+      }
+    }
+    // ===================================================================
+
     // Step 9: Deliver (log delivery summary)
     console.log('📦 Step 9: Delivering response with', {
       responseLength: cleanResponse.length,
@@ -1623,6 +1910,14 @@ Follow the design guidelines provided above.`;
 
     // Format response with markdown and inject images
     const markdownResponse = formatMarkdownResponse(cleanResponse, generatedImages);
+
+    // Final response logging
+    console.log('📦 Final response summary:', {
+      markerMode: mentionList.length > 0,
+      imagesGenerated: generatedImages.length,
+      markerValidation: mentionList.length > 0 ? 'validated' : 'n/a',
+      responseLength: cleanResponse.length
+    });
 
     // === PHASE 7: Return AI prompt in response (for debugging) ===
     res.json({

@@ -1080,14 +1080,23 @@ export class CanvasEngine {
         }
         break;
 
-      case 'circle':
+      case 'circle': {
+        // Check if this is a marker (locked circle with marker- id)
+        const isMarker = shape.locked && shape.id.startsWith('marker-');
+
+        // Apply inverse zoom scaling for markers to keep constant screen size
+        const displayRadius = isMarker
+          ? shape.radius / this.state.viewport.zoom  // Inverse scaling
+          : shape.radius;                             // Normal shapes scale normally
+
         this.ctx.beginPath();
-        this.ctx.arc(shape.x + shape.radius, shape.y + shape.radius, shape.radius, 0, Math.PI * 2);
+        this.ctx.arc(shape.x + shape.radius, shape.y + shape.radius, displayRadius, 0, Math.PI * 2);
         this.ctx.fill();
         if (shape.style.stroke) {
           this.ctx.stroke();
         }
         break;
+      }
 
       case 'arrow':
         // Arrows now rendered by CanvasArrows React component (SVG overlay)
@@ -1313,7 +1322,16 @@ export class CanvasEngine {
     this.ctx.clip();
 
     // Build font string with weight
-    const fontSize = shape.style.fontSize || 16;
+    const baseFontSize = shape.style.fontSize || 16;
+
+    // Check if this is marker text (locked text with marker-text- id)
+    const isMarkerText = shape.locked && shape.id.startsWith('marker-text-');
+
+    // Apply inverse zoom scaling for marker text to keep constant screen size
+    const fontSize = isMarkerText
+      ? baseFontSize / this.state.viewport.zoom  // Inverse scaling
+      : baseFontSize;                             // Normal text scales normally
+
     const fontFamily = shape.style.fontFamily || 'Arial';
     let fontWeight = shape.style.fontWeight || 'normal';
     // Convert "Regular" to "normal" for CSS compatibility

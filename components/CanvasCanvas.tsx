@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import AIChatPanel from './AIChatPanel';
 import { CanvasArrows } from './CanvasArrows';
-import { MarkerSuggestionsPanel } from './MarkerSuggestionsPanel';
+// Removed: MarkerSuggestionsPanel import - popup no longer needed
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -141,7 +141,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
   const [markedPoints, setMarkedPoints] = useState<MarkedPoint[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
-  const [showMarkerSuggestions, setShowMarkerSuggestions] = useState(false);
+  // Removed: showMarkerSuggestions state - popup no longer used
 
   // Initialize engine
   useEffect(() => {
@@ -1503,9 +1503,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         const blueMarker: CircleShape = {
           id: `marker-${Date.now()}-${markerNumber}`,
           type: 'circle',
-          x: worldPoint.x - 12,  // Larger radius (12px)
-          y: worldPoint.y - 12,
-          radius: 12,            // 12px radius = 24px diameter
+          x: worldPoint.x - 5,   // Smaller radius (5px)
+          y: worldPoint.y - 5,
+          radius: 5,             // 5px radius = 10px diameter
           style: {
             fill: '#3b82f6',     // Tailwind blue-500
             stroke: '#ffffff',   // White outline
@@ -1521,14 +1521,14 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         const markerText: TextShape = {
           id: `marker-text-${Date.now()}-${markerNumber}`,
           type: 'text',
-          x: worldPoint.x - 12,  // Align with circle left edge
-          y: worldPoint.y - 8,   // Vertically center text (baseline at center + 4px)
-          width: 24,             // Match circle diameter
-          height: 24,            // Match circle diameter
+          x: worldPoint.x - 5,   // Align with circle left edge
+          y: worldPoint.y - 3,   // Vertically center text
+          width: 10,             // Match circle diameter (5px radius * 2)
+          height: 10,            // Match circle diameter
           text: markerNumber.toString(),  // Fixed: use 'text' not 'content'
           style: {
             fontFamily: 'Arial',
-            fontSize: 12,
+            fontSize: 10,        // Smaller font for smaller marker
             fontWeight: 'bold',
             color: '#ffffff',     // White text
             textAlign: 'center',
@@ -1678,16 +1678,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             console.log('🔵 Clicked marker #' + marker.number);
             setSelectedMarkerId(marker.id);
 
-            // If no detection results yet, analyze now
-            if (!marker.detectionResults || marker.detectionResults.length === 0) {
-              console.log('📊 No detection results yet, analyzing...');
-              analyzeMarkerPoint(marker).catch(error => {
-                console.error('Analysis failed:', error);
-              });
-            }
-
-            // Show suggestions dropdown
-            setShowMarkerSuggestions(true);
+            // Removed: analyzeMarkerPoint call - no longer needed for popup
+            // Removed: setShowMarkerSuggestions(true) - popup removed
+            // User has implemented custom marker deletion logic
 
             return; // Don't propagate event - prevent marker from being dragged
           }
@@ -2853,56 +2846,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           projectId={currentProjectId}
         />
 
-        {/* Marker Suggestions Panel */}
-        {selectedMarkerId && showMarkerSuggestions && (() => {
-          const marker = markedPoints.find(m => m.id === selectedMarkerId);
-          if (!marker || !engineRef.current || !canvasRef.current) return null;
-
-          // Convert world position to screen position
-          const screenPos = engineRef.current.worldToScreen(marker.worldPosition);
-          const canvasRect = canvasRef.current.getBoundingClientRect();
-          const absolutePos = {
-            x: canvasRect.left + screenPos.x,
-            y: canvasRect.top + screenPos.y
-          };
-
-          return (
-            <MarkerSuggestionsPanel
-              marker={marker}
-              position={absolutePos}
-              onClose={() => {
-                setShowMarkerSuggestions(false);
-                setSelectedMarkerId(null);
-              }}
-              onSelectSuggestion={(suggestion) => {
-                console.log('Selected suggestion:', suggestion);
-                // TODO: Store selection or trigger editing
-                setShowMarkerSuggestions(false);
-              }}
-              onDelete={(markerId) => {
-                // Remove from state
-                setMarkedPoints(prev => prev.filter(m => m.id !== markerId));
-
-                // Remove shapes
-                const markerToDelete = markedPoints.find(m => m.id === markerId);
-                if (markerToDelete) {
-                  engineRef.current?.removeShape(markerToDelete.shapeId);
-                  const textShapeId = markerToDelete.shapeId.replace('marker-', 'marker-text-');
-                  engineRef.current?.removeShape(textShapeId);
-                }
-
-                // Close panel
-                setShowMarkerSuggestions(false);
-                setSelectedMarkerId(null);
-
-                // Save
-                saveCanvasState();
-
-                console.log('🗑️ Deleted marker via panel');
-              }}
-            />
-          );
-        })()}
+        {/* Removed: Marker Suggestions Panel - popup no longer used */}
+        {/* User has implemented custom marker deletion logic */}
 
         {/* Canvas Area */}
         <div className="flex-1 bg-[#0a0a0a] overflow-hidden relative">
