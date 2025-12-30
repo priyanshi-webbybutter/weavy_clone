@@ -1,11 +1,36 @@
 const express = require('express');
 const Replicate = require('replicate');
+const supabase = require('../lib/supabase');
+const creditService = require('../lib/credit-service');
+const fetchReplicatePricing = require('../lib/fetch-replicate-pricing');
+const replicatePredictions = require('../lib/replicate-predictions');
 
 const router = express.Router();
+
+// Helper to get authenticated user
+async function getAuthenticatedUser(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.substring(7);
+  if (!token) return null;
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) return null;
+    return user;
+  } catch (error) {
+    return null;
+  }
+}
 
 // POST /api/generate-image
 router.post('/generate-image', async (req, res) => {
   try {
+    // Get authenticated user for credit tracking
+    const user = await getAuthenticatedUser(req);
+    
     let {
       modelId = 'bytedance/seedream-4',
       prompt,
@@ -369,14 +394,95 @@ router.post('/generate-image', async (req, res) => {
       modelToRun = 'bytedance/seedream-4';
     }
 
+    // Fetch and update pricing for this model if it's a Replicate model
+    // This ensures we always have the latest pricing before calculating credits
+    if (modelToRun && modelToRun.includes('/') && !modelToRun.startsWith('gemini')) {
+      try {
+        const pricing = await fetchReplicatePricing.fetchModelPricingFromReplicate(modelToRun);
+        if (pricing && pricing.dollarCost) {
+          const pricePerToken = pricing.dollarCost / 1000;
+          const modelName = modelToRun.split('/').pop().replace(/-/g, ' ');
+          await creditService.updateModelPricing(
+            modelToRun,
+            pricePerToken,
+            modelName,
+            'replicate',
+            pricing.dollarCost
+          );
+          console.log(`✅ Updated pricing for ${modelToRun}: $${pricing.dollarCost}`);
+        }
+      } catch (pricingError) {
+        console.warn(`⚠️ Could not fetch pricing for ${modelToRun}, using database value:`, pricingError.message);
+      }
+    }
+
+    // Check credits before processing (after we know which model will be used)
+    // Use modelId since modelToRun will be set later, but they should be the same
+    if (user) {
+      // Estimate tokens (Replicate models charge per image, we'll use 1000 tokens as estimate)
+      const creditCheck = await creditService.hasEnoughCredits(user.id, modelId, 1000);
+      if (!creditCheck.hasEnough) {
+        return res.status(402).json({
+          error: 'Insufficient credits',
+          message: `You need ${creditCheck.requiredCredits.toFixed(4)} credits but only have ${creditCheck.currentCredits.toFixed(2)} credits remaining.`,
+          creditsRemaining: creditCheck.currentCredits,
+          creditsRequired: creditCheck.requiredCredits
+        });
+      }
+    }
+
     console.log('📤 Calling Replicate API:', modelToRun);
     console.log('📤 With params:', JSON.stringify(inputParams, null, 2));
 
-    const output = await replicate.run(modelToRun, {
-      input: inputParams,
-    });
+    // Use Predictions API to get detailed metrics, with fallback to simple API
+    let output;
+    let predictionMetrics = null;
+    let actualCost = null;
+    let predictionResult = null;
 
-    console.log('✅ Image generation completed');
+    try {
+      // Get pricing for this model (from database)
+      const pricing = await creditService.getModelPricing(modelToRun || modelId);
+      
+      // For Replicate models, use fixed cost per unit directly
+      // Replicate charges a fixed amount per image, not per second
+      const fixedCostPerUnit = pricing.dollar_cost_per_unit !== null && pricing.dollar_cost_per_unit !== undefined 
+        ? parseFloat(pricing.dollar_cost_per_unit) 
+        : null;
+
+      console.log(`💰 Pricing for ${modelToRun || modelId}: fixedCostPerUnit = $${fixedCostPerUnit || 'null'}`);
+
+      // Use Predictions API to get detailed metrics
+      predictionResult = await replicatePredictions.runWithPredictionsAPI(
+        modelToRun,
+        inputParams,
+        {
+          fixedCostPerUnit: fixedCostPerUnit, // Use fixed cost for Replicate models (do NOT pass costPerSecond)
+          maxWaitTime: 300000, // 5 minutes
+          pollInterval: 1000 // 1 second
+        }
+      );
+
+      output = predictionResult.output;
+      predictionMetrics = predictionResult.metrics;
+      actualCost = predictionResult.metrics.actualCost;
+
+      console.log('✅ Image generation completed with metrics');
+      console.log('📊 Prediction ID:', predictionResult.prediction.id);
+      console.log('📊 Predict Time:', `${predictionMetrics.predictTime}s`);
+      console.log('📊 Actual Cost:', actualCost ? `$${actualCost.toFixed(6)}` : 'N/A');
+    } catch (predictionError) {
+      console.warn('⚠️ Predictions API failed, falling back to replicate.run():', predictionError.message);
+      // Fallback to simple API
+      const replicate = new Replicate({
+        auth: process.env.REPLICATE_API_TOKEN
+      });
+      output = await replicate.run(modelToRun, {
+        input: inputParams,
+      });
+      console.log('✅ Image generation completed (using fallback API)');
+    }
+
     console.log('📦 Raw output from Replicate:', JSON.stringify(output, null, 2));
     console.log('📦 Output type:', typeof output);
     console.log('📦 Is array?', Array.isArray(output));
@@ -508,6 +614,66 @@ router.post('/generate-image', async (req, res) => {
 
     console.log('🖼️ Extracted image URLs:', validUrls);
 
+    // Deduct credits after successful image generation
+    // Use actual cost from Predictions API if available, otherwise use database pricing
+    let creditInfo = null;
+    if (user) {
+      try {
+        // Use actual cost if available from Predictions API, otherwise use database pricing
+        let dollarCostToUse = actualCost;
+        
+        if (!dollarCostToUse) {
+          // Fallback to database pricing (this should always be available)
+          const pricing = await creditService.getModelPricing(modelToRun || modelId);
+          dollarCostToUse = pricing.dollar_cost_per_unit || null;
+          
+          if (!dollarCostToUse) {
+            console.warn(`⚠️ No pricing found for ${modelToRun || modelId}, using default estimate`);
+            dollarCostToUse = 0.03; // Default fallback
+          }
+        }
+
+        const deductResult = await creditService.deductCredits(
+          user.id,
+          modelToRun || modelId,
+          1, // units
+          null, // tokens
+          dollarCostToUse // Pass actual cost if available
+        );
+        
+        if (!deductResult.success) {
+          console.warn('⚠️ Failed to deduct credits, but image was generated');
+          creditInfo = {
+            success: false,
+            error: deductResult.error,
+            creditsRemaining: deductResult.remainingCredits
+          };
+        } else {
+          console.log(`✅ Deducted ${deductResult.creditsDeducted.toFixed(4)} credits ($${dollarCostToUse?.toFixed(6) || 'N/A'}). Remaining: ${deductResult.remainingCredits.toFixed(2)}`);
+          creditInfo = {
+            success: true,
+            modelUsed: deductResult.modelUsed || modelToRun || modelId,
+            modelName: deductResult.modelName,
+            tokensUsed: deductResult.tokensUsed,
+            creditsDeducted: deductResult.creditsDeducted,
+            creditsRemaining: deductResult.remainingCredits,
+            dollarCost: dollarCostToUse,
+            provider: deductResult.provider,
+            // Add prediction metrics if available
+            predictionId: predictionResult ? predictionResult.prediction.id : null,
+            predictTime: predictionMetrics?.predictTime || null,
+            actualCost: actualCost
+          };
+        }
+      } catch (creditError) {
+        console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+        creditInfo = {
+          success: false,
+          error: creditError.message
+        };
+      }
+    }
+
     // Return success response with all settings used
     res.json({
       success: true,
@@ -515,6 +681,7 @@ router.post('/generate-image', async (req, res) => {
       imageUrls: validUrls, // All images if multiple were requested
       prompt: requiresPrompt ? prompt : null,
       model: modelId,
+      credits: creditInfo, // Include credit information
       settings: modelId === 'black-forest-labs/flux-1.1-pro-ultra'
         ? {
             aspectRatio,

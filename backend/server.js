@@ -10,12 +10,13 @@ const uploadCanvasImageRoute = require('./routes/upload-canvas-image');
 const aiChatRoute = require('./routes/ai-chat');
 const extractTextRoute = require('./routes/extract-text');
 const analyzePointRoute = require('./routes/analyze-point');
+const creditsRoute = require('./routes/credits');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware - CORS with full configuration
 app.use(cors({
@@ -48,6 +49,7 @@ app.use('/api', uploadCanvasImageRoute);
 app.use('/api/ai-chat', aiChatRoute);
 app.use('/api', extractTextRoute);
 app.use('/api', analyzePointRoute);
+app.use('/api', creditsRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {

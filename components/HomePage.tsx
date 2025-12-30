@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
 import ProtectedRoute from './auth/ProtectedRoute';
 import CanvasPreview from './CanvasPreview';
+import CreditsDisplay from './CreditsDisplay';
 
 interface Project {
   id: string;
@@ -249,6 +250,11 @@ function HomePageContent() {
               </div>
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
+
+            {/* Credits Display */}
+            <div className="mt-3">
+              <CreditsDisplay />
+            </div>
 
             {/* User Menu Dropdown */}
             {isUserMenuOpen && (

@@ -94,8 +94,8 @@ export function MarkerChipWithDropdown({
 
       {/* Dropdown Menu - Show loading state or detections */}
       {isDropdownOpen && (
-        <div className="absolute z-50 mt-2 w-64 bg-[#1a1a1a] border border-[#3a3a3a] rounded-lg shadow-xl">
-          <div className="p-2">
+        <div className="absolute z-50 mt-2 w-64 bg-[#1a1a1a] border border-[#3a3a3a] rounded-lg shadow-xl max-h-80 overflow-hidden flex flex-col">
+          <div className="p-2 flex-1 overflow-y-auto">
             {marker.isLoading ? (
               <div className="flex items-center gap-2 px-2 py-3">
                 <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
@@ -103,7 +103,7 @@ export function MarkerChipWithDropdown({
               </div>
             ) : marker.detections && marker.detections.length > 0 ? (
               <>
-                <div className="text-xs text-gray-400 mb-2 px-2">
+                <div className="text-xs text-gray-400 mb-2 px-2 sticky top-0 bg-[#1a1a1a] pb-1">
                   Detected objects at marker #{marker.markerNumber}:
                 </div>
                 <ul className="space-y-1">

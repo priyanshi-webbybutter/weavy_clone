@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { createClient } = require('@supabase/supabase-js');
+const creditService = require('../lib/credit-service');
 
 // Configure multer for temporary file storage
 const upload = multer({
@@ -549,12 +550,53 @@ Output: ONE image.`;
     const imageUrl = await uploadViaAPI(imagePart.inlineData.data, projectId, token);
     console.log('🎨 Image uploaded:', imageUrl);
 
+    // Track token usage and deduct credits for Gemini image generation
+    let creditInfo = null;
+    if (token && data.usageMetadata) {
+      const promptTokens = data.usageMetadata.promptTokenCount || 0;
+      const completionTokens = data.usageMetadata.candidatesTokenCount || 0;
+      const totalTokens = data.usageMetadata.totalTokenCount || 
+                         (promptTokens + completionTokens) || 0;
+      
+      if (totalTokens > 0 && token) {
+        try {
+          // Get user from token
+          const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+          if (!userError && user) {
+            // Pass actual token usage for accurate billing
+            const deductResult = await creditService.deductCredits(
+              user.id,
+              'gemini-2.5-flash-image-preview',
+              totalTokens, // Estimated for credit check
+              totalTokens  // Actual tokens used
+            );
+            if (deductResult.success) {
+              console.log(`✅ Gemini Image: ${totalTokens} tokens used, $${deductResult.dollarCost?.toFixed(6) || 'N/A'} cost, ${deductResult.creditsDeducted.toFixed(4)} credits deducted`);
+              creditInfo = {
+                success: true,
+                modelUsed: deductResult.modelUsed || 'gemini-2.5-flash-image-preview',
+                modelName: deductResult.modelName,
+                tokensUsed: deductResult.tokensUsed,
+                creditsDeducted: deductResult.creditsDeducted,
+                creditsRemaining: deductResult.remainingCredits,
+                dollarCost: deductResult.dollarCost,
+                provider: deductResult.provider
+              };
+            }
+          }
+        } catch (creditError) {
+          console.error('⚠️ Error deducting credits for image generation (non-fatal):', creditError);
+        }
+      }
+    }
+
     return {
       success: true,
       imageUrl: imageUrl,
       prompt: prompt,
       aspectRatio: aspectRatio,
-      wasComposite: referenceImages.length > 0
+      wasComposite: referenceImages.length > 0,
+      credits: creditInfo // Include credit information
     };
 
   } catch (error) {
@@ -1053,6 +1095,20 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
 
     // === GET AUTHENTICATED USER FOR PERSISTENCE ===
     const { user, supabaseClient } = await getAuthenticatedUserForChat(req);
+
+    // Check if user has enough credits before processing
+    if (user) {
+      const creditCheck = await creditService.hasEnoughCredits(user.id, 'gemini-2.0-flash-exp', 1000);
+      if (!creditCheck.hasEnough) {
+        return res.status(402).json({
+          success: false,
+          error: 'Insufficient credits',
+          message: `You need ${creditCheck.requiredCredits.toFixed(4)} credits but only have ${creditCheck.currentCredits.toFixed(2)} credits remaining.`,
+          creditsRemaining: creditCheck.currentCredits,
+          creditsRequired: creditCheck.requiredCredits
+        });
+      }
+    }
 
     // Extract auth token for image upload
     let token = null;
@@ -1678,6 +1734,22 @@ Use markdown formatting. Be concise and accurate.`;
           response = descResult.response;
           console.log('✅ Description received from Gemini');
 
+          // Track token usage for description
+          if (user && descResult.usageMetadata) {
+            const totalTokens = descResult.usageMetadata.totalTokens || 0;
+            if (totalTokens > 0) {
+              try {
+                await creditService.deductCredits(
+                  user.id,
+                  'gemini-2.0-flash-exp',
+                  totalTokens
+                );
+              } catch (creditError) {
+                console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+              }
+            }
+          }
+
         } catch (descError) {
           console.error('❌ Description generation failed:', descError.message);
 
@@ -1724,6 +1796,34 @@ Use markdown formatting. Be concise and accurate.`;
       // Send message with optional image
       let result = await chat.sendMessage(messageParts);
       response = result.response;
+
+      // Track token usage and deduct credits for Gemini
+      if (user && result.usageMetadata) {
+        const promptTokens = result.usageMetadata.promptTokenCount || 0;
+        const completionTokens = result.usageMetadata.candidatesTokenCount || 0;
+        const totalTokens = result.usageMetadata.totalTokenCount || 
+                          (promptTokens + completionTokens) || 
+                          result.usageMetadata.totalTokens || 0;
+        
+        if (totalTokens > 0) {
+          try {
+            // Pass actual token usage for accurate billing
+            const deductResult = await creditService.deductCredits(
+              user.id,
+              'gemini-2.0-flash-exp',
+              totalTokens, // Estimated for credit check
+              totalTokens  // Actual tokens used
+            );
+            if (!deductResult.success) {
+              console.warn('⚠️ Insufficient credits, but continuing with response');
+            } else {
+              console.log(`✅ Gemini: ${totalTokens} tokens used, $${deductResult.dollarCost?.toFixed(6) || 'N/A'} cost, ${deductResult.creditsDeducted.toFixed(4)} credits deducted`);
+            }
+          } catch (creditError) {
+            console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+          }
+        }
+      }
 
       // Check for function calls
       functionCalls = response.functionCalls();
@@ -1780,6 +1880,22 @@ Use markdown formatting. Be concise and accurate.`;
             }
           }]);
           response = result.response;
+
+          // Track token usage for function response
+          if (user && result.usageMetadata) {
+            const totalTokens = result.usageMetadata.totalTokens || 0;
+            if (totalTokens > 0) {
+              try {
+                await creditService.deductCredits(
+                  user.id,
+                  'gemini-2.0-flash-exp',
+                  totalTokens
+                );
+              } catch (creditError) {
+                console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+              }
+            }
+          }
         }
       } else {
         // No function calls detected

@@ -78,7 +78,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   nodeId: propNodeId = '',
   nodeName = 'Seedream-4',
   modelId = 'bytedance/seedream-4',
-  creditCost = 23,
+  creditCost = 1.5, // Seedream-4: $0.03 per image = 1.5 credits (1000 credits = $20)
   initialSettings,
   selectedNodes = [],
   nodeSettingsMap = {},
@@ -245,7 +245,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           } else if (node.data?.modelId === 'black-forest-labs/flux-redux-dev') {
             nodeCost = 15; // Flux Redux cost
           } else {
-            nodeCost = 23; // Seedream-4 cost
+            nodeCost = 1.5; // Seedream-4: $0.03 per image = 1.5 credits (1000 credits = $20)
           }
         } else if (node.type === 'imageDescriber') {
           nodeCost = 1; // Image Describer cost
@@ -398,15 +398,40 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
               <span className="text-white text-xs" style={{ fontWeight: 200 }}>{nodeName}</span>
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 text-xs">
-              <span className="text-yellow-400">✨</span>
-              <span className="text-gray-400">{creditCost}</span>
-            </div>
+              {/* Display actual credit cost if available, otherwise show estimated */}
+              {(() => {
+                const node = selectedNodes.length === 1 ? selectedNodes[0] : null;
+                const actualCreditsUsed = node?.data?.lastCreditInfo?.actualCreditsUsed;
+                const actualDollarCost = node?.data?.lastCreditInfo?.actualDollarCost;
+                const modelName = node?.data?.lastCreditInfo?.modelName;
+                
+                if (actualCreditsUsed !== undefined && actualCreditsUsed !== null) {
+                  return (
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-end gap-0.5">
+                        <div className="flex items-center gap-1 text-xs">
+                          <span className="text-yellow-400">✨</span>
+                          <span className="text-white font-medium">{actualCreditsUsed.toFixed(4)}</span>
+                        </div>
+                        {actualDollarCost !== null && actualDollarCost !== undefined && (
+                          <span className="text-[9px] text-gray-500">${actualDollarCost.toFixed(4)}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex items-center gap-1 text-xs">
+                    <span className="text-yellow-400">✨</span>
+                    <span className="text-gray-400">{creditCost}</span>
+                  </div>
+                );
+              })()}
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-white transition-colors"
             >
-                <X size={16} />
+              <X size={16} />
             </button>
           </div>
         </div>
@@ -437,7 +462,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     nodeCost = 4;
                     nodeName = 'Reve Edit';
                   } else {
-                    nodeCost = 23;
+                    nodeCost = 1.5; // Seedream-4: $0.03 per image = 1.5 credits (1000 credits = $20)
                     nodeName = node.data?.modelName || 'Seedream-4';
                   }
                 } else if (node.type === 'imageDescriber') {
@@ -468,10 +493,30 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-white" style={{ fontWeight: 200 }}>{nodeName}</span>
-                        <div className="flex items-center gap-1 text-xs">
-                          <span className="text-yellow-400">✨</span>
-                          <span className="text-gray-400" style={{ fontWeight: 200 }}>{nodeCost}</span>
-                        </div>
+                        {(() => {
+                          const actualCreditsUsed = node.data?.lastCreditInfo?.actualCreditsUsed;
+                          const actualDollarCost = node.data?.lastCreditInfo?.actualDollarCost;
+                          
+                          if (actualCreditsUsed !== undefined && actualCreditsUsed !== null) {
+                            return (
+                              <div className="flex flex-col items-end gap-0.5">
+                                <div className="flex items-center gap-1 text-xs">
+                                  <span className="text-yellow-400">✨</span>
+                                  <span className="text-white font-medium" style={{ fontWeight: 200 }}>{actualCreditsUsed.toFixed(4)}</span>
+                                </div>
+                                {actualDollarCost !== null && actualDollarCost !== undefined && (
+                                  <span className="text-[9px] text-gray-500">${actualDollarCost.toFixed(4)}</span>
+                                )}
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center gap-1 text-xs">
+                              <span className="text-yellow-400">✨</span>
+                              <span className="text-gray-400" style={{ fontWeight: 200 }}>{nodeCost}</span>
+                            </div>
+                          );
+                        })()}
                       </div>
                       {isExpanded ? (
                         <ChevronUp size={14} className="text-gray-400" />
@@ -2355,6 +2400,49 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Actual Credit Usage Info - Show if node has been run */}
+          {(() => {
+            const node = selectedNodes.length === 1 ? selectedNodes[0] : null;
+            const lastCreditInfo = node?.data?.lastCreditInfo;
+            
+            if (lastCreditInfo && lastCreditInfo.actualCreditsUsed !== undefined) {
+              return (
+                <div className="pt-3 border-t border-[#2a2a2a] space-y-2">
+                  <div className="text-[10px] text-gray-400 mb-2" style={{ fontWeight: 200 }}>Last Generation Cost</div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>Model:</span>
+                      <span className="text-[10px] text-white" style={{ fontWeight: 200 }}>{lastCreditInfo.modelName || lastCreditInfo.modelUsed || 'Unknown'}</span>
+                    </div>
+                    {lastCreditInfo.actualTokensUsed !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>Tokens/Units:</span>
+                        <span className="text-[10px] text-white" style={{ fontWeight: 200 }}>{lastCreditInfo.actualTokensUsed}</span>
+                      </div>
+                    )}
+                    {lastCreditInfo.actualDollarCost !== null && lastCreditInfo.actualDollarCost !== undefined && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>Dollar Cost:</span>
+                        <span className="text-[10px] text-white" style={{ fontWeight: 200 }}>${lastCreditInfo.actualDollarCost.toFixed(6)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>Credits Used:</span>
+                      <span className="text-[10px] text-yellow-400 font-medium" style={{ fontWeight: 200 }}>{lastCreditInfo.actualCreditsUsed.toFixed(4)}</span>
+                    </div>
+                    {lastCreditInfo.provider && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400" style={{ fontWeight: 200 }}>Provider:</span>
+                        <span className="text-[10px] text-white capitalize" style={{ fontWeight: 200 }}>{lastCreditInfo.provider}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           {/* Total Cost */}
           <div className="flex items-center justify-between pt-3 border-t border-[#2a2a2a]">

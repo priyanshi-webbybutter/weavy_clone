@@ -7,6 +7,8 @@ import { findOptimalPlacement, findMultiPlacement } from '@/lib/canvas/placement
 import MarkdownMessage from './MarkdownMessage';
 import { MarkerResultChip, MarkerResult } from './MarkerResultChip';
 import { MarkerChipWithDropdown } from './MarkerChipWithDropdown';
+import { useCredits } from './CreditsDisplay';
+import CreditsDisplay from './CreditsDisplay';
 
 interface Message {
   id: string;
@@ -129,6 +131,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activePlaceholdersRef = useRef<string[]>([]);
+  const { credits, refreshCredits } = useCredits();
   const currentReferenceIdsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const allShapesRef = useRef<Shape[]>(allShapes);
@@ -1314,6 +1317,27 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const sendMessage = useCallback(async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
+    // Check if user has enough credits
+    if (credits !== null && credits <= 0) {
+      const userMessage: Message = {
+        id: `msg-${Date.now()}`,
+        role: 'user',
+        content: messageText,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, userMessage]);
+      
+      const errorMessage: Message = {
+        id: `msg-${Date.now() + 1}`,
+        role: 'assistant',
+        content: '⚠️ **Insufficient Credits**\n\nYou have run out of credits. Please purchase more credits to continue using the AI features.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      setInputValue('');
+      return;
+    }
+
     // Get selected images to include in the message
     const selectedImageShapes = getSelectedImageShapes();
     const selectedImagesData = selectedImageShapes.map(img => ({
@@ -1620,6 +1644,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           activePlaceholdersRef.current = activePlaceholdersRef.current.filter(id => id !== placeholderId);
         }
 
+        // Refresh credits after successful request
+        refreshCredits();
+
         // Add assistant message
         const assistantMessage: Message = {
           id: `msg-${Date.now()}`,
@@ -1722,7 +1749,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <span className="text-white text-sm font-medium">Canvas</span>
           <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded">Beta</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <CreditsDisplay showButton={false} className="text-xs" />
           <button
             onClick={handleNewChat}
             className="p-1.5 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"

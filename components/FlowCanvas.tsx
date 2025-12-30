@@ -21,6 +21,7 @@ import SidePanel from './SidePanel';
 import NodeSettingsPanel from './NodeSettingsPanel';
 import FullscreenModal from './FullscreenModal';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCredits } from './CreditsDisplay';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -92,6 +93,7 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
   const [zoom, setZoom] = useState(100);
   const { screenToFlowPosition, getNodes } = useReactFlow();
   const { user } = useAuth();
+  const { credits, loading: creditsLoading, refreshCredits } = useCredits();
   
   // Project management state
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(initialProjectId || null);
@@ -1023,10 +1025,12 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
     console.log(`📤 [${callId}] Sending API request with body:`, requestBody);
 
     // Call backend API to generate image (OUTSIDE of state setters to prevent multiple calls)
+        const token = localStorage.getItem('auth_token');
         fetch('http://localhost:3001/api/generate-image', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` }),
           },
           body: JSON.stringify(requestBody),
         })
@@ -1056,6 +1060,25 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
                 : [data.imageUrl];
               const newImageUrls = [...existingImageUrls, ...responseImages];
               const latestImage = responseImages[responseImages.length - 1] || data.imageUrl;
+                  
+                  // Store credit information for this generation
+                  const creditInfo = data.credits?.success ? {
+                    actualCreditsUsed: data.credits.creditsDeducted,
+                    actualDollarCost: data.credits.dollarCost,
+                    actualTokensUsed: data.credits.tokensUsed,
+                    modelUsed: data.credits.modelUsed,
+                    modelName: data.credits.modelName,
+                    provider: data.credits.provider,
+                    creditsRemaining: data.credits.creditsRemaining,
+                    timestamp: new Date().toISOString()
+                  } : null;
+                  
+                  // Keep previous credit history and add new one
+                  const previousCreditHistory = node.data?.creditHistory || [];
+                  const creditHistory = creditInfo 
+                    ? [...previousCreditHistory, creditInfo]
+                    : previousCreditHistory;
+                  
                   return {
                     ...node,
                     data: {
@@ -1064,6 +1087,10 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
                   imageUrl: latestImage, // Keep for backward compatibility
                   imageUrls: newImageUrls, // Array of all generated images
                   currentImageIndex: newImageUrls.length - 1, // Show the newest image
+                      // Store latest credit info for easy access
+                      lastCreditInfo: creditInfo,
+                      // Store full history
+                      creditHistory: creditHistory
                     },
                   };
                 }
@@ -1072,6 +1099,40 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             );
 
         console.log(`✅ [${callId}] Image generated successfully:`, data.imageUrl);
+
+        // Log credit information if available
+        if (data.credits) {
+          if (data.credits.success) {
+            const creditInfo = `💰 Credits Used:
+  Model: ${data.credits.modelName || data.credits.modelUsed || 'Unknown'}
+  Tokens/Units: ${data.credits.tokensUsed || 'N/A'}
+  Dollar Cost: $${data.credits.dollarCost?.toFixed(6) || 'N/A'}
+  Credits Deducted: ${data.credits.creditsDeducted?.toFixed(4) || 'N/A'}
+  Credits Remaining: ${data.credits.creditsRemaining?.toFixed(2) || 'N/A'}`;
+            console.log(creditInfo);
+            
+            // Show detailed credit info in console
+            console.info('💳 Credit Usage Details:', {
+              model: data.credits.modelName || data.credits.modelUsed,
+              modelUsed: data.credits.modelUsed,
+              tokensUsed: data.credits.tokensUsed,
+              dollarCost: data.credits.dollarCost,
+              provider: data.credits.provider,
+              creditsDeducted: data.credits.creditsDeducted?.toFixed(4),
+              creditsRemaining: data.credits.creditsRemaining?.toFixed(2)
+            });
+          } else {
+            console.warn(`⚠️ Credit deduction failed:`, data.credits.error);
+          }
+        }
+
+        // Refresh credits display after a short delay to ensure backend has updated
+        setTimeout(() => {
+          refreshCredits();
+        }, 500);
+
+        // Refresh credits display
+        refreshCredits();
 
         // Save generation history
         const workflowId = (window as any).currentWorkflowId;
@@ -3153,11 +3214,20 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-white text-xs">✨</span>
-                  <span className="text-white text-xs">0.8</span>
+                  <span className="text-white text-xs">
+                    {creditsLoading ? '...' : credits !== null ? credits.toFixed(2) : '0.00'}
+                  </span>
                 </div>
-                <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
-                  <span className="text-yellow-400 text-[10px]">Low credits</span>
-                </div>
+                {credits !== null && credits <= 0 && (
+                  <div className="bg-red-500/20 border border-red-500/30 rounded-sm px-2 py-0.5 flex relative">
+                    <span className="text-red-400 text-[10px]">No credits</span>
+                  </div>
+                )}
+                {credits !== null && credits > 0 && credits < 10 && (
+                  <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
+                    <span className="text-yellow-400 text-[10px]">Low credits</span>
+                  </div>
+                )}
               </div>
               {/* Right: Share Button */}
               <div className="flex items-center gap-2">

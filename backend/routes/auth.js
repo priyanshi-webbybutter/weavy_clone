@@ -1,5 +1,6 @@
 const express = require('express');
 const supabase = require('../lib/supabase');
+const creditService = require('../lib/credit-service');
 
 const router = express.Router();
 
@@ -44,6 +45,16 @@ router.post('/auth/signup', async (req, res) => {
     }
 
     console.log('✅ User signed up successfully:', data.user?.id);
+
+    // Initialize 100 credits for new user
+    if (data.user?.id) {
+      try {
+        await creditService.initializeUserCredits(data.user.id);
+      } catch (creditError) {
+        console.error('⚠️ Failed to initialize credits (non-fatal):', creditError);
+        // Don't fail signup if credit initialization fails
+      }
+    }
 
     res.json({
       success: true,
@@ -320,6 +331,16 @@ router.post('/auth/google/callback', async (req, res) => {
       return res.status(400).json({
         error: 'Failed to create session',
       });
+    }
+
+    // Initialize credits for new Google OAuth users
+    if (data.user?.id) {
+      try {
+        await creditService.initializeUserCredits(data.user.id);
+      } catch (creditError) {
+        console.error('⚠️ Failed to initialize credits (non-fatal):', creditError);
+        // Don't fail OAuth if credit initialization fails
+      }
     }
 
     console.log('✅ Google OAuth successful:', {
