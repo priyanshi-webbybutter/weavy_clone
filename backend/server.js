@@ -11,6 +11,7 @@ const aiChatRoute = require('./routes/ai-chat');
 const extractTextRoute = require('./routes/extract-text');
 const analyzePointRoute = require('./routes/analyze-point');
 const creditsRoute = require('./routes/credits');
+const adminRoute = require('./routes/admin');
 
 // Load environment variables
 dotenv.config();
@@ -50,6 +51,7 @@ app.use('/api/ai-chat', aiChatRoute);
 app.use('/api', extractTextRoute);
 app.use('/api', analyzePointRoute);
 app.use('/api', creditsRoute);
+app.use('/api', adminRoute);
 
 // Test route to verify describe-image is registered
 app.get('/api/test-describe', (req, res) => {

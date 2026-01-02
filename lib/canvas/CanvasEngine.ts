@@ -13,6 +13,7 @@ export class CanvasEngine {
   // Image cache for performance - prevents creating new Image() on every render
   private imageCache: Map<string, HTMLImageElement> = new Map();
   private loadingImages: Set<string> = new Set();
+  private imageRetryAttempts: Map<string, number> = new Map(); // Track retry attempts per image
 
   // Callback for when an image shape is updated (for dynamic arrow updates)
   private onImageUpdateCallback?: (imageId: string) => void;
@@ -1158,26 +1159,78 @@ export class CanvasEngine {
 
     // Start loading new image
     this.loadingImages.add(cacheKey);
+    this.loadImageWithRetry(shape, cacheKey, 0);
+
+    // Draw placeholder while loading
+    this.drawImagePlaceholder(shape);
+  }
+
+  private loadImageWithRetry(shape: ImageShape, cacheKey: string, attempt: number = 0) {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [0, 500, 1500]; // Immediate, 500ms, 1500ms
+
+    if (attempt > MAX_RETRIES) {
+      this.loadingImages.delete(cacheKey);
+      console.error(`Failed to load image after ${MAX_RETRIES} retries:`, shape.src);
+      return;
+    }
+
     const img = new Image();
+    
     // Enable CORS to prevent canvas tainting when exporting
-    img.crossOrigin = 'anonymous';
+    // On retry, try without CORS if CORS failed (for some edge cases)
+    if (attempt === 0) {
+      img.crossOrigin = 'anonymous';
+    } else if (attempt === 1) {
+      // First retry: try with CORS again
+      img.crossOrigin = 'anonymous';
+    } else {
+      // Later retries: try without CORS as fallback
+      img.crossOrigin = undefined;
+    }
 
     img.onload = () => {
       this.loadingImages.delete(cacheKey);
+      this.imageRetryAttempts.delete(cacheKey);
       this.imageCache.set(cacheKey, img);
       // Single re-render after image loads (not recursive due to cache)
       this.render();
     };
 
-    img.onerror = () => {
-      this.loadingImages.delete(cacheKey);
-      console.error('Failed to load image:', shape.src);
+    img.onerror = (error) => {
+      const retryCount = attempt + 1;
+      this.imageRetryAttempts.set(cacheKey, retryCount);
+      
+      // Log error with retry info
+      if (attempt === 0) {
+        console.warn(`Failed to load image (attempt ${retryCount}/${MAX_RETRIES + 1}):`, shape.src);
+      }
+      
+      // Retry with exponential backoff
+      if (retryCount <= MAX_RETRIES) {
+        const delay = RETRY_DELAYS[attempt] || 2000;
+        setTimeout(() => {
+          // Check if still in loading set (might have been cleared)
+          if (this.loadingImages.has(cacheKey)) {
+            this.loadImageWithRetry(shape, cacheKey, retryCount);
+          }
+        }, delay);
+      } else {
+        // Max retries reached
+        this.loadingImages.delete(cacheKey);
+        this.imageRetryAttempts.delete(cacheKey);
+        console.error(`Failed to load image after ${MAX_RETRIES + 1} attempts:`, shape.src);
+      }
     };
 
-    img.src = shape.src;
+    // Add cache-busting query parameter on retries to avoid browser cache issues
+    let imageUrl = shape.src;
+    if (attempt > 0) {
+      const separator = imageUrl.includes('?') ? '&' : '?';
+      imageUrl = `${imageUrl}${separator}_retry=${attempt}&_t=${Date.now()}`;
+    }
 
-    // Draw placeholder while loading
-    this.drawImagePlaceholder(shape);
+    img.src = imageUrl;
   }
 
   private drawImagePlaceholder(shape: ImageShape) {
@@ -2176,11 +2229,13 @@ export class CanvasEngine {
   clearImageFromCache(src: string) {
     this.imageCache.delete(src);
     this.loadingImages.delete(src);
+    this.imageRetryAttempts.delete(src);
   }
 
   clearImageCache() {
     this.imageCache.clear();
     this.loadingImages.clear();
+    this.imageRetryAttempts.clear();
   }
 
   preloadImages(srcs: string[]) {

@@ -130,36 +130,109 @@ router.post('/auth/google', async (req, res) => {
     const { redirectTo } = req.body;
     
     // Use the provided redirectTo or default to frontend callback
+    // IMPORTANT: This must match the redirect URL configured in Supabase Dashboard
     const redirectUrl = redirectTo || `http://localhost:3000/auth/callback`;
 
     console.log('🔐 Received Google OAuth request');
-    console.log('📍 Redirect URL:', redirectUrl);
+    console.log('📍 Redirect URL (frontend callback):', redirectUrl);
+    console.log('📍 Supabase callback (internal): https://fcvklxgzvqqzexywrmry.supabase.co/auth/v1/callback');
+
+    // Check if Supabase client is properly initialized
+    if (!supabase || !supabase.auth) {
+      console.error('❌ Supabase client not properly initialized');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'Supabase client not initialized',
+      });
+    }
+
+    // Check environment variables
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('❌ Missing Supabase configuration');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'Supabase URL or ANON key not configured',
+      });
+    }
 
     // Use Supabase client's signInWithOAuth method
-    // This properly handles the OAuth flow with correct client configuration
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
+    // Note: This should work on server-side and return a URL for client redirect
+    let data, error;
+    try {
+      console.log('🔄 Calling signInWithOAuth with:', {
+        provider: 'google',
         redirectTo: redirectUrl,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
+        supabaseUrl: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'not set',
+      });
+      
+      // Call signInWithOAuth - this should return { data: { url: string }, error: null }
+      const result = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
-      },
-    });
+      });
+      
+      console.log('📦 OAuth result type:', typeof result);
+      console.log('📦 OAuth result keys:', result ? Object.keys(result) : 'null');
+      console.log('📦 OAuth result.data:', result?.data);
+      console.log('📦 OAuth result.error:', result?.error);
+      
+      if (!result) {
+        throw new Error('signInWithOAuth returned null or undefined');
+      }
+      
+      data = result.data;
+      error = result.error;
+    } catch (oauthError) {
+      console.error('❌ Exception in signInWithOAuth:', oauthError);
+      console.error('❌ Error name:', oauthError.name);
+      console.error('❌ Error message:', oauthError.message);
+      console.error('❌ Error stack:', oauthError.stack);
+      
+      // Check for specific error types
+      if (oauthError.message?.includes('redirect_uri_mismatch')) {
+        return res.status(400).json({
+          error: 'OAuth configuration error',
+          message: 'Redirect URI mismatch. Please check your Supabase OAuth settings.',
+          hint: 'Make sure the redirect URL is added to your Supabase project\'s OAuth redirect URLs',
+        });
+      }
+      
+      return res.status(500).json({
+        error: 'OAuth initialization failed',
+        message: oauthError.message || 'Failed to initialize OAuth flow',
+        details: process.env.NODE_ENV === 'development' ? {
+          name: oauthError.name,
+          message: oauthError.message,
+          stack: oauthError.stack,
+        } : undefined,
+      });
+    }
 
     if (error) {
       console.error('❌ Google OAuth error:', error);
+      console.error('❌ Error details:', JSON.stringify(error, null, 2));
       return res.status(400).json({
-        error: error.message,
+        error: error.message || 'OAuth authentication failed',
         code: error.status,
+        details: error,
       });
     }
 
     if (!data || !data.url) {
       console.error('❌ No OAuth URL returned');
+      console.error('❌ Data received:', data);
       return res.status(500).json({
         error: 'Failed to generate OAuth URL',
+        message: 'No URL returned from OAuth provider',
       });
     }
 
@@ -171,9 +244,11 @@ router.post('/auth/google', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error in Google OAuth:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({
       error: 'Internal server error',
-      message: error.message,
+      message: error.message || 'An unexpected error occurred',
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
   }
 });
