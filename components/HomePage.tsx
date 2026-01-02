@@ -378,39 +378,46 @@ function HomePageContent() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 border-b border-[#2a2a2a]">
-          <button
-            onClick={() => setActiveTab('workflow')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'workflow'
-                ? 'border-b-2 border-white'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Workflow library
-          </button>
+        <div className="flex items-center justify-between mb-6 border-b border-[#2a2a2a]">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setActiveTab('workflow')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'workflow'
+                  ? 'border-b-2 border-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Workflow library
+            </button>
 
-          <button
-            onClick={() => setActiveTab('canvas')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'canvas'
-                ? 'border-b-2 border-white'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Canvas Library
-          </button>
+            <button
+              onClick={() => setActiveTab('canvas')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'canvas'
+                  ? 'border-b-2 border-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Canvas Library
+            </button>
 
-          <button
-            onClick={() => setActiveTab('tutorials')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'tutorials'
-                ? 'border-b-2 border-white'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Tutorials
-          </button>
+            <button
+              onClick={() => setActiveTab('tutorials')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === 'tutorials'
+                  ? 'border-b-2 border-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Tutorials
+            </button>
+          </div>
+          
+          {/* Credits Display in Header */}
+          <div className="flex items-center">
+            <CreditsDisplay className="mr-0" />
+          </div>
         </div>
 
         {/* My Files Section */}

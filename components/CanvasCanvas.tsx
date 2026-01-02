@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import AIChatPanel from './AIChatPanel';
 import { CanvasArrows } from './CanvasArrows';
+import { useCredits } from './CreditsDisplay';
+import SubscriptionTiersPopup from './SubscriptionTiersPopup';
 // Removed: MarkerSuggestionsPanel import - popup no longer needed
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -66,7 +68,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [isTasksMenuOpen, setIsTasksMenuOpen] = useState(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
   const [isShapesMenuOpen, setIsShapesMenuOpen] = useState(false);
-  const [credits, setCredits] = useState(0.8);
+  const { credits, loading: creditsLoading, refreshCredits } = useCredits();
+  const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [isLoadingCanvas, setIsLoadingCanvas] = useState(false);
@@ -2939,13 +2942,32 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
               <div className="flex items-center justify-between mb-2.5">
                 {/* Left: Credits and Status */}
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      if (credits !== null && credits <= 0) {
+                        setShowSubscriptionPopup(true);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
+                  >
                     <span className="text-white text-xs">✨</span>
-                    <span className="text-white text-xs">{credits}</span>
-                  </div>
-                  <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
-                    <span className="text-yellow-400 text-[10px]">Low credits</span>
-                  </div>
+                    <span className="text-white text-xs">
+                      {creditsLoading ? '...' : credits !== null ? credits.toFixed(2) : '0.00'}
+                    </span>
+                  </button>
+                  {credits !== null && credits > 0 && credits < 10 && (
+                    <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
+                      <span className="text-yellow-400 text-[10px]">Low credits</span>
+                    </div>
+                  )}
+                  {credits !== null && credits <= 0 && (
+                    <button
+                      onClick={() => setShowSubscriptionPopup(true)}
+                      className="bg-[#8b5cf6] hover:bg-[#7c3aed] text-white text-[10px] px-2 py-0.5 rounded-sm transition-colors"
+                    >
+                      Buy Credits
+                    </button>
+                  )}
                 </div>
                 {/* Right: Share Button */}
                 <div className="flex items-center gap-2">
@@ -4441,6 +4463,20 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         </div>
       </div>
 
+      {/* Subscription Tiers Popup */}
+      {showSubscriptionPopup && (
+        <SubscriptionTiersPopup
+          isOpen={showSubscriptionPopup}
+          onClose={() => setShowSubscriptionPopup(false)}
+          currentCredits={credits || 0}
+          creditsRequired={0}
+          onSelectTier={async (tierId) => {
+            // TODO: Implement payment processing
+            console.log('Selected tier:', tierId);
+            refreshCredits(); // Refresh after purchase
+          }}
+        />
+      )}
     </div>
   );
 }

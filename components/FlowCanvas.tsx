@@ -22,6 +22,7 @@ import NodeSettingsPanel from './NodeSettingsPanel';
 import FullscreenModal from './FullscreenModal';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCredits } from './CreditsDisplay';
+import SubscriptionTiersPopup from './SubscriptionTiersPopup';
 
 // LocalStorage keys
 const STORAGE_KEYS = {
@@ -113,6 +114,13 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
 
   // Node settings panel state
   const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+  
+  // Subscription popup state
+  const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
+  const [insufficientCreditsInfo, setInsufficientCreditsInfo] = useState<{
+    creditsRequired: number;
+    creditsRemaining: number;
+  } | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
   
@@ -1038,6 +1046,22 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
             const data = await response.json();
 
             if (!response.ok) {
+          // Check for insufficient credits error (402 status)
+          if (response.status === 402 || data.error === 'Insufficient credits' || data.message?.includes('Insufficient credits')) {
+            const creditsRequired = data.creditsRequired || 0;
+            const creditsRemaining = data.creditsRemaining || credits || 0;
+            
+            setInsufficientCreditsInfo({
+              creditsRequired,
+              creditsRemaining
+            });
+            setShowSubscriptionPopup(true);
+            
+            // Still throw error to be caught by catch block
+            const errorMsg = data.message || data.error || 'Insufficient credits';
+            throw new Error(errorMsg);
+          }
+          
           // Extract detailed error message from backend
           const errorMsg = data.message || data.error || 'Failed to generate image';
           const errorDetails = data.details ? `\n\nDetails: ${data.details}` : '';
@@ -1176,6 +1200,27 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           .catch((error) => {
         console.error(`❌ [${callId}] Error generating image:`, error);
         console.error(`❌ [${callId}] Error stack:`, error.stack);
+
+        // Check if it's an insufficient credits error (if not already handled)
+        if (!showSubscriptionPopup && (
+          error.message?.includes('Insufficient credits') || 
+          error.message?.includes('insufficient credits')
+        )) {
+          // Try to extract credit info from error message
+          const match = error.message.match(/need\s+(\d+\.?\d*)\s+credits.*?have\s+(\d+\.?\d*)\s+credits/i);
+          if (match) {
+            setInsufficientCreditsInfo({
+              creditsRequired: parseFloat(match[1]),
+              creditsRemaining: parseFloat(match[2])
+            });
+          } else {
+            setInsufficientCreditsInfo({
+              creditsRequired: 0,
+              creditsRemaining: credits || 0
+            });
+          }
+          setShowSubscriptionPopup(true);
+        }
 
         // Update task as failed
         setTasks((prev) =>
@@ -3367,6 +3412,25 @@ function FlowCanvasInner({ initialProjectId }: FlowCanvasProps = {}) {
           />
         );
       })()}
+      
+      {/* Subscription Tiers Popup */}
+      {showSubscriptionPopup && (
+        <SubscriptionTiersPopup
+          isOpen={showSubscriptionPopup}
+          onClose={() => {
+            setShowSubscriptionPopup(false);
+            setInsufficientCreditsInfo(null);
+          }}
+          currentCredits={insufficientCreditsInfo?.creditsRemaining || credits || 0}
+          creditsRequired={insufficientCreditsInfo?.creditsRequired || 0}
+          onSelectTier={async (tierId) => {
+            // TODO: Implement payment processing
+            console.log('Selected tier:', tierId);
+            // After successful payment, refresh credits
+            refreshCredits();
+          }}
+        />
+      )}
     </>
   );
 }

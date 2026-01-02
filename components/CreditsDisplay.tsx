@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Coins, AlertCircle } from 'lucide-react';
+import SubscriptionTiersPopup from './SubscriptionTiersPopup';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
 
@@ -14,6 +15,7 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
   const [credits, setCredits] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
 
   const fetchCredits = async () => {
     try {
@@ -94,14 +96,26 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
 
       {showButton && hasNoCredits && (
         <button
-          onClick={() => {
-            // TODO: Implement credit purchase flow
-            alert('Credit purchase feature coming soon!');
-          }}
+          onClick={() => setShowSubscriptionPopup(true)}
           className="px-3 py-1.5 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white text-sm font-medium rounded-md transition-colors"
         >
           Buy Credits
         </button>
+      )}
+      
+      {/* Subscription Tiers Popup */}
+      {showSubscriptionPopup && (
+        <SubscriptionTiersPopup
+          isOpen={showSubscriptionPopup}
+          onClose={() => setShowSubscriptionPopup(false)}
+          currentCredits={credits || 0}
+          creditsRequired={0}
+          onSelectTier={async (tierId) => {
+            // TODO: Implement payment processing
+            console.log('Selected tier:', tierId);
+            fetchCredits(); // Refresh after purchase
+          }}
+        />
       )}
     </div>
   );

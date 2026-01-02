@@ -9,6 +9,7 @@ import { MarkerResultChip, MarkerResult } from './MarkerResultChip';
 import { MarkerChipWithDropdown } from './MarkerChipWithDropdown';
 import { useCredits } from './CreditsDisplay';
 import CreditsDisplay from './CreditsDisplay';
+import SubscriptionTiersPopup from './SubscriptionTiersPopup';
 
 interface Message {
   id: string;
@@ -132,6 +133,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const activePlaceholdersRef = useRef<string[]>([]);
   const { credits, refreshCredits } = useCredits();
+  const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
   const currentReferenceIdsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const allShapesRef = useRef<Shape[]>(allShapes);
@@ -1319,21 +1321,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     // Check if user has enough credits
     if (credits !== null && credits <= 0) {
-      const userMessage: Message = {
-        id: `msg-${Date.now()}`,
-        role: 'user',
-        content: messageText,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, userMessage]);
-      
-      const errorMessage: Message = {
-        id: `msg-${Date.now() + 1}`,
-        role: 'assistant',
-        content: '⚠️ **Insufficient Credits**\n\nYou have run out of credits. Please purchase more credits to continue using the AI features.',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      // Show subscription popup instead of just a message
+      setShowSubscriptionPopup(true);
       setInputValue('');
       return;
     }
@@ -1667,6 +1656,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       }
     } catch (error) {
       console.error('AI Chat error:', error);
+
+      // Check for insufficient credits error
+      if (error instanceof Error && (
+        error.message?.includes('Insufficient credits') || 
+        error.message?.includes('insufficient credits')
+      )) {
+        setShowSubscriptionPopup(true);
+        return;
+      }
 
       // === PLACEHOLDER LOGIC: Show error state on placeholder ===
       if (placeholderId) {
@@ -2139,6 +2137,21 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           </div>
         </div>
       </div>
+      
+      {/* Subscription Tiers Popup */}
+      {showSubscriptionPopup && (
+        <SubscriptionTiersPopup
+          isOpen={showSubscriptionPopup}
+          onClose={() => setShowSubscriptionPopup(false)}
+          currentCredits={credits || 0}
+          creditsRequired={0}
+          onSelectTier={async (tierId) => {
+            // TODO: Implement payment processing
+            console.log('Selected tier:', tierId);
+            refreshCredits();
+          }}
+        />
+      )}
     </div>
   );
 };
