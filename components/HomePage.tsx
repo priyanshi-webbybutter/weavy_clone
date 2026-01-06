@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
 import ProtectedRoute from './auth/ProtectedRoute';
@@ -23,6 +23,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/a
 function HomePageContent() {
   const { user, signOut } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,7 +32,21 @@ function HomePageContent() {
   const [isCreateMenuOpenSidebar, setIsCreateMenuOpenSidebar] = useState(false);
   const [isCreateMenuOpenHeader, setIsCreateMenuOpenHeader] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'workflow' | 'canvas' | 'tutorials'>('workflow');
+  
+  // Initialize activeTab from URL query param, default to 'workflow'
+  const tabParam = searchParams.get('tab');
+  const initialTab = (tabParam === 'canvas' || tabParam === 'workflow' || tabParam === 'tutorials') 
+    ? tabParam 
+    : 'workflow';
+  const [activeTab, setActiveTab] = useState<'workflow' | 'canvas' | 'tutorials'>(initialTab);
+  
+  // Update tab when URL param changes
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'canvas' || tabParam === 'workflow' || tabParam === 'tutorials') {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   // Fetch projects
   const fetchProjects = async () => {
@@ -381,7 +396,10 @@ function HomePageContent() {
         <div className="flex items-center justify-between mb-6 border-b border-[#2a2a2a]">
           <div className="flex gap-1">
             <button
-              onClick={() => setActiveTab('workflow')}
+              onClick={() => {
+                setActiveTab('workflow');
+                router.push('/?tab=workflow');
+              }}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === 'workflow'
                   ? 'border-b-2 border-white'
@@ -392,7 +410,10 @@ function HomePageContent() {
             </button>
 
             <button
-              onClick={() => setActiveTab('canvas')}
+              onClick={() => {
+                setActiveTab('canvas');
+                router.push('/?tab=canvas');
+              }}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === 'canvas'
                   ? 'border-b-2 border-white'
@@ -403,7 +424,10 @@ function HomePageContent() {
             </button>
 
             <button
-              onClick={() => setActiveTab('tutorials')}
+              onClick={() => {
+                setActiveTab('tutorials');
+                router.push('/?tab=tutorials');
+              }}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === 'tutorials'
                   ? 'border-b-2 border-white'

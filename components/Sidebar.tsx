@@ -63,7 +63,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
   const handleDropdownItemClick = (item: string) => {
     console.log('Dropdown item clicked:', item);
     setIsDropdownOpen(false);
-    // TODO: Add actual functionality for dropdown items
+    
+    // Handle "Back to files" - navigate to home page
+    if (item === 'Back to files') {
+      router.push('/');
+      return;
+    }
+    
+    // TODO: Add actual functionality for other dropdown items
   };
 
   return (

@@ -113,6 +113,10 @@ export default function AuthCallback() {
           
           // Store session token
           localStorage.setItem('auth_token', data.session.access_token);
+          // Store refresh token if available
+          if (data.session.refresh_token) {
+            localStorage.setItem('refresh_token', data.session.refresh_token);
+          }
           
           setStatus('Authentication successful! Redirecting...');
           

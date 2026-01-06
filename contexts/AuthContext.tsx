@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const token = localStorage.getItem('auth_token');
       if (!token) {
         setLoading(false);
-        return;
+        return false;
       }
 
       const response = await fetch(`${API_BASE_URL}/auth/session`, {
@@ -55,24 +55,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(data.user);
         setSession(data.session);
         localStorage.setItem('auth_token', data.session.access_token);
+        // Store refresh token if available
+        if (data.session.refresh_token) {
+          localStorage.setItem('refresh_token', data.session.refresh_token);
+        }
+        return true; // Session is valid
       } else {
         localStorage.removeItem('auth_token');
+        localStorage.removeItem('refresh_token');
         setUser(null);
         setSession(null);
+        return false; // Session is invalid
       }
     } catch (error) {
       console.error('Error checking session:', error);
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('refresh_token');
       setUser(null);
       setSession(null);
+      return false;
     } finally {
       setLoading(false);
     }
   };
 
-  // Get session from backend on mount
+  // Get session from backend on mount and set up periodic refresh
   useEffect(() => {
     checkSession();
+    
+    // Refresh session every 30 minutes (before expiry)
+    // This keeps the session alive as long as the user is active
+    const refreshInterval = setInterval(() => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        console.log('🔄 Refreshing session...');
+        checkSession();
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+
+    // Also refresh when window regains focus (user comes back to tab)
+    const handleFocus = () => {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        console.log('🔄 Window focused, refreshing session...');
+        checkSession();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // Cleanup
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -98,6 +133,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(data.session);
         setUser(data.user);
         localStorage.setItem('auth_token', data.session.access_token);
+        // Store refresh token if available
+        if (data.session.refresh_token) {
+          localStorage.setItem('refresh_token', data.session.refresh_token);
+        }
       }
 
       return { error: null };
@@ -132,6 +171,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(data.session);
         setUser(data.user);
         localStorage.setItem('auth_token', data.session.access_token);
+        // Store refresh token if available
+        if (data.session.refresh_token) {
+          localStorage.setItem('refresh_token', data.session.refresh_token);
+        }
         // State is now updated, no need to call checkSession
       } else {
         console.warn('⚠️ Login response missing session or user:', data);
@@ -200,12 +243,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('refresh_token');
       setUser(null);
       setSession(null);
     } catch (error) {
       console.error('Error logging out:', error);
       // Clear local state even if API call fails
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('refresh_token');
       setUser(null);
       setSession(null);
     }

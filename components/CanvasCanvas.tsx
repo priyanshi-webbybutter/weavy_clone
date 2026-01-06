@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
 import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape, CircleShape } from '@/lib/canvas/types';
@@ -8,6 +9,7 @@ import ColorPicker from './ColorPicker';
 import ShapeSettingsPanel from './ShapeSettingsPanel';
 import {
   ChevronDown,
+  ChevronRight,
   Share2,
   Star,
   MousePointer2,
@@ -24,6 +26,7 @@ import {
   Crop,
   Copy,
   Bot,
+  LogOut,
 } from 'lucide-react';
 import AIChatPanel from './AIChatPanel';
 import { CanvasArrows } from './CanvasArrows';
@@ -38,7 +41,8 @@ interface CanvasCanvasProps {
 }
 
 function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CanvasEngine | null>(null);
   const lastShapeCountRef = useRef<number>(0);
@@ -68,6 +72,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [isTasksMenuOpen, setIsTasksMenuOpen] = useState(false);
   const [isZoomMenuOpen, setIsZoomMenuOpen] = useState(false);
   const [isShapesMenuOpen, setIsShapesMenuOpen] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const { credits, loading: creditsLoading, refreshCredits } = useCredits();
   const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -2559,16 +2564,108 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     setIsZoomMenuOpen(false);
   };
 
+  const handleDropdownToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDropdownOpen(!isDropdownOpen);
+  };
+
+  const handleDropdownItemClick = (item: string) => {
+    console.log('Dropdown item clicked:', item);
+    setIsDropdownOpen(false);
+    
+    // Handle "Back to files" - navigate to home page with canvas tab
+    if (item === 'Back to files') {
+      router.push('/?tab=canvas');
+      return;
+    }
+    
+    // TODO: Add actual functionality for other dropdown items
+  };
+
   return (
     <div className="w-full h-screen bg-[#0a0a0a] text-white flex">
       {/* Left Sidebar */}
       <div className="w-16 bg-[#1a1a1a] border-r border-[#2a2a2a] flex flex-col items-center py-4 gap-6">
         {/* Logo */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-10 h-10 bg-[#8b5cf6] rounded flex items-center justify-center text-white font-bold text-lg">
+        <div className="mb-8 relative group">
+          <div className="absolute w-7 h-7 left-[-25px] bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-sm hover:opacity-80 transition-opacity">
             W
           </div>
-          <ChevronDown className="w-4 h-4 text-gray-400" />
+          <button
+            onClick={handleDropdownToggle}
+            className="absolute -bottom-5 right-[-25px] w-5 h-5 flex items-center justify-center hover:bg-[#2a2a2a] rounded transition-colors cursor-pointer"
+          >
+            <ChevronDown className="w-3 h-3 text-gray-500" />
+          </button>
+
+          {/* Dropdown Menu */}
+          {isDropdownOpen && (
+            <>
+              {/* Backdrop to close dropdown */}
+              <div
+                className="fixed inset-0 z-[60]"
+                onClick={() => setIsDropdownOpen(false)}
+              />
+
+              {/* Dropdown Content */}
+              <div className="absolute left-[-20px] top-9 w-[200px] bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-2xl z-[70] py-1">
+                <button
+                  onClick={() => handleDropdownItemClick('Back to files')}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Back to files
+                </button>
+
+                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+
+                <button
+                  onClick={() => handleDropdownItemClick('Create new file')}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Create new file
+                </button>
+
+                <button
+                  onClick={() => handleDropdownItemClick('Duplicate file')}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Duplicate file
+                </button>
+
+                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+
+                <button
+                  onClick={() => handleDropdownItemClick('Share file')}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                >
+                  Share file
+                </button>
+
+                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+
+                <button
+                  onClick={() => handleDropdownItemClick('Preferences')}
+                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors flex items-center justify-between group"
+                >
+                  <span>Preferences</span>
+                  <ChevronRight className="w-3 h-3 text-gray-500 group-hover:text-white transition-colors" />
+                </button>
+
+                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+
+                <button
+                  onClick={async () => {
+                    await signOut();
+                    router.push('/login');
+                  }}
+                  className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-[#2a2a2a] transition-colors flex items-center gap-2"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Navigation Icons */}

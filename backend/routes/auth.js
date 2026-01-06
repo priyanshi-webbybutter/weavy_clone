@@ -310,11 +310,13 @@ router.get('/auth/session', async (req, res) => {
 
     // Create a session object with the token
     // Note: We construct a minimal session object since we only have the access token
+    // Increased expiry to 7 days (604800 seconds) instead of 1 hour
+    const SESSION_EXPIRY_SECONDS = 7 * 24 * 60 * 60; // 7 days
     const session = {
       access_token: token,
       token_type: 'bearer',
-      expires_in: 3600,
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      expires_in: SESSION_EXPIRY_SECONDS,
+      expires_at: Math.floor(Date.now() / 1000) + SESSION_EXPIRY_SECONDS,
       refresh_token: null, // Refresh token not available from getUser
       user: user,
     };
