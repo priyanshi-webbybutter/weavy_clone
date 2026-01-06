@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { CanvasEngine, ResizeHandle } from '@/lib/canvas/CanvasEngine';
-import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape, CircleShape } from '@/lib/canvas/types';
+import { Shape, Point, Tool, ImageShape, TextShape, RectangleShape, CircleShape, ArrowShape } from '@/lib/canvas/types';
 import ColorPicker from './ColorPicker';
 import ShapeSettingsPanel from './ShapeSettingsPanel';
 import {
