@@ -24,9 +24,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3002',
-    // Add your Heroku frontend URL here after deployment
-    // Example: 'https://weavy-frontend.herokuapp.com'
-    // Or use environment variable: process.env.FRONTEND_URL
+    'https://weavy-frontend-app-50b6e93dc3e2.herokuapp.com', // Heroku frontend
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
