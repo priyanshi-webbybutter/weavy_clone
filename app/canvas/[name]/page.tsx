@@ -1,17 +1,14 @@
-'use client';
-
 import React from 'react';
-import { useSearchParams } from 'next/navigation';
 import FlowCanvas from '@/components/FlowCanvas';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
+import CanvasClientWrapper from './CanvasClientWrapper';
 
-export default function CanvasPageWithName({ params }: { params: { name: string } }) {
-  const searchParams = useSearchParams();
-  const projectId = searchParams.get('projectId');
+export default async function CanvasPageWithName({ params }: { params: Promise<{ name: string }> }) {
+  const { name } = await params;
 
   return (
     <ProtectedRoute>
-      <FlowCanvas initialProjectId={projectId || null} />
+      <CanvasClientWrapper />
     </ProtectedRoute>
   );
 }
