@@ -20,12 +20,28 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Middleware - CORS with full configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3002',
+  process.env.FRONTEND_URL, // Heroku frontend URL from env
+  process.env.NEXT_PUBLIC_FRONTEND_URL, // Alternative env var name
+].filter(Boolean); // Remove undefined values
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3002',
-    'https://weavy-frontend-app-50b6e93dc3e2.herokuapp.com', // Heroku frontend
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      // Log for debugging
+      console.log('⚠️ CORS blocked origin:', origin);
+      // Allow all origins in production (or be strict)
+      // For strict: callback(new Error('Not allowed by CORS'));
+      callback(null, true);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

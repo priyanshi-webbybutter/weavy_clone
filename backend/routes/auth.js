@@ -129,9 +129,13 @@ router.post('/auth/google', async (req, res) => {
     
     const { redirectTo } = req.body;
     
-    // Use the provided redirectTo or default to frontend callback
+    // Use the provided redirectTo or default based on environment
     // IMPORTANT: This must match the redirect URL configured in Supabase Dashboard
-    const redirectUrl = redirectTo || `http://localhost:3000/auth/callback`;
+    const defaultRedirectUrl = process.env.NODE_ENV === 'production'
+      ? `${process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_FRONTEND_URL || 'http://localhost:3000'}/auth/callback`
+      : `http://localhost:3000/auth/callback`;
+    
+    const redirectUrl = redirectTo || defaultRedirectUrl;
 
     console.log('🔐 Received Google OAuth request');
     console.log('📍 Redirect URL (frontend callback):', redirectUrl);
