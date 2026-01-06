@@ -1569,7 +1569,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       if (data.success) {
         // NEW: Validate generatedImages structure
         if (data.generatedImages && data.generatedImages.length > 0) {
-          console.log('✅ Generated images received:', data.generatedImages.map(img => ({
+          console.log('✅ Generated images received:', data.generatedImages.map((img: any) => ({
             hasUrl: !!img.url,
             hasPrompt: !!img.prompt,
             urlPreview: img.url?.substring(0, 50)
