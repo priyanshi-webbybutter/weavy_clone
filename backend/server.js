@@ -21,7 +21,13 @@ const PORT = process.env.PORT || 3002;
 
 // Middleware - CORS with full configuration
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3002'], // Allow both frontend ports
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3002',
+    // Add your Heroku frontend URL here after deployment
+    // Example: 'https://weavy-frontend.herokuapp.com'
+    // Or use environment variable: process.env.FRONTEND_URL
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
