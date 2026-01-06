@@ -1186,7 +1186,7 @@ export class CanvasEngine {
       img.crossOrigin = 'anonymous';
     } else {
       // Later retries: try without CORS as fallback
-      img.crossOrigin = undefined;
+      img.crossOrigin = null;
     }
 
     img.onload = () => {
@@ -2210,20 +2210,7 @@ export class CanvasEngine {
     }
   }
 
-  // Remove a shape by ID
-  removeShape(id: string): void {
-    if (this.state.shapes.has(id)) {
-      this.state.shapes.delete(id);
-
-      // Remove from selection if selected (selectedIds is a Set)
-      if (this.state.selectedIds.has(id)) {
-        this.state.selectedIds.delete(id);
-      }
-
-      this.render();
-      console.log('🗑️ Removed shape:', id);
-    }
-  }
+  // Removed: Duplicate removeShape method - using the one at line 242 which includes saveState and image cache cleanup
 
   // Image cache management methods
   clearImageFromCache(src: string) {

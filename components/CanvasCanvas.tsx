@@ -2094,9 +2094,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       const deltaY = worldCurrent.y - initialMouseWorldPos.y;
       // Get selected shapes from initialGroupPositions keys
       const selected = Array.from(initialGroupPositions.keys())
-        .map(id => engineRef.current.getShape(id))
+        .map(id => engineRef.current!.getShape(id))
         .filter((shape): shape is Shape => shape !== undefined);
-      engineRef.current.moveGroup(selected, initialGroupPositions, deltaX, deltaY);
+      engineRef.current!.moveGroup(selected, initialGroupPositions, deltaX, deltaY);
       setDragUpdateTrigger(prev => prev + 1); // Force arrow update
       updatePropertiesPanelPosition();
       return;
@@ -2460,7 +2460,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             // Clear selection
             engineRef.current?.clearSelection();  // Clear from CanvasEngine
             setSelectedMarkerId(null);
-            setShowMarkerSuggestions(false);
+            // Removed: setShowMarkerSuggestions(false); - state no longer exists
 
             // Save state
             saveCanvasState();
@@ -2507,7 +2507,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         // Clear selection if this marker was selected
         if (selectedMarkerId === markerId) {
           setSelectedMarkerId(null);
-          setShowMarkerSuggestions(false);
+          // Removed: setShowMarkerSuggestions(false); - state no longer exists
         }
 
         // Save

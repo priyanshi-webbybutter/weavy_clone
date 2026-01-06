@@ -1,11 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import FlowCanvas from '@/components/FlowCanvas';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 
-export default function CanvasPage() {
+function CanvasPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get('projectId');
 
@@ -13,6 +13,18 @@ export default function CanvasPage() {
     <ProtectedRoute>
       <FlowCanvas initialProjectId={projectId || null} />
     </ProtectedRoute>
+  );
+}
+
+export default function CanvasPage() {
+  return (
+    <Suspense fallback={
+      <div className="w-full h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="text-white">Loading...</div>
+      </div>
+    }>
+      <CanvasPageContent />
+    </Suspense>
   );
 }
 

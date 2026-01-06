@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
@@ -571,7 +571,13 @@ function HomePageContent() {
 export default function HomePage() {
   return (
     <ProtectedRoute>
-      <HomePageContent />
+      <Suspense fallback={
+        <div className="w-full h-screen bg-[#0a0a0a] flex items-center justify-center">
+          <div className="text-white">Loading...</div>
+        </div>
+      }>
+        <HomePageContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }
