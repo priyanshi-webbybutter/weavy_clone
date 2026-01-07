@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
@@ -31,13 +31,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isCheckingSession, setIsCheckingSession] = useState(false);
+  const checkSessionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Get session from backend
-  const checkSession = async () => {
+  // Get session from backend with retry mechanism
+  const checkSession = async (retryCount = 0): Promise<boolean> => {
+    const MAX_RETRIES = 2;
+    
+    // Prevent multiple simultaneous checks
+    if (isCheckingSession && retryCount === 0) {
+      return false;
+    }
+
+    setIsCheckingSession(true);
+    
     try {
       const token = localStorage.getItem('auth_token');
       if (!token) {
         setLoading(false);
+        setIsCheckingSession(false);
         return false;
       }
 
@@ -49,6 +61,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       });
 
+      // Check if response is OK before parsing
+      if (!response.ok) {
+        // Only clear session on 401 (Unauthorized) - token is invalid
+        if (response.status === 401) {
+          console.log('❌ Token invalid (401), clearing session');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('refresh_token');
+          setUser(null);
+          setSession(null);
+          setLoading(false);
+          setIsCheckingSession(false);
+          return false;
+        }
+        // For other errors (500, network issues), don't clear session
+        // The token might still be valid, just server issue
+        console.warn('⚠️ Session check failed but keeping token:', response.status);
+        setLoading(false);
+        setIsCheckingSession(false);
+        return false;
+      }
+
       const data = await response.json();
       
       if (data.user && data.session) {
@@ -59,24 +92,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.session.refresh_token) {
           localStorage.setItem('refresh_token', data.session.refresh_token);
         }
+        setLoading(false);
+        setIsCheckingSession(false);
         return true; // Session is valid
       } else {
+        // Only clear if explicitly told user/session is null (not network error)
+        console.log('❌ No user/session in response, clearing');
         localStorage.removeItem('auth_token');
         localStorage.removeItem('refresh_token');
         setUser(null);
         setSession(null);
+        setLoading(false);
+        setIsCheckingSession(false);
         return false; // Session is invalid
       }
     } catch (error) {
-      console.error('Error checking session:', error);
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('refresh_token');
-      setUser(null);
-      setSession(null);
-      return false;
-    } finally {
+      // Network errors - retry before giving up
+      if (retryCount < MAX_RETRIES && error instanceof TypeError) {
+        console.log(`🔄 Retrying session check (${retryCount + 1}/${MAX_RETRIES})...`);
+        setIsCheckingSession(false);
+        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+        return checkSession(retryCount + 1);
+      }
+      
+      // After retries exhausted or non-network error, don't clear session
+      // Network errors shouldn't invalidate a potentially valid token
+      console.error('⚠️ Network error checking session (keeping token):', error);
       setLoading(false);
+      setIsCheckingSession(false);
+      return false;
     }
+  };
+
+  // Debounced session check to prevent rapid successive calls
+  const debouncedCheckSession = () => {
+    if (checkSessionTimeoutRef.current) {
+      clearTimeout(checkSessionTimeoutRef.current);
+    }
+    checkSessionTimeoutRef.current = setTimeout(() => {
+      checkSession();
+    }, 300); // Wait 300ms before checking
   };
 
   // Get session from backend on mount and set up periodic refresh
@@ -94,11 +149,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 30 * 60 * 1000); // 30 minutes
 
     // Also refresh when window regains focus (user comes back to tab)
+    // Use debounced version to prevent rapid checks on rapid tab switches
     const handleFocus = () => {
       const token = localStorage.getItem('auth_token');
       if (token) {
         console.log('🔄 Window focused, refreshing session...');
-        checkSession();
+        debouncedCheckSession();
       }
     };
     window.addEventListener('focus', handleFocus);
@@ -107,6 +163,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       clearInterval(refreshInterval);
       window.removeEventListener('focus', handleFocus);
+      if (checkSessionTimeoutRef.current) {
+        clearTimeout(checkSessionTimeoutRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
