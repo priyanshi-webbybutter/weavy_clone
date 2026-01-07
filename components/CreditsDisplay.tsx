@@ -25,7 +25,7 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/credits`, {
+      const response = await fetch(`${API_BASE_URL}/credits`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
