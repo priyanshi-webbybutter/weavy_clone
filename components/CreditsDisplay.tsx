@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Coins, AlertCircle } from 'lucide-react';
 import SubscriptionTiersPopup from './SubscriptionTiersPopup';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
 interface CreditsDisplayProps {
   className?: string;
