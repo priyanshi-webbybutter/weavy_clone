@@ -134,7 +134,7 @@ export function useCredits() {
         return;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/credits`, {
+      const response = await fetch(`${API_BASE_URL}/credits`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

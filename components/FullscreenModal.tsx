@@ -199,6 +199,8 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
           justifyContent: 'space-between',
           padding: '0 16px',
           gap: '12px',
+          position: 'relative',
+          zIndex: 1001,
         }}
       >
         {/* Left: Model Name Tab */}
@@ -213,16 +215,21 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
           }}
         >
           <button
-            onClick={onClose}
+            onClick={(e) => {
+              console.log('🖱️ Close button clicked');
+              e.stopPropagation();
+              onClose();
+            }}
             style={{
               background: 'transparent',
               border: 'none',
               color: '#ffffff',
               cursor: 'pointer',
-              padding: '0',
+              padding: '4px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              pointerEvents: 'auto',
             }}
           >
             <X size={16} />
@@ -254,62 +261,90 @@ const FullscreenModal: React.FC<FullscreenModalProps> = ({
               }}
             />
              <button
+               onClick={(e) => {
+                 console.log('🖱️ Info button clicked');
+                 e.stopPropagation();
+               }}
                style={{
                  background: 'transparent',
                  border: 'none',
                  color: '#ffffff',
                  cursor: 'pointer',
-                 padding: '4px',
+                 padding: '8px',
+                 minWidth: '32px',
+                 minHeight: '32px',
                  display: 'flex',
                  alignItems: 'center',
                  justifyContent: 'center',
+                 pointerEvents: 'auto',
                  opacity: 0.9,
                }}
              >
                <Info size={16} />
              </button>
              <button
-               onClick={handleDownload}
+               onClick={(e) => {
+                 console.log('🖱️ Download button clicked');
+                 e.stopPropagation();
+                 handleDownload();
+               }}
                disabled={!currentImageUrl}
                style={{
                  background: 'transparent',
                  border: 'none',
                  color: '#ffffff',
                  cursor: currentImageUrl ? 'pointer' : 'not-allowed',
-                 padding: '4px',
+                 padding: '8px',
+                 minWidth: '32px',
+                 minHeight: '32px',
                  display: 'flex',
                  alignItems: 'center',
                  justifyContent: 'center',
+                 pointerEvents: 'auto',
                  opacity: currentImageUrl ? 0.9 : 0.4,
                }}
              >
                <Download size={16} />
              </button>
             <button
+              onClick={(e) => {
+                console.log('🖱️ Link button clicked');
+                e.stopPropagation();
+              }}
               style={{
                 background: 'transparent',
                 border: 'none',
                 color: '#ffffff',
                 cursor: 'pointer',
-                padding: '4px',
+                padding: '8px',
+                minWidth: '32px',
+                minHeight: '32px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                pointerEvents: 'auto',
                 opacity: 0.9,
               }}
             >
               <Link2 size={16} />
             </button>
             <button
+              onClick={(e) => {
+                console.log('🖱️ More options button clicked');
+                e.stopPropagation();
+              }}
               style={{
                 background: 'transparent',
                 border: 'none',
                 color: '#ffffff',
                 cursor: 'pointer',
-                padding: '4px',
+                padding: '8px',
+                minWidth: '32px',
+                minHeight: '32px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                pointerEvents: 'auto',
                 opacity: 0.9,
               }}
             >

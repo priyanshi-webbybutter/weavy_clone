@@ -25,8 +25,10 @@ interface ImageGeneratorNodeData {
 export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageGeneratorNodeData>) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isPreviewHovered, setIsPreviewHovered] = useState(false);
+  const [clickedButton, setClickedButton] = useState<string | null>(null);
   const isClickingRef = useRef(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Get images array - support both old (imageUrl) and new (imageUrls) format
   const imageUrls = data.imageUrls || (data.imageUrl ? [data.imageUrl] : []);
@@ -437,8 +439,27 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
 
       {/* Image Preview Area */}
       <div
-        onMouseEnter={() => setIsPreviewHovered(true)}
-        onMouseLeave={() => setIsPreviewHovered(false)}
+        onMouseEnter={() => {
+          if (hoverTimeoutRef.current) {
+            clearTimeout(hoverTimeoutRef.current);
+          }
+          setIsPreviewHovered(true);
+        }}
+        onMouseLeave={() => {
+          // Keep controls visible for 200ms after mouse leaves
+          hoverTimeoutRef.current = setTimeout(() => {
+            setIsPreviewHovered(false);
+          }, 200);
+        }}
+        onClick={(e) => {
+          // Only trigger on direct image click, not on button clicks
+          if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'IMG') {
+            if (data.onOpenFullscreen && imageUrls.length > 0) {
+              console.log('🖱️ Image clicked, opening fullscreen');
+              data.onOpenFullscreen(id);
+            }
+          }
+        }}
         style={{
           width: '100%',
           height: '400px',
@@ -457,11 +478,13 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           overflow: 'hidden',
           boxShadow: isPreviewHovered ? 'inset 0 45px 20px -20px rgba(0, 0, 0, 0.4)' : 'none',
           transition: 'box-shadow 0.2s ease',
+          cursor: imageUrls.length > 0 ? 'pointer' : 'default',
         }}
       >
         {/* Navigation Controls - Top Bar */}
         {imageUrls.length > 0 && (
           <div
+            className="nodrag"
             style={{
               position: 'absolute',
               top: 0,
@@ -474,6 +497,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               justifyContent: 'space-between',
               padding: '0 12px',
               zIndex: 15,
+              pointerEvents: isPreviewHovered ? 'auto' : 'none',
               opacity: isPreviewHovered ? 1 : 0,
               transition: 'opacity 0.2s ease',
             }}
@@ -483,17 +507,25 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               {/* Previous Button */}
               <button
                 className="nodrag"
-                onClick={handlePreviousImage}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  console.log('🖱️ Previous button clicked');
+                  handlePreviousImage();
+                }}
                 disabled={currentIndex === 0}
                 style={{
                   background: 'transparent',
                   border: 'none',
                   color: '#ffffff',
                   cursor: currentIndex === 0 ? 'not-allowed' : 'pointer',
-                  padding: '4px',
+                  padding: '8px',
+                  minWidth: '32px',
+                  minHeight: '32px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  pointerEvents: 'auto',
                   opacity: currentIndex === 0 ? 0.4 : 0.8,
                   transition: 'opacity 0.2s',
                 }}
@@ -521,17 +553,25 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               {/* Next Button */}
               <button
                 className="nodrag"
-                onClick={handleNextImage}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  console.log('🖱️ Next button clicked');
+                  handleNextImage();
+                }}
                 disabled={currentIndex >= imageUrls.length - 1}
                 style={{
                   background: 'transparent',
                   border: 'none',
                   color: '#ffffff',
                   cursor: currentIndex >= imageUrls.length - 1 ? 'not-allowed' : 'pointer',
-                  padding: '4px',
+                  padding: '8px',
+                  minWidth: '32px',
+                  minHeight: '32px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  pointerEvents: 'auto',
                   opacity: currentIndex >= imageUrls.length - 1 ? 0.4 : 0.8,
                   transition: 'opacity 0.2s',
                 }}
@@ -556,9 +596,21 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
             <button
               className="nodrag"
               onClick={(e) => {
+                console.log('🖱️ Fullscreen button clicked');
                 e.stopPropagation();
+                e.preventDefault();
+                console.log('🔍 onOpenFullscreen exists:', !!data.onOpenFullscreen);
+                console.log('🔍 Node ID:', id);
+
                 if (data.onOpenFullscreen) {
+                  console.log('✅ Calling onOpenFullscreen');
+                  setClickedButton('fullscreen');
                   data.onOpenFullscreen(id);
+
+                  // Clear feedback after animation
+                  setTimeout(() => setClickedButton(null), 150);
+                } else {
+                  console.warn('⚠️ onOpenFullscreen not available');
                 }
               }}
               style={{
@@ -566,15 +618,23 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
                 border: 'none',
                 color: '#ffffff',
                 cursor: 'pointer',
-                padding: '4px',
+                padding: '8px',
+                minWidth: '32px',
+                minHeight: '32px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: 0.8,
+                pointerEvents: 'auto',
+                opacity: clickedButton === 'fullscreen' ? 1 : 0.8,
                 transition: 'opacity 0.2s',
+                transform: clickedButton === 'fullscreen' ? 'scale(0.95)' : 'scale(1)',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
-              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={(e) => {
+                if (clickedButton !== 'fullscreen') {
+                  e.currentTarget.style.opacity = '0.8';
+                }
+              }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2 2H6M2 2V6M14 2H10M14 2V6M2 14H6M2 14V10M14 14H10M14 14V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
