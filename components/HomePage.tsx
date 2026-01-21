@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, Search, Grid3x3, List, FolderOpen, User, ChevronDown, Workflow } from 'lucide-react';
+import { Plus, Search, FolderOpen, ChevronDown, Workflow, Play, Clock, Filter, Bell, Star } from 'lucide-react';
 import ProtectedRoute from './auth/ProtectedRoute';
 import CanvasPreview from './CanvasPreview';
 import CreditsDisplay from './CreditsDisplay';
@@ -27,11 +27,12 @@ function HomePageContent() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const [isCreateMenuOpenSidebar, setIsCreateMenuOpenSidebar] = useState(false);
-  const [isCreateMenuOpenHeader, setIsCreateMenuOpenHeader] = useState(false);
+  const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  const [isUserProfileMenuOpen, setIsUserProfileMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isScrollingUp, setIsScrollingUp] = useState(false);
+  const [lastScrollY, setLastScrollY] = useState(0);
   
   // Initialize activeTab from URL query param, default to 'workflow'
   const tabParam = searchParams.get('tab');
@@ -90,21 +91,47 @@ function HomePageContent() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (isCreateMenuOpenSidebar && !target.closest('.create-menu-container-sidebar')) {
-        setIsCreateMenuOpenSidebar(false);
+      if (isCreateMenuOpen && !target.closest('.create-menu-container')) {
+        setIsCreateMenuOpen(false);
       }
-      if (isCreateMenuOpenHeader && !target.closest('.create-menu-container-header')) {
-        setIsCreateMenuOpenHeader(false);
+      if (isCategoryMenuOpen && !target.closest('.category-menu-container')) {
+        setIsCategoryMenuOpen(false);
+      }
+      if (isUserProfileMenuOpen && !target.closest('.user-profile-menu-container')) {
+        setIsUserProfileMenuOpen(false);
       }
     };
 
-    if (isCreateMenuOpenSidebar || isCreateMenuOpenHeader) {
+    if (isCreateMenuOpen || isCategoryMenuOpen || isUserProfileMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
       };
     }
-  }, [isCreateMenuOpenSidebar, isCreateMenuOpenHeader]);
+  }, [isCreateMenuOpen, isCategoryMenuOpen, isUserProfileMenuOpen]);
+
+  // Track scroll direction
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      if (currentScrollY < 10) {
+        // At the top, no shadow
+        setIsScrollingUp(false);
+      } else if (currentScrollY > lastScrollY) {
+        // Scrolling down
+        setIsScrollingUp(false);
+      } else if (currentScrollY < lastScrollY) {
+        // Scrolling up
+        setIsScrollingUp(true);
+      }
+      
+      setLastScrollY(currentScrollY);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [lastScrollY]);
 
   // Filter projects based on search query
   const filteredProjects = projects.filter(project =>
@@ -128,8 +155,7 @@ function HomePageContent() {
   const handleCreateProject = async (type: 'workflow' | 'canvas' = 'canvas') => {
     try {
       setError(null);
-      setIsCreateMenuOpenSidebar(false);
-      setIsCreateMenuOpenHeader(false);
+      setIsCreateMenuOpen(false);
       const token = localStorage.getItem('auth_token');
       
       if (!token) {
@@ -154,45 +180,22 @@ function HomePageContent() {
       let data: any = {};
       let errorText = '';
       
-      // Always read as text first to see what we're getting
       errorText = await response.text();
       
-      // Log raw response for debugging
-      console.log('📦 Raw response:', {
-        status: response.status,
-        statusText: response.statusText,
-        contentType: response.headers.get('content-type'),
-        bodyLength: errorText.length,
-        bodyPreview: errorText.substring(0, 200)
-      });
-      
       if (errorText.length === 0) {
-        console.error('❌ Empty response body');
         throw new Error(`Server returned empty response (${response.status} ${response.statusText})`);
       }
       
       try {
         data = JSON.parse(errorText);
       } catch (e) {
-        // If JSON parsing fails, use the text as error message
-        console.error('❌ Failed to parse response as JSON:', errorText);
         data = { 
           error: 'Failed to create project',
           message: errorText || `HTTP ${response.status} ${response.statusText}`,
-          status: response.status,
-          statusText: response.statusText
         };
       }
 
       if (!response.ok) {
-        console.error('❌ Error creating project:', {
-          status: response.status,
-          statusText: response.statusText,
-          responseText: errorText,
-          parsedData: data,
-          error: data.error || data.message || 'Unknown error',
-          details: data
-        });
         throw new Error(data.error || data.message || `Failed to create project (${response.status} ${response.statusText})`);
       }
 
@@ -237,190 +240,51 @@ function HomePageContent() {
     return user.email[0].toUpperCase();
   };
 
+  // Get featured project for hero banner
+  const featuredProject = displayedProjects.length > 0 ? displayedProjects[0] : null;
+
   if (!user) {
     return null;
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Left Sidebar */}
-      <div className="fixed left-0 top-0 h-full w-64 bg-[#1a1a1a] border-r border-[#2a2a2a] flex flex-col">
-        {/* User Profile Section */}
-        <div className="p-4 border-b border-[#2a2a2a]">
-          <div className="relative">
-            <button
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center gap-3 w-full hover:bg-[#2a2a2a] rounded-lg p-2 transition-colors"
-            >
-              <div className="w-10 h-10 rounded-full bg-[#8b5cf6] flex items-center justify-center text-white font-semibold">
-                {getUserInitials()}
-              </div>
-              <div className="flex-1 text-left">
-                <div className="text-sm font-medium">
-                  {user.email?.split('@')[0] || 'User'}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {user.email}
-                </div>
-              </div>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            </button>
-
-            {/* Credits Display */}
-            <div className="mt-3">
-              <CreditsDisplay />
+    <div 
+      className="min-h-screen text-white" 
+      style={{ 
+        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+        background: 'radial-gradient(circle at center, rgba(245, 196, 81, 0.08) 0%, #0E1518 70%)',
+        backgroundColor: '#0E1518',
+        backgroundAttachment: 'fixed'
+      }}
+    >
+      {/* Left Sidebar Navigation */}
+      <div className="fixed left-0 top-0 h-full w-72 flex flex-col z-40">
+        {/* Logo/Brand Section */}
+        <div className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#F5C451] to-[#d4a842] flex items-center justify-center">
+              <Workflow className="w-6 h-6 text-[#0E1518]" />
             </div>
-
-            {/* User Menu Dropdown */}
-            {isUserMenuOpen && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl z-50">
-                <button
-                  onClick={() => {
-                    signOut();
-                    router.push('/login');
-                  }}
-                  className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-[#2a2a2a] rounded-lg transition-colors"
-                >
-                  Sign Out
-                </button>
-              </div>
-            )}
+            <span className="text-xl font-bold text-white">Weavy</span>
           </div>
-        </div>
-
-        {/* Create New File Button */}
-        <div className="p-4 relative create-menu-container-sidebar">
-          <button
-            onClick={() => {
-              setIsCreateMenuOpenSidebar(!isCreateMenuOpenSidebar);
-              setIsCreateMenuOpenHeader(false);
-            }}
-            className="w-full bg-[#fbbf24] hover:bg-[#f59e0b] text-black font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Create New File
-            <ChevronDown className="w-4 h-4" />
-          </button>
-
-          {/* Dropdown Menu */}
-          {isCreateMenuOpenSidebar && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl z-50 overflow-hidden">
-              <button
-                onClick={() => handleCreateProject('workflow')}
-                className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors"
-              >
-                Make a Workflow
-              </button>
-              <button
-                onClick={() => handleCreateProject('canvas')}
-                className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors border-t border-[#2a2a2a]"
-              >
-                Make a Canvas
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Navigation Menu */}
-        <div className="flex-1 overflow-y-auto">
-          <nav className="p-2">
-            <button className="w-full flex items-center justify-between px-3 py-2.5 bg-[#2a2a2a] rounded-lg text-left hover:bg-[#2a2a2a] transition-colors">
-              <div className="flex items-center gap-3">
-                <FolderOpen className="w-5 h-5 text-gray-400" />
-                <span className="text-sm font-medium">My Files</span>
-              </div>
-              <Plus className="w-4 h-4 text-gray-400" />
-            </button>
-          </nav>
-        </div>
-
-        {/* Bottom Section */}
-        <div className="p-4 border-t border-[#2a2a2a]">
-          <a
-            href="https://discord.gg/weavy"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-          >
-            <div className="w-6 h-6 rounded bg-[#5865F2] flex items-center justify-center text-white text-xs font-bold">
-              D
-            </div>
-            <span className="text-sm">Discord</span>
-          </a>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="ml-64 p-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-semibold mb-1">
-              {user.email?.split('@')[0] || 'User'}'s Workspace
-            </h1>
-          </div>
-          <div className="relative create-menu-container-header">
-            <button
-              onClick={() => {
-                setIsCreateMenuOpenHeader(!isCreateMenuOpenHeader);
-                setIsCreateMenuOpenSidebar(false);
-              }}
-              className="bg-[#fbbf24] hover:bg-[#f59e0b] text-black font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Create New File
-              <ChevronDown className="w-4 h-4" />
-            </button>
-
-            {/* Dropdown Menu */}
-            {isCreateMenuOpenHeader && (
-              <div className="absolute top-full right-0 mt-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl z-50 overflow-hidden min-w-[180px]">
-                <button
-                  onClick={() => handleCreateProject('workflow')}
-                  className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors"
-                >
-                  Make a Workflow
-                </button>
-                <button
-                  onClick={() => handleCreateProject('canvas')}
-                  className="w-full px-4 py-2.5 text-left text-sm text-white hover:bg-[#2a2a2a] transition-colors border-t border-[#2a2a2a]"
-                >
-                  Make a Canvas
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex items-center justify-between mb-6 border-b border-[#2a2a2a]">
-          <div className="flex gap-1">
-            <button
-              onClick={() => {
-                setActiveTab('workflow');
-                router.push('/?tab=workflow');
-              }}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === 'workflow'
-                  ? 'border-b-2 border-white'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Workflow library
-            </button>
-
+        <div className="flex-1 overflow-y-auto py-6">
+          <nav className="px-4 space-y-2">
             <button
               onClick={() => {
                 setActiveTab('canvas');
                 router.push('/?tab=canvas');
               }}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${
                 activeTab === 'canvas'
-                  ? 'border-b-2 border-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-[#1B2529] text-white shadow-lg'
+                  : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
               }`}
             >
-              Canvas Library
+              <FolderOpen className="w-5 h-5" />
+              <span className="font-medium" style={{ fontSize: '80%' }}>My Library</span>
             </button>
 
             <button
@@ -428,138 +292,380 @@ function HomePageContent() {
                 setActiveTab('tutorials');
                 router.push('/?tab=tutorials');
               }}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
+              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${
                 activeTab === 'tutorials'
-                  ? 'border-b-2 border-white'
-                  : 'text-gray-400 hover:text-white'
+                  ? 'bg-[#1B2529] text-white shadow-lg'
+                  : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
               }`}
             >
-              Tutorials
+              <Play className="w-5 h-5" />
+              <span className="font-medium" style={{ fontSize: '80%' }}>Tutorials</span>
             </button>
-          </div>
-          
-          {/* Credits Display in Header */}
-          <div className="flex items-center">
-            <CreditsDisplay className="mr-0" />
+          </nav>
+
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="ml-72">
+        {/* Top Navigation Bar */}
+        <div className="fixed top-0 left-72 right-0 z-[100]">
+          <div className="h-16 px-6 flex items-center justify-between gap-4">
+            {/* Left Section - Category Dropdown */}
+            <div className="relative category-menu-container flex-shrink-0">
+              <button
+                onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
+                className="flex items-center gap-2 px-4 py-2 hover:bg-[#2A3439]/70 rounded-full text-sm font-medium text-white transition-all duration-200 backdrop-blur-sm"
+                style={{ 
+                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                  backgroundColor: 'rgba(42, 52, 57, 0.83)',
+                  boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                }}
+              >
+                <span>{activeTab === 'workflow' ? 'Workflows' : activeTab === 'canvas' ? 'Canvas' : 'Tutorials'}</span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {isCategoryMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 backdrop-blur-sm rounded-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] overflow-hidden z-50 min-w-[180px]"
+                  style={{ backgroundColor: 'rgba(26, 35, 39, 0.83)' }}
+                >
+                  <button
+                    onClick={() => {
+                      setActiveTab('workflow');
+                      router.push('/?tab=workflow');
+                      setIsCategoryMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-white hover:bg-[#2A3439]/50 transition-colors"
+                    style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                  >
+                    Workflows
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('canvas');
+                      router.push('/?tab=canvas');
+                      setIsCategoryMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-white hover:bg-[#2A3439]/50 transition-colors border-t border-[#2A3439]/30"
+                    style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                  >
+                    Canvas
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('tutorials');
+                      router.push('/?tab=tutorials');
+                      setIsCategoryMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm font-medium text-white hover:bg-[#2A3439]/50 transition-colors border-t border-[#2A3439]/30"
+                    style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                  >
+                    Tutorials
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Center Section - Search Bar */}
+            <div className="relative flex-1 max-w-2xl">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-[#9AA6AD]" />
+              <input
+                type="text"
+                placeholder="Search projects..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-11 pr-4 py-2.5 rounded-full text-sm font-medium text-white placeholder-[#9AA6AD] focus:outline-none transition-all duration-200 backdrop-blur-sm"
+                style={{ 
+                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                  backgroundColor: 'rgba(42, 52, 57, 0.83)',
+                  boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                }}
+                onFocus={(e) => e.target.style.backgroundColor = 'rgba(42, 52, 57, 0.9)'}
+                onBlur={(e) => e.target.style.backgroundColor = 'rgba(42, 52, 57, 0.83)'}
+              />
+            </div>
+
+            {/* Right Section - Icons & User Profile */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {/* Filter Icon Button */}
+              <button
+                className="w-10 h-10 rounded-full hover:bg-[#2A3439]/70 flex items-center justify-center text-[#9AA6AD] hover:text-white transition-all duration-200 backdrop-blur-sm"
+                style={{ 
+                  backgroundColor: 'rgba(42, 52, 57, 0.83)',
+                  boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                }}
+                aria-label="Filter"
+              >
+                <Filter className="w-5 h-5" />
+              </button>
+
+              {/* Notifications Icon Button */}
+              <button
+                className="w-10 h-10 rounded-full hover:bg-[#2A3439]/70 flex items-center justify-center text-[#9AA6AD] hover:text-white transition-all duration-200 relative backdrop-blur-sm"
+                style={{ 
+                  backgroundColor: 'rgba(42, 52, 57, 0.83)',
+                  boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                }}
+                aria-label="Notifications"
+              >
+                <Bell className="w-5 h-5" />
+                {/* Notification badge can be added here if needed */}
+              </button>
+
+              {/* Create Button */}
+              <div className="relative create-menu-container">
+                <button
+                  onClick={() => setIsCreateMenuOpen(!isCreateMenuOpen)}
+                  className="flex items-center gap-2 px-4 py-2 hover:bg-[#2A3439]/70 text-white rounded-full transition-all duration-200 backdrop-blur-sm"
+                  style={{ 
+                    fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    backgroundColor: 'rgba(42, 52, 57, 0.83)',
+                    boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create</span>
+                </button>
+
+                {isCreateMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 backdrop-blur-xl rounded-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] overflow-hidden z-50 min-w-[200px]"
+                    style={{ backgroundColor: 'rgba(26, 35, 39, 0.83)' }}
+                  >
+                    <button
+                      onClick={() => handleCreateProject('workflow')}
+                      className="w-full px-4 py-3 text-left text-sm font-medium text-white hover:bg-[#2A3439]/50 transition-colors"
+                      style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                    >
+                      Make a Workflow
+                    </button>
+                    <button
+                      onClick={() => handleCreateProject('canvas')}
+                      className="w-full px-4 py-3 text-left text-sm font-medium text-white hover:bg-[#2A3439]/50 transition-colors border-t border-[#2A3439]/30"
+                      style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                    >
+                      Make a Canvas
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* User Profile Section */}
+              <div className="relative user-profile-menu-container">
+                <button
+                  onClick={() => setIsUserProfileMenuOpen(!isUserProfileMenuOpen)}
+                  className="flex items-center gap-3 pl-3 border-l border-[#2A3439]/30"
+                >
+                  <div className="flex flex-col items-end">
+                    <div className="text-sm font-medium text-white" style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif', fontSize: '14px' }}>
+                      {user.email?.split('@')[0] || 'User'}
+                    </div>
+                    <div className="text-xs font-medium text-[#F5C451]" style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif', fontSize: '12px' }}>
+                      Premium
+                    </div>
+                  </div>
+                  <div 
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm cursor-pointer hover:brightness-110 transition-all duration-200 border border-[#2A3439]/50 backdrop-blur-xl"
+                    style={{ 
+                      background: 'linear-gradient(to bottom right, rgba(42, 52, 57, 0.83), rgba(26, 35, 39, 0.83))',
+                      boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
+                    }}
+                  >
+                    {getUserInitials()}
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-[#9AA6AD] ml-1" />
+                </button>
+
+                {isUserProfileMenuOpen && (
+                  <div className="absolute top-full right-0 mt-2 backdrop-blur-sm rounded-[14px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] overflow-hidden z-50 min-w-[280px]"
+                    style={{ backgroundColor: 'rgba(26, 35, 39, 0.83)' }}
+                  >
+                    <div className="p-4 border-b border-[#2A3439]/30">
+                      <CreditsDisplay />
+                    </div>
+                    <button
+                      onClick={() => {
+                        signOut();
+                        router.push('/login');
+                      }}
+                      className="w-full px-4 py-3 text-left text-sm font-medium text-red-400 hover:bg-[#2A3439]/50 transition-colors"
+                      style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* My Files Section */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">My files</h2>
-            <div className="flex items-center gap-4">
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg text-sm focus:outline-none focus:border-[#8b5cf6] transition-colors w-64"
-                />
-              </div>
-
-              {/* View Toggle */}
-              <div className="flex items-center gap-1 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-1">
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded transition-colors ${
-                    viewMode === 'list' 
-                      ? 'bg-[#2a2a2a] text-white' 
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <List className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded transition-colors ${
-                    viewMode === 'grid' 
-                      ? 'bg-[#2a2a2a] text-white' 
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Grid3x3 className="w-4 h-4" />
-                </button>
+        {/* Content Area */}
+        <div className="p-6 pt-24">
+          {/* Hero Banner Section */}
+          {featuredProject && (
+            <div className="relative mb-8 rounded-[20px] overflow-hidden group cursor-pointer"
+              onClick={() => handleProjectClick(featuredProject.id, featuredProject.type)}
+            >
+              <div className="relative h-[400px] bg-gradient-to-br from-[#1B2529] to-[#0E1518]">
+                {featuredProject.preview_images && featuredProject.preview_images.length > 0 ? (
+                  <div className="absolute inset-0">
+                    <div className="absolute inset-0 bg-gradient-to-r from-[#0E1518] via-[#0E1518]/80 to-transparent z-10" />
+                    <CanvasPreview images={featuredProject.preview_images} />
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-32 h-32 text-[#7C8A93] group-hover:text-[#F5C451] transition-colors">
+                      <Workflow className="w-full h-full" />
+                    </div>
+                  </div>
+                )}
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0E1518] via-transparent to-transparent z-20" />
+                
+                <div className="absolute bottom-0 left-0 right-0 p-8 z-30">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-3 py-1 bg-[#F5C451]/20 text-[#F5C451] text-xs font-semibold rounded-full">
+                      {featuredProject.type === 'workflow' ? 'Workflow' : 'Canvas'}
+                    </span>
+                    <span className="text-[#B3BDC4] text-sm">Updated {formatDate(featuredProject.updated_at)}</span>
+                  </div>
+                  <h2 className="text-4xl font-bold mb-2 text-white group-hover:text-[#F5C451] transition-colors">
+                    {featuredProject.name}
+                  </h2>
+                  {featuredProject.description && (
+                    <p className="text-[#B3BDC4] text-lg max-w-2xl">
+                      {featuredProject.description}
+                    </p>
+                  )}
+                  <button className="mt-4 px-6 py-3 bg-[#F5C451] hover:bg-[#d4a842] text-[#0E1518] font-semibold rounded-full transition-all duration-200 hover:scale-105 flex items-center gap-2">
+                    <Play className="w-5 h-5" />
+                    <span>Open Project</span>
+                  </button>
+                </div>
               </div>
             </div>
+          )}
+
+          {/* Section Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-white">
+              {activeTab === 'workflow' ? 'Workflow Library' : activeTab === 'canvas' ? 'Canvas Library' : 'Tutorials'}
+            </h2>
+            {displayedProjects.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 bg-[#1B2529] text-[#B3BDC4] text-sm rounded-full">
+                  {displayedProjects.length} {displayedProjects.length === 1 ? 'project' : 'projects'}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Projects Grid/List */}
+          {/* Projects Carousel */}
           {loading ? (
-            <div className="text-center py-12 text-gray-400">
-              Loading projects...
+            <div className="text-center py-16 text-[#7C8A93]">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#F5C451]"></div>
+              <p className="mt-4">Loading projects...</p>
             </div>
           ) : displayedProjects.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              {searchQuery
-                ? 'No projects found matching your search.'
-                : activeTab === 'canvas'
-                  ? 'No canvas projects yet. Create your first canvas project!'
-                  : activeTab === 'workflow'
-                    ? 'No workflow projects yet. Create your first workflow project!'
-                    : 'No projects yet. Create your first project to get started!'}
-            </div>
-          ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {displayedProjects.map((project) => (
+            <div className="text-center py-16">
+              <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-[#1B2529] flex items-center justify-center">
+                <FolderOpen className="w-12 h-12 text-[#7C8A93]" />
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-2">
+                {searchQuery
+                  ? 'No projects found'
+                  : activeTab === 'canvas'
+                    ? 'No canvas projects yet'
+                    : activeTab === 'workflow'
+                      ? 'No workflow projects yet'
+                      : 'No projects yet'}
+              </h3>
+              <p className="text-[#7C8A93] mb-6">
+                {searchQuery
+                  ? 'Try adjusting your search terms'
+                  : 'Create your first project to get started!'}
+              </p>
+              {!searchQuery && (
                 <button
-                  key={project.id}
-                  onClick={() => handleProjectClick(project.id, project.type)}
-                  className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left group"
+                  onClick={() => setIsCreateMenuOpen(true)}
+                  className="px-6 py-3 bg-[#F5C451] hover:bg-[#d4a842] text-[#0E1518] font-semibold rounded-full transition-all duration-200 hover:scale-105"
                 >
-                  <div className="aspect-video bg-[#0a0a0a] rounded mb-3 flex items-center justify-center overflow-hidden">
-                    {project.type === 'canvas' ? (
-                      <CanvasPreview images={project.preview_images} />
-                    ) : (
-                      <div className="w-16 h-16 text-gray-600 group-hover:text-[#8b5cf6] transition-colors">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.5">
-                          <rect x="9" y="2" width="6" height="4" rx="0.5" />
-                          <path d="M12 6v3" />
-                          <rect x="2" y="11" width="6" height="4" rx="0.5" />
-                          <rect x="16" y="11" width="6" height="4" rx="0.5" />
-                          <path d="M12 9L5 11M12 9L19 11" />
-                          <rect x="9" y="18" width="6" height="4" rx="0.5" />
-                          <path d="M5 15L12 18M19 15L12 18" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="font-medium mb-1 truncate">{project.name}</div>
-                  <div className="text-xs text-gray-400">
-                    Updated {formatDate(project.updated_at)}
-                  </div>
+                  Create New Project
                 </button>
-              ))}
+              )}
             </div>
           ) : (
-            <div className="space-y-2">
-              {displayedProjects.map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => handleProjectClick(project.id, project.type)}
-                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-4 hover:border-[#8b5cf6] transition-colors text-left flex items-center gap-4"
-                >
-                  <div className="w-12 h-12 bg-[#0a0a0a] rounded flex items-center justify-center flex-shrink-0">
-                    {project.type === 'workflow' ? (
-                      <Workflow className="w-6 h-6 text-gray-600" />
-                    ) : (
-                      <FolderOpen className="w-6 h-6 text-gray-600" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium mb-1 truncate">{project.name}</div>
-                    {project.description && (
-                      <div className="text-sm text-gray-400 truncate">{project.description}</div>
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-400 flex-shrink-0">
-                    {formatDate(project.updated_at)}
-                  </div>
-                </button>
-              ))}
+            <div className="overflow-x-auto pb-8 -mx-6 px-6 scrollbar-hide">
+              <div className="flex gap-4 min-w-max">
+                {displayedProjects.map((project) => {
+                  const projectYear = new Date(project.created_at).getFullYear();
+                  const rating = 4.5; // You can replace this with actual rating if available
+                  
+                  return (
+                    <button
+                      key={project.id}
+                      onClick={() => handleProjectClick(project.id, project.type)}
+                      className="group flex-shrink-0 w-[140px] transition-all duration-300 hover:scale-105"
+                      style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                    >
+                      {/* Poster */}
+                      <div 
+                        className="relative aspect-[2/3] rounded-2xl overflow-hidden mb-2.5"
+                        style={{ boxShadow: 'inset 0 0 20px rgba(0, 0, 0, 0.3)' }}
+                      >
+                        {project.type === 'canvas' && project.preview_images ? (
+                          <>
+                            <CanvasPreview images={project.preview_images} />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300" />
+                          </>
+                        ) : (
+                          <div className="absolute inset-0 bg-gradient-to-br from-[#1B2529] to-[#0E1518] flex items-center justify-center">
+                            <div className="w-16 h-16 text-[#7C8A93] group-hover:text-[#F5C451] transition-colors">
+                              {project.type === 'workflow' ? (
+                                <Workflow className="w-full h-full" />
+                              ) : (
+                                <FolderOpen className="w-full h-full" />
+                              )}
+                            </div>
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-300" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Title */}
+                      <h3 
+                        className="text-white font-medium mb-1.5 truncate text-left"
+                        style={{ fontSize: '14px', lineHeight: '1.2' }}
+                      >
+                        {project.name}
+                      </h3>
+                      
+                      {/* Metadata Row */}
+                      <div className="flex items-center gap-2 text-left">
+                        <span 
+                          className="text-[#9AA6AD]"
+                          style={{ fontSize: '12px', fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                        >
+                          {projectYear}
+                        </span>
+                        <span className="text-[#9AA6AD]" style={{ fontSize: '12px' }}>•</span>
+                        <div className="flex items-center gap-1">
+                          <Star className="w-3 h-3 fill-[#F5C451] text-[#F5C451]" />
+                          <span 
+                            className="text-[#F5C451] font-medium"
+                            style={{ fontSize: '12px', fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
+                          >
+                            {rating.toFixed(1)}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -572,7 +678,7 @@ export default function HomePage() {
   return (
     <ProtectedRoute>
       <Suspense fallback={
-        <div className="w-full h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="w-full h-screen bg-[#0E1518] flex items-center justify-center">
           <div className="text-white">Loading...</div>
         </div>
       }>
