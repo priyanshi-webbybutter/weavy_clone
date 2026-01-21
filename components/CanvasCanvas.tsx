@@ -2996,7 +2996,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 onBlur={handleProjectNameBlur}
                 onKeyDown={handleProjectNameKeyDown}
                 autoFocus
-                className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#8b5cf6] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] outline-none focus:ring-2 focus:ring-[#8b5cf6]/50"
+                className="glass-input rounded-full px-4 py-2 text-sm min-w-[200px] outline-none transition-all duration-200"
+                style={{
+                  backgroundColor: 'rgba(28, 28, 30, 0.6)',
+                  backdropFilter: 'blur(12px)',
+                  WebkitBackdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#FFFFFF',
+                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                  fontWeight: '500',
+                  boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+                }}
               />
             ) : (
               <div
@@ -3015,15 +3025,24 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className={`
-                px-4 py-2 rounded-xl text-sm font-medium transition-all
-                ${isSaving
-                  ? 'bg-[#2a2a2a] text-gray-500 cursor-not-allowed'
+              className="glass-button glass-button-save px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200"
+              style={{
+                backgroundColor: isSaving
+                  ? 'rgba(42, 42, 42, 0.6)'
                   : saveStatus === 'saved'
-                  ? 'bg-green-500/20 border border-green-500/50 text-green-400'
-                  : 'bg-[#8b5cf6] hover:bg-[#7c3aed] text-white'
-                }
-              `}
+                  ? 'rgba(34, 197, 94, 0.6)'
+                  : 'rgba(255, 255, 255, 0.12)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxShadow: isSaving
+                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1)'
+                  : saveStatus === 'saved'
+                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(34, 197, 94, 0.2)'
+                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1)',
+                color: isSaving ? 'rgba(255, 255, 255, 0.5)' : '#FFFFFF',
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                fontFamily: 'var(--font-poppins), Poppins, sans-serif'
+              }}
               title={isSaving ? 'Saving...' : 'Save canvas'}
             >
               {isSaving ? 'Saving...' : saveStatus === 'saved' ? 'Saved ✓' : 'Save'}
@@ -3229,7 +3248,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                             newRegions[index] = e.target.value;
                             setEditedTextRegions(newRegions);
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm text-gray-900"
+                          className="glass-input w-full px-3 py-2 rounded-lg text-sm transition-all duration-200"
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(124, 92, 255, 0.3)',
+                            color: '#000000',
+                            fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                            fontWeight: '500',
+                            boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
+                          }}
                           placeholder="Enter text..."
                         />
                         {editedTextRegions[index] !== region.text && (
@@ -3874,7 +3903,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                             engineRef.current?.saveState();
                             saveCanvasState();
                           }}
-                          className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                          className="glass-input w-16 px-2 py-1 text-sm rounded transition-all duration-200"
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(124, 92, 255, 0.3)',
+                            color: '#000000',
+                            fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                            fontWeight: '500',
+                            boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
+                          }}
                         />
                         <span className="text-sm text-black">%</span>
                       </div>
@@ -3986,7 +4025,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                           engineRef.current?.saveState();
                           saveCanvasState();
                         }}
-                        className="w-16 px-2 py-1 text-sm border border-gray-300 rounded text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="glass-input w-16 px-2 py-1 text-sm rounded transition-all duration-200"
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(124, 92, 255, 0.3)',
+                          color: '#000000',
+                          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                          fontWeight: '500',
+                          boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
+                        }}
                         placeholder="W"
                       />
                       <span className="text-xs text-black">W</span>
@@ -4021,7 +4070,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                           engineRef.current?.saveState();
                           saveCanvasState();
                         }}
-                        className="w-16 px-2 py-1 text-sm border border-gray-300 rounded text-black focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="glass-input w-16 px-2 py-1 text-sm rounded transition-all duration-200"
+                        style={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(124, 92, 255, 0.3)',
+                          color: '#000000',
+                          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                          fontWeight: '500',
+                          boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
+                        }}
                         placeholder="H"
                       />
                       <span className="text-xs text-black">H</span>
@@ -4431,13 +4490,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     }
                   }}
                   autoFocus
-                  className="px-2 py-1 bg-transparent border-2 border-blue-500 rounded text-black focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="glass-input px-2 py-1 rounded-lg outline-none transition-all duration-200"
                   style={{
                     fontSize: `${shape.style.fontSize || 16}px`,
                     fontFamily: shape.style.fontFamily || 'Arial',
                     color: shape.style.fill || '#000000',
                     minWidth: '50px',
                     width: `${measureText(textInputValue).width}px`,
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(8px)',
+                    WebkitBackdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(124, 92, 255, 0.3)',
+                    boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
                   }}
                 />
               </div>
@@ -4488,57 +4552,128 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           })()}
 
           {/* Bottom Floating Toolbar */}
-          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-4 py-2 flex items-center gap-2 shadow-lg">
+          <div 
+            className="absolute bottom-8 left-1/2 transform -translate-x-1/2 rounded-full px-3 py-2 flex items-center gap-1.5"
+            style={{ 
+              backgroundColor: 'rgba(28, 28, 30, 0.6)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.3)'
+            }}
+          >
             <button
               onClick={() => setTool('select')}
-              className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-                tool === 'select' ? 'bg-yellow-500 text-black' : 'bg-[#2a2a2a] text-white hover:bg-[#3a3a3a]'
-              }`}
+              className="glass-button glass-button-active w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+              style={{
+                backgroundColor: tool === 'select' 
+                  ? 'rgba(124, 92, 255, 0.6)' 
+                  : 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxShadow: tool === 'select'
+                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
+                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+              }}
               title="Select"
             >
-              <MousePointer2 className="w-5 h-5" />
+              <MousePointer2 className="w-5 h-5 text-white" />
             </button>
             <button
               onClick={() => setTool('pan')}
-              className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-                tool === 'pan' ? 'bg-[#8b5cf6] text-white' : 'bg-[#2a2a2a] text-white hover:bg-[#3a3a3a]'
-              }`}
+              className="glass-button glass-button-active w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+              style={{
+                backgroundColor: tool === 'pan' 
+                  ? 'rgba(124, 92, 255, 0.6)' 
+                  : 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxShadow: tool === 'pan'
+                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
+                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+              }}
               title="Pan"
             >
-              <Hand className="w-5 h-5" />
+              <Hand className="w-5 h-5 text-white" />
             </button>
-            <div className="w-px h-6 bg-[#2a2a2a] mx-1" />
+            <div className="w-px h-5 bg-[#C7CBD4]/20 mx-0.5" />
             <button
               onClick={handleUndo}
-              className="w-10 h-10 flex items-center justify-center bg-[#2a2a2a] text-white rounded hover:bg-[#3a3a3a] transition-colors"
+              className="glass-button w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+              }}
               title="Undo"
             >
-              <Undo2 className="w-5 h-5" />
+              <Undo2 className="w-5 h-5 text-white" />
             </button>
             <button
               onClick={handleRedo}
-              className="w-10 h-10 flex items-center justify-center bg-[#2a2a2a] text-white rounded hover:bg-[#3a3a3a] transition-colors"
+              className="glass-button w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+              }}
               title="Redo"
             >
-              <Redo2 className="w-5 h-5" />
+              <Redo2 className="w-5 h-5 text-white" />
             </button>
-            <div className="w-px h-6 bg-[#2a2a2a] mx-1" />
+            <div className="w-px h-5 bg-[#C7CBD4]/20 mx-0.5" />
             <div className="relative" data-zoom-menu>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsZoomMenuOpen(!isZoomMenuOpen);
                 }}
-                className="px-3 py-2 bg-[#2a2a2a] text-white rounded text-sm hover:bg-[#3a3a3a] transition-colors flex items-center gap-1"
+                className="glass-button glass-button-expandable px-3 py-1.5 rounded-full text-sm transition-all duration-200 flex items-center gap-1.5"
+                style={{ 
+                  backgroundColor: isZoomMenuOpen 
+                    ? 'rgba(124, 92, 255, 0.6)' 
+                    : 'rgba(255, 255, 255, 0.08)',
+                  backdropFilter: 'blur(12px)',
+                  WebkitBackdropFilter: 'blur(12px)',
+                  boxShadow: isZoomMenuOpen
+                    ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
+                    : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)',
+                  color: '#FFFFFF',
+                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                  fontWeight: '600'
+                }}
               >
-                {zoomLevel}%
+                <span>{zoomLevel}%</span>
                 <ChevronDown className="w-4 h-4" />
               </button>
               {isZoomMenuOpen && (
-                <div className="absolute bottom-full mb-2 left-0 w-40 bg-[#2a2a2a] border border-[#3a3a3a] rounded shadow-lg py-2 z-50">
+                <div 
+                  className="absolute bottom-full mb-2 w-40 z-50"
+                  style={{ 
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    backgroundColor: 'rgba(28, 28, 30, 0.88)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '12px',
+                    backdropFilter: 'blur(14px)',
+                    WebkitBackdropFilter: 'blur(14px)',
+                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3)',
+                    padding: '6px',
+                    fontFamily: 'var(--font-poppins), Poppins, sans-serif'
+                  }}
+                >
                   <button
                     onClick={handleFitToScreen}
-                    className="w-full px-4 py-2 text-sm text-left hover:bg-[#3a3a3a] transition-colors text-white border-b border-[#3a3a3a] mb-1"
+                    className="w-full px-4 text-left transition-all duration-200 dropdown-option"
+                    style={{ 
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      height: '40px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                      borderRadius: '8px'
+                    }}
                   >
                     Fit to Screen
                   </button>
@@ -4546,9 +4681,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     <button
                       key={zoom}
                       onClick={() => handleZoomChange(zoom)}
-                      className={`w-full px-4 py-2 text-sm text-left hover:bg-[#3a3a3a] transition-colors ${
-                        zoomLevel === zoom ? 'text-[#8b5cf6]' : 'text-white'
+                      className={`w-full px-4 text-left transition-all duration-200 dropdown-option ${
+                        zoomLevel === zoom ? 'dropdown-option-selected' : ''
                       }`}
+                      style={{ 
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        height: '40px',
+                        fontSize: zoomLevel === zoom ? '14px' : '13px',
+                        fontWeight: '500',
+                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                        borderRadius: '8px'
+                      }}
                     >
                       {zoom}%
                     </button>

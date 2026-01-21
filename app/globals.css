@@ -224,3 +224,57 @@ a {
 .react-flow.cursor-grab .react-flow__handle {
   cursor: crosshair !important;
 }
+
+/* Dropdown Option - macOS Command Palette Style */
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dropdown-option:hover {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.dropdown-option-selected {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Glass Button System - Adaptive Tinted Glass */
+.glass-button {
+  position: relative;
+}
+
+.glass-button:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+.glass-button:active:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.05) !important;
+}
+
+.glass-button-save:hover:not(:disabled) {
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+/* Glass Input System - Text Fields */
+.glass-input {
+  position: relative;
+}
+
+.glass-input:hover {
+  border-color: rgba(124, 92, 255, 0.4) !important;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.15), 0 2px 6px rgba(124, 92, 255, 0.25) !important;
+}
+
+.glass-input:focus {
+  border-color: rgba(124, 92, 255, 0.6) !important;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 0 0 3px rgba(124, 92, 255, 0.2), 0 2px 8px rgba(124, 92, 255, 0.3) !important;
+  outline: none;
+}
+
