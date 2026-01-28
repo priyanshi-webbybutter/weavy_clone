@@ -26,6 +26,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
 );
 
+// Tool execution limits
+const MAX_TOOL_ITERATIONS = 3;
+const MAX_SAME_TOOL_CALLS = 2;
+
 /**
  * Get authenticated user for chat persistence
  * Returns user and user-scoped Supabase client for RLS enforcement
@@ -182,16 +186,74 @@ Example workflow:
 - Maps to: '4:3' (closest standard ratio)
 - Tool call: call_image_generator({ prompt: "...", aspect_ratio: "4:3" })
 
-## RULE #1: JUST DO IT - NO QUESTIONS
+## 🚨 CRITICAL RULE #1: EXECUTE IMMEDIATELY - NO EXPLANATIONS 🚨
+
+**WHEN USER SAYS "GENERATE", "CREATE", "MAKE" → YOU MUST CALL THE TOOL IMMEDIATELY**
+
+DO NOT:
+❌ Say "I will generate..." (future tense)
+❌ Say "I see X and Y, let me generate..." (description + future)
+❌ Explain what you're going to do
+❌ Describe the canvas before acting
+❌ Ask ANY questions
+
+DO:
+✅ Call the tool FIRST
+✅ Respond AFTER the tool executes
+✅ Say "I've generated..." (past tense - because you already did it)
+
+**CORRECT FLOW:**
+User: "Generate hand-drawn doodle design elements"
+You: [IMMEDIATELY CALL call_image_generator]
+You: "I've generated hand-drawn doodle design elements for you."
+
+**WRONG FLOW (NEVER DO THIS):**
+User: "Generate hand-drawn doodle design elements"
+You: "I see the canvas with... I will generate..." ❌ WRONG!
 
 When user intent is clear:
-- "Have her wear it" → Generate composite immediately
-- "Combine these" → Generate composite immediately
-- "Put the product on the model" → Generate composite immediately
-- "Make it blue" → IMMEDIATELY call modify_canvas_element
-- "Add text" → IMMEDIATELY call add_to_canvas
+- "Generate X" → CALL call_image_generator NOW (not "I will generate")
+- "Have her wear it" → CALL call_image_generator NOW
+- "Combine these" → CALL call_image_generator NOW
+- "Make it blue" → CALL modify_canvas_element NOW
+- "Add text" → CALL add_to_canvas NOW
 
-DO NOT ask "which character?" or "which product?" - LOOK at the selected images and figure it out!
+DO NOT describe, DO NOT explain - JUST EXECUTE THE TOOL.
+
+## ⛔ NEVER ASK THESE QUESTIONS ⛔
+
+**FORBIDDEN CLARIFICATION QUESTIONS:**
+- ❌ "Which image would you like to use?"
+- ❌ "Would you like me to create elements similar to..."
+- ❌ "Do you want something different?"
+- ❌ "Which option do you prefer?"
+- ❌ "Should I generate..."
+- ❌ "Would you like any adjustments?"
+- ❌ "Can you clarify..."
+
+**WHY FORBIDDEN:** When user says "generate", "create", "make" - they want ACTION, not questions!
+
+**CORRECT BEHAVIOR:**
+✅ User: "Generate hand-drawn doodle design elements"
+   You: [CALL call_image_generator({ prompt: "hand-drawn doodle design elements...", aspect_ratio: "1:1" })]
+   Response: "I've generated hand-drawn doodle design elements for you."
+
+✅ User: "Create a logo"
+   You: [CALL call_image_generator({ prompt: "professional logo design...", aspect_ratio: "1:1" })]
+   Response: "I've created a logo design for you."
+
+✅ User: "Something different"
+   Context: User rejected previous output
+   You: [CALL call_image_generator with DIFFERENT prompt]
+   Response: "I've generated a different design for you."
+
+**DECISION MAKING:** When user intent is ambiguous, make the BEST GUESS and generate. Don't ask!
+- If unsure of style → Choose modern/professional
+- If unsure of colors → Choose complementary palette
+- If unsure of composition → Choose balanced/centered
+
+**AFTER GENERATION:** You can mention alternatives: "I've generated X. If you'd like it in a different style, let me know!"
+But ALWAYS generate first, suggest alternatives second.
 
 ## RULE #2: KNOW WHEN TO SUGGEST VS WHEN TO EXECUTE
 
@@ -221,6 +283,21 @@ DO NOT ask "which character?" or "which product?" - LOOK at the selected images 
 - If user mentions "option 1/2/3" or "the first/second one" → They're confirming a suggestion → EXECUTE
 
 **CRITICAL:** "Generate" after suggestions = EXECUTE, not more suggestions!
+
+## 🎯 TOOL CALL DECISION MATRIX 🎯
+
+When you see these user intents → IMMEDIATELY call tools:
+
+| User Says | Intent | Tool to Call | Don't Ask Questions |
+|-----------|--------|--------------|---------------------|
+| "generate...", "create...", "make..." | Create new | call_image_generator | ✅ GENERATE NOW |
+| "combine these", "put together" | Composite | call_image_generator | ✅ GENERATE NOW |
+| "make it blue", "change color" | Modify existing | modify_canvas_element | ✅ MODIFY NOW |
+| "add text", "add title" | Add element | add_to_canvas | ✅ ADD NOW |
+| "something different" | Regenerate | call_image_generator | ✅ GENERATE NOW |
+| "yes please", "do it", "go ahead" | Confirm previous | Use appropriate tool | ✅ EXECUTE NOW |
+
+**NO MIDDLE GROUND:** Either call a tool OR have a conversation. Never ask questions when tool should be called.
 
 ## SELECTION BEHAVIOR
 
@@ -450,19 +527,84 @@ async function executeToolCall(toolName, args, referenceImages = [], projectId =
   }
 }
 
+// Detect if AI response contains anti-patterns using Gemini
+async function detectQuestionLoop(responseText) {
+  try {
+    const model = genAI.getGenerativeModel({ 
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 100
+      }
+    });
+
+    const classificationPrompt = `Classify this AI assistant response. Does it contain any of these anti-patterns?
+
+ANTI-PATTERNS TO DETECT:
+1. QUESTION: Asking clarifying questions instead of executing (e.g., "Which image would you like?", "Do you want me to...?")
+2. FUTURE_TENSE: Promising to do something instead of doing it (e.g., "I will generate...", "Let me create...")
+3. PASSIVE_ACK: Passively acknowledging the request without executing (e.g., "You've requested...", "Based on your request...")
+4. NONE: The response confirms completed action (e.g., "I've generated...", "Here's your image...")
+
+RESPONSE TO CLASSIFY:
+"${responseText.substring(0, 500)}"
+
+Reply with ONLY one of: QUESTION, FUTURE_TENSE, PASSIVE_ACK, or NONE`;
+
+    const result = await model.generateContent(classificationPrompt);
+    const classification = result.response.text().trim().toUpperCase();
+    
+    const isAntiPattern = ['QUESTION', 'FUTURE_TENSE', 'PASSIVE_ACK'].includes(classification);
+    
+    console.log(`🔍 Response classification: ${classification} (anti-pattern: ${isAntiPattern})`);
+    
+    return {
+      hasQuestions: isAntiPattern,
+      pattern: isAntiPattern ? classification.toLowerCase().replace('_', ' ') : null
+    };
+  } catch (error) {
+    console.error('⚠️ Classification failed, using fallback:', error.message);
+    
+    // Fallback to basic pattern matching if Gemini fails
+    const fallbackPatterns = [
+      'would you like', 'do you want', 'should i', 'can you clarify',
+      'i will generate', 'i will create', 'let me generate',
+      'you\'ve requested', 'you requested', 'based on your request'
+    ];
+    const lowerResponse = responseText.toLowerCase();
+    const foundPattern = fallbackPatterns.find(p => lowerResponse.includes(p));
+    
+    return {
+      hasQuestions: !!foundPattern,
+      pattern: foundPattern || null
+    };
+  }
+}
+
 // Generate image using Gemini 2.5 Flash Image Preview (native generation with compositing)
 async function generateImage(prompt, aspectRatio = '1:1', referenceImages = [], projectId = null, token = null) {
-  try {
-    // Validate aspect ratio
-    const validRatios = ['1:1', '16:9', '9:16', '3:2', '2:3', '4:3', '21:9'];
-    if (!validRatios.includes(aspectRatio)) {
-      console.warn(`⚠️ Invalid aspect ratio "${aspectRatio}", defaulting to '1:1'`);
-      aspectRatio = '1:1';
-    }
+  const MAX_RETRIES = 2;
+  let lastError = null;
+  let modifiedPrompt = prompt;
 
-    console.log('🎨 Generating image with Gemini:', prompt);
-    console.log('🎨 Aspect ratio:', aspectRatio);
-    console.log('🎨 Reference images for compositing:', referenceImages.length);
+  // Validate aspect ratio
+  const validRatios = ['1:1', '16:9', '9:16', '3:2', '2:3', '4:3', '21:9'];
+  if (!validRatios.includes(aspectRatio)) {
+    console.warn(`⚠️ Invalid aspect ratio "${aspectRatio}", defaulting to '1:1'`);
+    aspectRatio = '1:1';
+  }
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`🔄 Retry attempt ${attempt}/${MAX_RETRIES}`);
+        // Make prompt more explicit on retries
+        modifiedPrompt = `Generate a high-quality image: ${prompt}. OUTPUT: One single image only.`;
+      }
+
+      console.log('🎨 Generating image with Gemini:', modifiedPrompt);
+      console.log('🎨 Aspect ratio:', aspectRatio);
+      console.log('🎨 Reference images for compositing:', referenceImages.length);
 
     // Build request parts - REFERENCE IMAGES FIRST (important for Gemini)
     const parts = [];
@@ -484,12 +626,49 @@ async function generateImage(prompt, aspectRatio = '1:1', referenceImages = [], 
     let enhancedPrompt;
     if (referenceImages.length > 0) {
       // COMPOSITING MODE - combining reference images
-      enhancedPrompt = `Using the ${referenceImages.length} reference image(s) provided above, ${prompt}.
+      const imageDescriptions = referenceImages
+        .map((img, i) => `IMAGE ${i + 1}: ${img.description || 'Reference image'}`)
+        .join('\n');
+        
+      enhancedPrompt = `IMAGE COMPOSITING TASK
 
-IMPORTANT: Combine elements from these reference images as described in the prompt.
-Create a seamless, natural composite that looks professionally photographed.
-Maintain the style, lighting, and quality of the original images.
-Output: ONE high-quality composite image.`;
+REFERENCE IMAGES PROVIDED:
+${imageDescriptions}
+
+USER REQUEST:
+${prompt}
+
+COMPOSITING INSTRUCTIONS:
+1. ANALYZE each reference image to identify key elements (subjects, objects, backgrounds)
+2. EXTRACT ONLY the elements explicitly required by the user request
+3. COMBINE the extracted elements into ONE unified physical scene
+4. ENSURE elements are physically interacting as described (touching, resting, wrapped, or connected)
+5. BLEND seamlessly – match lighting direction, color temperature, and shadows
+6. MAINTAIN quality – preserve detail and resolution from source images
+7. ENSURE natural integration – clean edges, no visible seams, realistic contact shadows
+
+STRICT CONSTRAINTS:
+- Objects MUST be physically connected or touching
+- Do NOT place objects side-by-side or separately
+- Do NOT add new objects, packaging, or duplicates
+- Generate ONE combined hero object only
+
+STYLE GUIDELINES:
+- Match the dominant lighting style from the reference images
+- Preserve the color palette and mood
+- Maintain consistent perspective and realistic scale
+- Add natural shadows where composited elements meet
+
+OUTPUT:
+Generate ONE high-quality composite image in ${aspectRatio} format.
+Do NOT describe what you are doing – just generate the image.
+`;
+//       enhancedPrompt = `Using the ${referenceImages.length} reference image(s) provided above, ${prompt}.
+
+// IMPORTANT: Combine elements from these reference images as described in the prompt.
+// Create a seamless, natural composite that looks professionally photographed.
+// Maintain the style, lighting, and quality of the original images.
+// Output: ONE high-quality composite image.`;
     } else {
       // GENERATION MODE - creating from scratch
       const aspectHints = {
@@ -512,7 +691,7 @@ Output: ONE image.`;
 
     // Call Gemini 2.5 Flash Image Preview API
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -532,19 +711,25 @@ Output: ONE image.`;
 
     const data = await response.json();
 
-    // Extract image from response
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(
-      p => p.inlineData?.data
-    );
+      // Extract image from response
+      const imagePart = data.candidates?.[0]?.content?.parts?.find(
+        p => p.inlineData?.data
+      );
 
-    if (!imagePart) {
-      // Model returned text instead of image
-      const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
-      console.log('🎨 Gemini returned text instead of image:', textPart?.text);
-      throw new Error(textPart?.text || 'No image generated - model returned text response');
-    }
+      if (!imagePart) {
+        // Model returned text instead of image
+        const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text);
+        console.log('🎨 Gemini returned text instead of image:', textPart?.text);
 
-    console.log('🎨 Image generated successfully, uploading via API...');
+        if (attempt < MAX_RETRIES) {
+          lastError = new Error('Model returned text instead of image');
+          continue; // Try again with modified prompt
+        } else {
+          throw new Error(textPart?.text || 'No image generated after retries');
+        }
+      }
+
+      console.log('🎨 Image generated successfully, uploading via API...');
 
     // Upload using the existing /api/upload-canvas-image endpoint
     const imageUrl = await uploadViaAPI(imagePart.inlineData.data, projectId, token);
@@ -566,7 +751,7 @@ Output: ONE image.`;
             // Pass actual token usage for accurate billing
             const deductResult = await creditService.deductCredits(
               user.id,
-              'gemini-2.5-flash-image-preview',
+              'gemini-2.5-flash-image',
               totalTokens, // Estimated for credit check
               totalTokens  // Actual tokens used
             );
@@ -574,7 +759,7 @@ Output: ONE image.`;
               console.log(`✅ Gemini Image: ${totalTokens} tokens used, $${deductResult.dollarCost?.toFixed(6) || 'N/A'} cost, ${deductResult.creditsDeducted.toFixed(4)} credits deducted`);
               creditInfo = {
                 success: true,
-                modelUsed: deductResult.modelUsed || 'gemini-2.5-flash-image-preview',
+                modelUsed: deductResult.modelUsed || 'gemini-2.5-flash-image',
                 modelName: deductResult.modelName,
                 tokensUsed: deductResult.tokensUsed,
                 creditsDeducted: deductResult.creditsDeducted,
@@ -590,22 +775,31 @@ Output: ONE image.`;
       }
     }
 
-    return {
-      success: true,
-      imageUrl: imageUrl,
-      prompt: prompt,
-      aspectRatio: aspectRatio,
-      wasComposite: referenceImages.length > 0,
-      credits: creditInfo // Include credit information
-    };
+      // Success!
+      return {
+        success: true,
+        imageUrl: imageUrl,
+        prompt: prompt, // Return original prompt, not modified
+        aspectRatio: aspectRatio,
+        wasComposite: referenceImages.length > 0,
+        credits: creditInfo // Include credit information
+      };
 
-  } catch (error) {
-    console.error('🎨 Gemini image generation error:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    } catch (error) {
+      lastError = error;
+      if (attempt === MAX_RETRIES) {
+        break; // All retries exhausted
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+    }
   }
+
+  // All retries failed
+  console.error(`❌ Image generation failed after ${MAX_RETRIES + 1} attempts:`, lastError?.message);
+  return {
+    success: false,
+    error: lastError?.message || 'Unknown error'
+  };
 }
 
 // Helper: Upload generated image using the existing /api/upload-canvas-image endpoint
@@ -655,7 +849,7 @@ async function uploadViaAPI(base64Data, projectId, token) {
 // Generate content using Gemini
 async function generateContent(topic, goal, brandContext) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const contentPrompt = `You are a creative copywriter. Generate ${topic} with the goal to ${goal}.
 
@@ -1098,7 +1292,7 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
 
     // Check if user has enough credits before processing
     if (user) {
-      const creditCheck = await creditService.hasEnoughCredits(user.id, 'gemini-2.0-flash-exp', 1000);
+      const creditCheck = await creditService.hasEnoughCredits(user.id, 'gemini-2.5-flash', 1000);
       if (!creditCheck.hasEnough) {
         return res.status(402).json({
           success: false,
@@ -1246,7 +1440,7 @@ router.post('/', upload.single('canvasImage'), async (req, res) => {
 
       // Create a fresh Gemini chat for prompt generation
       const promptModel = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash-exp",
+        model: "gemini-2.5-flash",
         generationConfig: {
           temperature: 0.3,  // Lower temperature for more consistent formatting
           maxOutputTokens: 500,
@@ -1356,6 +1550,38 @@ ${markerDescriptions}
       return res.status(400).json({ error: 'Message is required' });
     }
 
+    // === APPLY 9-STEP DECISION PIPELINE (EARLY) ===
+    // Do this BEFORE model initialization so we can configure toolConfig
+    console.log('🚀 Starting 9-step decision process (early analysis)...');
+
+    // Step 1: Read and understand
+    const analysis = analyzeUserInput(cleanMessage, canvasContext, selectedImages, conversationHistory);
+    console.log('📖 Step 1: Analyzed input');
+
+    // Step 2: Identify key elements
+    const elements = identifyKeyElements(cleanMessage, analysis);
+    console.log('🔍 Step 2: Key elements:', elements);
+
+    // Step 3: Determine task type
+    const taskType = determineTaskType(elements);
+    console.log('🎯 Step 3: Task type:', taskType.taskType, '→ Tool:', taskType.tool);
+
+    // Step 4: Check reference material
+    const referenceMaterial = analyzeReferenceMaterial(selectedImages, canvasContext);
+    console.log('🖼️ Step 4: Reference analysis:', referenceMaterial.hasReferences ?
+      `${referenceMaterial.count} images` : 'No references');
+
+    // Step 5: Match to tools (logging only)
+    logToolSelection(taskType);
+
+    // Step 6: Structure the prompt
+    const structuredPrompt = structurePrompt(taskType, elements, referenceMaterial);
+    if (structuredPrompt) {
+      console.log('📝 Step 6: Created structured prompt');
+      console.log('Structured prompt preview:', structuredPrompt.structuredPrompt.substring(0, 200) + '...');
+    }
+    // ===================================================
+
     // === SAVE USER MESSAGE TO DATABASE ===
     if (projectId && user && supabaseClient) {
       const userMessage = {
@@ -1409,11 +1635,11 @@ ${markerDescriptions}
 
     // Initialize the model with function calling
     const modelConfig = {
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash",
       tools: tools,
     };
 
-    // FORCE tool calling when markers present
+    // FORCE tool calling when markers present OR high-confidence image generation
     if (mentionList.length > 0) {
       modelConfig.toolConfig = {
         functionCallingConfig: {
@@ -1422,6 +1648,14 @@ ${markerDescriptions}
         }
       };
       console.log('🎯 MARKER MODE: Forcing call_image_generator tool');
+    } else if (taskType.confidence === 'high' && taskType.tool === 'call_image_generator') {
+      modelConfig.toolConfig = {
+        functionCallingConfig: {
+          mode: "ANY",  // Force model to call at least one function
+          allowedFunctionNames: ["call_image_generator"]
+        }
+      };
+      console.log('🎯 HIGH CONFIDENCE MODE: Forcing call_image_generator tool');
     }
 
     const model = genAI.getGenerativeModel(modelConfig);
@@ -1568,36 +1802,6 @@ Fill in the {{variables}} with information from the user's request.\n`;
       ],
     });
 
-    // === APPLY 9-STEP DECISION PIPELINE ===
-    console.log('🚀 Starting 9-step decision process...');
-
-    // Step 1: Read and understand
-    const analysis = analyzeUserInput(cleanMessage, canvasContext, selectedImages, conversationHistory);
-    console.log('📖 Step 1: Analyzed input');
-
-    // Step 2: Identify key elements
-    const elements = identifyKeyElements(cleanMessage, analysis);
-    console.log('🔍 Step 2: Key elements:', elements);
-
-    // Step 3: Determine task type
-    const taskType = determineTaskType(elements);
-    console.log('🎯 Step 3: Task type:', taskType.taskType, '→ Tool:', taskType.tool);
-
-    // Step 4: Check reference material
-    const referenceMaterial = analyzeReferenceMaterial(selectedImages, canvasContext);
-    console.log('🖼️ Step 4: Reference analysis:', referenceMaterial.hasReferences ?
-      `${referenceMaterial.count} images` : 'No references');
-
-    // Step 5: Match to tools (logging only)
-    logToolSelection(taskType);
-
-    // Step 6: Structure the prompt
-    const structuredPrompt = structurePrompt(taskType, elements, referenceMaterial);
-    if (structuredPrompt) {
-      console.log('📝 Step 6: Created structured prompt');
-      console.log('Structured prompt preview:', structuredPrompt.structuredPrompt.substring(0, 200) + '...');
-    }
-
     // Step 7: Execute (existing Gemini call)
     // Add structured prompt to system context if available
     if (structuredPrompt) {
@@ -1636,15 +1840,29 @@ Fill in the {{variables}} with information from the user's request.\n`;
 
     if (taskType.confidence === 'high' && taskType.tool) {
       // High confidence - tell Gemini exactly which tool to use
-      let instruction = `[SYSTEM INSTRUCTION: This is a ${taskType.taskType}. Use the ${taskType.tool} tool. ${structuredPrompt ? 'Follow the structured generation guide above.' : 'Execute immediately.'}`;
+      let instruction = `[CRITICAL SYSTEM INSTRUCTION: EXECUTE IMMEDIATELY - NO EXPLANATION]
+
+This is a ${taskType.taskType}. You MUST call ${taskType.tool} tool RIGHT NOW.
+
+DO NOT:
+- Say "I will generate..." or "Let me create..."
+- Describe what you see on the canvas first
+- Explain what you're about to do
+- Ask any questions
+
+DO:
+- Call ${taskType.tool} IMMEDIATELY as your FIRST action
+- Respond with "I've generated..." (past tense) AFTER the tool executes
+- ${structuredPrompt ? 'Follow the structured generation guide above.' : ''}`;
 
       // Add design type specific instructions for image generation
       if (taskType.tool === 'call_image_generator' && detectedDesignType) {
-        instruction += `\n\nDESIGN TYPE: ${detectedDesignType.name}
-When calling call_image_generator, structure your prompt following the ${detectedDesignType.name} template provided in the system context.
-Use the proper COMPOSITION, STYLE, LIGHTING, and TECHNICAL sections.
-Default aspect ratio: ${detectedDesignType.defaultAspectRatio} (unless user specifies different).
-Follow the design guidelines provided above.`;
+        instruction += `
+
+DESIGN TYPE: ${detectedDesignType.name}
+When calling call_image_generator, structure your prompt following the ${detectedDesignType.name} template.
+Use proper COMPOSITION, STYLE, LIGHTING sections.
+Default aspect ratio: ${detectedDesignType.defaultAspectRatio}`;
       }
 
       instruction += `]`;
@@ -1660,7 +1878,7 @@ Follow the design guidelines provided above.`;
       // Low confidence - let Gemini decide but encourage execution
       userMessageText = `${enhancedMessage || cleanMessage}
 
-[SYSTEM INSTRUCTION: DIRECT COMMAND - analyze the request and call the appropriate tool if applicable.]`;
+[SYSTEM INSTRUCTION: DIRECT COMMAND - Call the appropriate tool IMMEDIATELY. DO NOT say "I will..." just DO IT.]`;
       console.log('🤔 Step 7: Letting Gemini decide (low confidence)');
     }
 
@@ -1741,7 +1959,7 @@ Use markdown formatting. Be concise and accurate.`;
               try {
                 await creditService.deductCredits(
                   user.id,
-                  'gemini-2.0-flash-exp',
+                  'gemini-2.5-flash',
                   totalTokens
                 );
               } catch (creditError) {
@@ -1810,7 +2028,7 @@ Use markdown formatting. Be concise and accurate.`;
             // Pass actual token usage for accurate billing
             const deductResult = await creditService.deductCredits(
               user.id,
-              'gemini-2.0-flash-exp',
+              'gemini-2.5-flash',
               totalTokens, // Estimated for credit check
               totalTokens  // Actual tokens used
             );
@@ -1836,11 +2054,34 @@ Use markdown formatting. Be concise and accurate.`;
       });
 
       if (functionCalls && functionCalls.length > 0) {
+        let iterationCount = 0;
+        const toolCallHistory = [];
+
         // Execute each function call
         for (const call of functionCalls) {
-          console.log(`Executing tool: ${call.name}`, call.args);
+          // Check iteration limit
+          if (iterationCount >= MAX_TOOL_ITERATIONS) {
+            console.warn(`⚠️ Max tool iterations (${MAX_TOOL_ITERATIONS}) reached, stopping`);
+            break;
+          }
+
+          // Check duplicate tool calls
+          const sameToolCalls = toolCallHistory.filter(h => h.name === call.name).length;
+          if (sameToolCalls >= MAX_SAME_TOOL_CALLS) {
+            console.warn(`⚠️ Tool ${call.name} called ${sameToolCalls} times already, skipping`);
+            continue;
+          }
+
+          console.log(`Executing tool: ${call.name} (iteration ${iterationCount + 1}/${MAX_TOOL_ITERATIONS})`, call.args);
           // Pass selected images for compositing when calling image generator
           const toolResult = await executeToolCall(call.name, call.args, selectedImages, projectId, token);
+
+          // Track call
+          toolCallHistory.push({
+            name: call.name,
+            args: call.args,
+            success: toolResult.success
+          });
 
           if (toolResult.success) {
             console.log('✅ Tool executed successfully:', call.name);
@@ -1866,37 +2107,46 @@ Use markdown formatting. Be concise and accurate.`;
               actions.push(toolResult.action);
             }
           } else {
-            console.log('❌ Tool execution failed:', {
-              tool: call.name,
-              error: toolResult.error
-            });
+            console.log('❌ Tool execution failed:', toolResult.error);
+            // DON'T send failed result back to Gemini - breaks the question loop
+            break;
           }
 
-          // Send function result back to model
-          result = await chat.sendMessage([{
-            functionResponse: {
-              name: call.name,
-              response: toolResult
-            }
-          }]);
-          response = result.response;
+          iterationCount++;
 
-          // Track token usage for function response
-          if (user && result.usageMetadata) {
-            const totalTokens = result.usageMetadata.totalTokens || 0;
-            if (totalTokens > 0) {
-              try {
-                await creditService.deductCredits(
-                  user.id,
-                  'gemini-2.0-flash-exp',
-                  totalTokens
-                );
-              } catch (creditError) {
-                console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+          // Only send result back to Gemini if we haven't hit limits
+          if (iterationCount < MAX_TOOL_ITERATIONS) {
+            result = await chat.sendMessage([{
+              functionResponse: {
+                name: call.name,
+                response: toolResult
+              }
+            }]);
+            response = result.response;
+
+            // Track token usage for function response
+            if (user && result.usageMetadata) {
+              const totalTokens = result.usageMetadata.totalTokens || 0;
+              if (totalTokens > 0) {
+                try {
+                  await creditService.deductCredits(
+                    user.id,
+                    'gemini-2.5-flash',
+                    totalTokens
+                  );
+                } catch (creditError) {
+                  console.error('⚠️ Error deducting credits (non-fatal):', creditError);
+                }
               }
             }
           }
         }
+
+        console.log('🔄 Tool execution summary:', {
+          totalIterations: iterationCount,
+          toolsCalled: toolCallHistory.map(t => t.name),
+          limitReached: iterationCount >= MAX_TOOL_ITERATIONS
+        });
       } else {
         // No function calls detected
         console.log('⚠️ No function calls detected - AI responded with text only');
@@ -1927,7 +2177,44 @@ Use markdown formatting. Be concise and accurate.`;
     }
 
     // Clean the response (remove the JSON marker)
-    const cleanResponse = textResponse.replace(/<!--BRAND_BIBLE_JSON:.+?-->/g, '').trim();
+    let cleanResponse = textResponse.replace(/<!--BRAND_BIBLE_JSON:.+?-->/g, '').trim();
+
+    // GUARD: Detect and block question loops or passive acknowledgments using AI
+    const questionCheck = await detectQuestionLoop(cleanResponse);
+    if (questionCheck.hasQuestions && generatedImages.length === 0) {
+      console.warn('⚠️ ANTI-PATTERN DETECTED:', questionCheck.pattern);
+      console.warn('⚠️ Original response:', cleanResponse);
+
+      // Override with action-oriented response
+      cleanResponse = "I'll generate that for you. One moment...";
+
+      // Use structured prompt if available, otherwise fall back to user message
+      const generationPrompt = structuredPrompt?.structuredPrompt || enhancedMessage || cleanMessage || message;
+      
+      // Determine aspect ratio from task analysis or default
+      const forceAspectRatio = detectedDesignType?.defaultAspectRatio || '1:1';
+
+      // Force image generation
+      console.log('🔄 Forcing image generation with prompt:', generationPrompt.substring(0, 100) + '...');
+      const forceGenResult = await generateImage(
+        generationPrompt,
+        forceAspectRatio,
+        selectedImages,
+        projectId,
+        token
+      );
+
+      if (forceGenResult.success) {
+        generatedImages.push({
+          url: forceGenResult.imageUrl,
+          prompt: generationPrompt,
+          aspectRatio: forceGenResult.aspectRatio
+        });
+        cleanResponse = "I've generated the image based on your request.";
+      } else {
+        cleanResponse = `I attempted to generate the image but encountered an error: ${forceGenResult.error}`;
+      }
+    }
 
     // === SAVE ASSISTANT MESSAGE TO DATABASE ===
     if (projectId && user && supabaseClient) {
