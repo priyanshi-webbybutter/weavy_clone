@@ -1674,7 +1674,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         try {
           const errorMsg = error instanceof Error ? error.message : 'Unknown error';
           onUpdateShape(placeholderId, {
-            src: createErrorPlaceholderSVG(errorMsg),
+            src: createErrorPlaceholderSVG(errorMsg + '\n\n(Click to remove)'),
             style: { opacity: 0.5 }
           });
         } catch (updateError) {
@@ -1685,7 +1685,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       const errorMessage: Message = {
         id: `msg-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: error instanceof Error
+          ? `I encountered an error: ${error.message}. Click the error placeholder on canvas to remove it, then try rephrasing your request.`
+          : 'Sorry, an unexpected error occurred. Please try again.',
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
