@@ -90,14 +90,14 @@ export function MarkerResultChip({ marker, onRemove, isLoading }: MarkerResultCh
 
   return (
     <div className="relative inline-flex flex-col gap-1">
-      <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#1a1a1a] border border-blue-500/50 rounded-full">
+      <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-blue-500/50 rounded-full shadow-sm">
         {/* Marker Number Icon */}
         <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold">
           {isLoading ? '·' : marker.markerNumber}
         </div>
 
         {/* Label Text */}
-        <span className="text-sm text-white font-medium">
+        <span className="text-sm text-black font-medium">
           {isLoading ? 'Analyzing...' : marker.label}
         </span>
 

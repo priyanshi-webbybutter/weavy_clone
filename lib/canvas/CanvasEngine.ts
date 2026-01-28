@@ -32,7 +32,7 @@ export class CanvasEngine {
     const initialShapes = initialState?.shapes || new Map();
     const initialSelectedIds = initialState?.selectedIds || new Set();
     const initialViewport = initialState?.viewport || { x: 0, y: 0, zoom: 1 };
-    
+
     // Create a minimal initial snapshot
     const initialSnapshot: CanvasState = {
       shapes: new Map(initialShapes),
@@ -49,7 +49,7 @@ export class CanvasEngine {
         future: [],
       },
     };
-    
+
     // Now initialize the full state
     this.state = {
       ...initialState,
@@ -66,7 +66,7 @@ export class CanvasEngine {
 
   setCanvas(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false });
+    this.ctx = canvas.getContext('2d', { alpha: true });
     this.resize();
   }
 
@@ -110,7 +110,7 @@ export class CanvasEngine {
     const worldPoint = this.screenToWorld({ x: centerX, y: centerY });
     this.state.viewport.zoom = newZoom;
     const newScreenPoint = this.worldToScreen(worldPoint);
-    
+
     this.state.viewport.x += centerX - newScreenPoint.x;
     this.state.viewport.y += centerY - newScreenPoint.y;
 
@@ -146,7 +146,7 @@ export class CanvasEngine {
 
     for (const shape of shapes) {
       let bounds: { x: number; y: number; width: number; height: number };
-      
+
       if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
         if (shape.type === 'text') {
           const textBounds = this.getTextBounds(shape as TextShape);
@@ -219,7 +219,7 @@ export class CanvasEngine {
     // Therefore: viewport.x = screenCenterX - (contentCenterX * zoom)
     const screenCenterX = canvasWidth / 2;
     const screenCenterY = canvasHeight / 2;
-    
+
     const viewportX = screenCenterX - (contentCenterX * zoom);
     const viewportY = screenCenterY - (contentCenterY * zoom);
 
@@ -253,7 +253,7 @@ export class CanvasEngine {
     this.render();
   }
 
-  updateShape(id: string, updates: Partial<Shape>, saveState = false) {
+  updateShape(id: string, updates: Partial<Shape>, saveState = false, shouldRender = true) {
     if (saveState) {
       this.saveState();
     }
@@ -279,7 +279,9 @@ export class CanvasEngine {
         });
       }
 
-      this.render();
+      if (shouldRender) {
+        this.render();
+      }
 
       // Notify callback if an image was updated (for dynamic arrow updates)
       if (shape.type === 'image' && this.onImageUpdateCallback) {
@@ -368,11 +370,11 @@ export class CanvasEngine {
       // For text shapes, use actual text bounds only when text is wrapped (clipped)
       // When width is bigger than text needs, use shape bounds (not clipped)
       const textBounds = this.getTextBounds(shape as TextShape);
-      bounds = { 
-        x: shape.x, 
-        y: shape.y, 
-        width: textBounds.width, 
-        height: textBounds.height 
+      bounds = {
+        x: shape.x,
+        y: shape.y,
+        width: textBounds.width,
+        height: textBounds.height
       };
     } else if (shape.type === 'circle') {
       bounds = {
@@ -412,7 +414,7 @@ export class CanvasEngine {
   // Hit testing
   hitTest(point: Point, shape?: Shape): Shape | null {
     const worldPoint = this.screenToWorld(point);
-    
+
     // If checking a specific shape
     if (shape) {
       return this.isPointInShape(worldPoint, shape) ? shape : null;
@@ -519,11 +521,11 @@ export class CanvasEngine {
     } else if (shape.type === 'text') {
       // For text shapes, use actual text bounds for handle detection
       const textBounds = this.getTextBounds(shape as TextShape);
-      bounds = { 
-        x: shape.x, 
-        y: shape.y, 
-        width: textBounds.width, 
-        height: textBounds.height 
+      bounds = {
+        x: shape.x,
+        y: shape.y,
+        width: textBounds.width,
+        height: textBounds.height
       };
     } else if (shape.type === 'circle') {
       bounds = {
@@ -641,13 +643,13 @@ export class CanvasEngine {
 
       // For images, maintain aspect ratio when resizing from corners
       if (shape.type === 'image') {
-        const isCornerHandle = handle === 'topLeft' || handle === 'topRight' || 
-                              handle === 'bottomLeft' || handle === 'bottomRight';
-        
+        const isCornerHandle = handle === 'topLeft' || handle === 'topRight' ||
+          handle === 'bottomLeft' || handle === 'bottomRight';
+
         if (isCornerHandle) {
           // Calculate aspect ratio from initial bounds
           const aspectRatio = initialBounds.width / initialBounds.height;
-          
+
           // Calculate the distance from the opposite corner to the new mouse position
           let oppositeX: number, oppositeY: number;
           if (handle === 'topLeft') {
@@ -663,15 +665,15 @@ export class CanvasEngine {
             oppositeX = initialBounds.x;
             oppositeY = initialBounds.y;
           }
-          
+
           // Calculate the delta from opposite corner
           const deltaX = newWorldPoint.x - oppositeX;
           const deltaY = newWorldPoint.y - oppositeY;
-          
+
           // Determine which dimension to use based on which changed more
           const absDeltaX = Math.abs(deltaX);
           const absDeltaY = Math.abs(deltaY);
-          
+
           if (absDeltaX / aspectRatio > absDeltaY) {
             // Use width as primary dimension
             newWidth = absDeltaX;
@@ -681,7 +683,7 @@ export class CanvasEngine {
             newHeight = absDeltaY;
             newWidth = newHeight * aspectRatio;
           }
-          
+
           // Calculate new position based on handle
           if (handle === 'topLeft') {
             newX = oppositeX - newWidth;
@@ -696,7 +698,7 @@ export class CanvasEngine {
             newX = oppositeX;
             newY = oppositeY;
           }
-          
+
           // Ensure minimum size
           if (newWidth < minSize) {
             newWidth = minSize;
@@ -729,7 +731,7 @@ export class CanvasEngine {
             }
           }
         }
-        
+
         // Update the image shape
         this.updateShape(shape.id, {
           x: newX,
@@ -739,19 +741,19 @@ export class CanvasEngine {
         }, false);
       } else if (shape.type === 'text') {
         const textShape = shape as TextShape;
-        
+
         // Determine which dimension is being resized based on the handle
-        const isWidthResize = handle === 'left' || handle === 'right' || 
-                             handle === 'topLeft' || handle === 'topRight' || 
-                             handle === 'bottomLeft' || handle === 'bottomRight';
+        const isWidthResize = handle === 'left' || handle === 'right' ||
+          handle === 'topLeft' || handle === 'topRight' ||
+          handle === 'bottomLeft' || handle === 'bottomRight';
         const isHeightOnlyResize = handle === 'top' || handle === 'bottom';
-        
+
         if (isHeightOnlyResize && Math.abs(newWidth - initialBounds.width) < 1) {
           // Only height is changing (top/bottom handles) - scale font size proportionally
           const baseFontSize = initialFontSize !== undefined ? initialFontSize : (textShape.style.fontSize || 16);
           const heightRatio = newHeight / initialBounds.height;
           const newFontSize = Math.max(8, Math.min(200, baseFontSize * heightRatio));
-          
+
           this.updateShape(shape.id, {
             x: newX,
             y: newY,
@@ -765,13 +767,19 @@ export class CanvasEngine {
         } else if (isWidthResize) {
           // Width is changing (left/right or corner handles)
           const isCornerHandle = handle === 'topLeft' || handle === 'topRight' ||
-                                handle === 'bottomLeft' || handle === 'bottomRight';
+            handle === 'bottomLeft' || handle === 'bottomRight';
 
           if (isCornerHandle) {
-            // Corner handles - scale font size based on height change (like bottom handle)
+            // Corner handles - scale font size based on both dimensions to prevent clipping
             const baseFontSize = initialFontSize !== undefined ? initialFontSize : (textShape.style.fontSize || 16);
             const heightRatio = newHeight / initialBounds.height;
-            const newFontSize = Math.max(8, Math.min(200, baseFontSize * heightRatio));
+            const widthRatio = newWidth / initialBounds.width;
+
+            // Use the smaller ratio to ensure text always fits in the container
+            // This prevents "HELL" (horizontal clipping) when width shrinks more than height
+            const scaleRatio = Math.min(heightRatio, widthRatio);
+
+            const newFontSize = Math.max(8, Math.min(200, baseFontSize * scaleRatio));
 
             this.updateShape(shape.id, {
               x: newX,
@@ -841,7 +849,7 @@ export class CanvasEngine {
     this.state.history.past.push(this.state.history.present);
     this.state.history.present = this.getStateSnapshot();
     this.state.history.future = [];
-    
+
     // Limit history size
     if (this.state.history.past.length > 50) {
       this.state.history.past.shift();
@@ -858,7 +866,7 @@ export class CanvasEngine {
 
   undo() {
     if (this.state.history.past.length === 0) return;
-    
+
     this.state.history.future.unshift(this.state.history.present);
     this.state.history.present = this.state.history.past.pop()!;
     this.restoreState(this.state.history.present);
@@ -866,7 +874,7 @@ export class CanvasEngine {
 
   redo() {
     if (this.state.history.future.length === 0) return;
-    
+
     this.state.history.past.push(this.state.history.present);
     this.state.history.present = this.state.history.future.shift()!;
     this.restoreState(this.state.history.present);
@@ -904,8 +912,8 @@ export class CanvasEngine {
     if (!this.canvas || !this.ctx) return;
 
     // Clear canvas
-    this.ctx.fillStyle = '#1a1a1a';
-    this.ctx.fillRect(0, 0, this.canvas.width / window.devicePixelRatio, this.canvas.height / window.devicePixelRatio);
+    // Clear canvas
+    this.ctx.clearRect(0, 0, this.canvas.width / window.devicePixelRatio, this.canvas.height / window.devicePixelRatio);
 
     // Apply viewport transform
     this.ctx.save();
@@ -958,13 +966,13 @@ export class CanvasEngine {
 
   private drawGrid() {
     if (!this.ctx) return;
-    
+
     const gridSize = 20;
     const bounds = this.getVisibleBounds();
-    
+
     this.ctx.strokeStyle = '#2a2a2a';
     this.ctx.lineWidth = 1 / this.state.viewport.zoom;
-    
+
     // Vertical lines
     const startX = Math.floor(bounds.minX / gridSize) * gridSize;
     const endX = Math.ceil(bounds.maxX / gridSize) * gridSize;
@@ -974,7 +982,7 @@ export class CanvasEngine {
       this.ctx.lineTo(x, bounds.maxY);
       this.ctx.stroke();
     }
-    
+
     // Horizontal lines
     const startY = Math.floor(bounds.minY / gridSize) * gridSize;
     const endY = Math.ceil(bounds.maxY / gridSize) * gridSize;
@@ -988,10 +996,10 @@ export class CanvasEngine {
 
   private getVisibleBounds() {
     if (!this.canvas) return { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 };
-    
+
     const width = this.canvas.width / window.devicePixelRatio;
     const height = this.canvas.height / window.devicePixelRatio;
-    
+
     return {
       minX: (0 - this.state.viewport.x) / this.state.viewport.zoom,
       maxX: (width - this.state.viewport.x) / this.state.viewport.zoom,
@@ -1026,7 +1034,7 @@ export class CanvasEngine {
     }
 
     // Apply rotation
-      if (shape.rotation) {
+    if (shape.rotation) {
       let centerX = shape.x;
       let centerY = shape.y;
       if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
@@ -1176,7 +1184,7 @@ export class CanvasEngine {
     }
 
     const img = new Image();
-    
+
     // Enable CORS to prevent canvas tainting when exporting
     // On retry, try without CORS if CORS failed (for some edge cases)
     if (attempt === 0) {
@@ -1200,12 +1208,12 @@ export class CanvasEngine {
     img.onerror = (error) => {
       const retryCount = attempt + 1;
       this.imageRetryAttempts.set(cacheKey, retryCount);
-      
+
       // Log error with retry info
       if (attempt === 0) {
         console.warn(`Failed to load image (attempt ${retryCount}/${MAX_RETRIES + 1}):`, shape.src);
       }
-      
+
       // Retry with exponential backoff
       if (retryCount <= MAX_RETRIES) {
         const delay = RETRY_DELAYS[attempt] || 2000;
@@ -1260,7 +1268,7 @@ export class CanvasEngine {
 
   private drawPath(points: Point[]) {
     if (!this.ctx || points.length < 2) return;
-    
+
     this.ctx.beginPath();
     this.ctx.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
@@ -1272,19 +1280,19 @@ export class CanvasEngine {
   // Calculate text height based on wrapped text (character by character)
   calculateTextHeight(text: string, maxWidth: number, fontSize: number, fontFamily: string, fontWeight?: string): number {
     if (!this.ctx) return fontSize * 1.2;
-    
+
     this.ctx.font = `${fontWeight || 'normal'} ${fontSize}px ${fontFamily}`;
     const lineHeight = fontSize * 1.2;
-    
+
     const lines: string[] = [];
     let currentLine = '';
-    
+
     // Wrap character by character
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
       const testLine = currentLine + char;
       const metrics = this.ctx.measureText(testLine);
-      
+
       if (metrics.width > maxWidth && currentLine.length > 0) {
         // Current line is full, start a new line
         lines.push(currentLine);
@@ -1293,18 +1301,18 @@ export class CanvasEngine {
         currentLine = testLine;
       }
     }
-    
+
     if (currentLine.length > 0) {
       lines.push(currentLine);
     }
-    
+
     return Math.max(fontSize * 1.2, lines.length * lineHeight);
   }
 
   // Get text lines wrapped character by character
   private getTextLines(shape: TextShape): string[] {
     if (!this.ctx) return [];
-    
+
     const fontSize = shape.style.fontSize || 16;
     const fontFamily = shape.style.fontFamily || 'Arial';
     let fontWeight = shape.style.fontWeight || 'normal';
@@ -1314,16 +1322,16 @@ export class CanvasEngine {
     }
     this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
     const maxWidth = shape.width;
-    
+
     const lines: string[] = [];
     let currentLine = '';
-    
+
     // Wrap character by character
     for (let i = 0; i < shape.text.length; i++) {
       const char = shape.text[i];
       const testLine = currentLine + char;
       const metrics = this.ctx.measureText(testLine);
-      
+
       if (metrics.width > maxWidth && currentLine.length > 0) {
         // Current line is full, start a new line
         lines.push(currentLine);
@@ -1332,11 +1340,11 @@ export class CanvasEngine {
         currentLine = testLine;
       }
     }
-    
+
     if (currentLine.length > 0) {
       lines.push(currentLine);
     }
-    
+
     return lines.length > 0 ? lines : [''];
   }
 
@@ -1345,7 +1353,7 @@ export class CanvasEngine {
   // When width is smaller, return wrapped text bounds (clipped)
   getTextBounds(shape: TextShape): { width: number; height: number } {
     if (!this.ctx) return { width: shape.width, height: shape.height };
-    
+
     const fontSize = shape.style.fontSize || 16;
     const fontFamily = shape.style.fontFamily || 'Arial';
     let fontWeight = shape.style.fontWeight || 'normal';
@@ -1355,31 +1363,31 @@ export class CanvasEngine {
     }
     this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
     const lineHeight = fontSize * 1.2;
-    
+
     // Calculate unwrapped text width (single line)
     const unwrappedWidth = this.ctx.measureText(shape.text).width;
-    
+
     // If shape width is bigger than unwrapped text, use shape bounds (not clipped)
     if (shape.width >= unwrappedWidth) {
       return { width: shape.width, height: shape.height };
     }
-    
+
     // Otherwise, calculate wrapped text bounds (clipped)
     const lines = this.getTextLines(shape);
-    
+
     // Calculate actual width (max line width, but not exceeding shape width)
     let maxLineWidth = 0;
     for (const line of lines) {
       const metrics = this.ctx.measureText(line);
       maxLineWidth = Math.max(maxLineWidth, metrics.width);
     }
-    
+
     // Actual width is the max line width (clipped to shape width)
     const actualWidth = Math.min(maxLineWidth, shape.width);
-    
+
     // Actual height is based on number of lines
     const actualHeight = Math.max(fontSize * 1.2, lines.length * lineHeight);
-    
+
     return { width: actualWidth, height: actualHeight };
   }
 
@@ -1585,10 +1593,16 @@ export class CanvasEngine {
       return; // Skip normal selection drawing
     }
 
-    // Use consistent purple dashed style for all shapes
-    this.ctx.strokeStyle = '#8b5cf6'; // Purple for all shapes
-    this.ctx.lineWidth = 2 / this.state.viewport.zoom;
-    this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
+    // Use consistent blue solid style for text, purple dashed for others
+    if (shape.type === 'text') {
+      this.ctx.strokeStyle = '#60a5fa'; // Light blue for text selection
+      this.ctx.lineWidth = 1.5 / this.state.viewport.zoom;
+      this.ctx.setLineDash([]); // Solid line
+    } else {
+      this.ctx.strokeStyle = '#8b5cf6'; // Purple for other shapes
+      this.ctx.lineWidth = 2 / this.state.viewport.zoom;
+      this.ctx.setLineDash([5 / this.state.viewport.zoom, 5 / this.state.viewport.zoom]);
+    }
 
     let bounds: { x: number; y: number; width: number; height: number };
 
@@ -1599,11 +1613,11 @@ export class CanvasEngine {
       case 'text':
         // For text shapes, use actual text bounds (wrapped text dimensions)
         const textBounds = this.getTextBounds(shape as TextShape);
-        bounds = { 
-          x: shape.x, 
-          y: shape.y, 
-          width: textBounds.width, 
-          height: textBounds.height 
+        bounds = {
+          x: shape.x,
+          y: shape.y,
+          width: textBounds.width,
+          height: textBounds.height
         };
         break;
       case 'circle':
@@ -1633,7 +1647,11 @@ export class CanvasEngine {
         return;
     }
 
-    this.ctx.strokeRect(bounds.x - 2, bounds.y - 2, bounds.width + 4, bounds.height + 4);
+    if (shape.type === 'text') {
+      this.ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+    } else {
+      this.ctx.strokeRect(bounds.x - 2, bounds.y - 2, bounds.width + 4, bounds.height + 4);
+    }
     this.ctx.restore();
 
     // Draw resize handles for rectangles, circles, text, and images
@@ -1655,7 +1673,7 @@ export class CanvasEngine {
 
     for (const shape of shapes) {
       let bounds: { x: number; y: number; width: number; height: number };
-      
+
       if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
         if (shape.type === 'text') {
           const textBounds = this.getTextBounds(shape as TextShape);
@@ -1848,12 +1866,12 @@ export class CanvasEngine {
 
   isPointInGroupBounds(point: Point, shapes: Shape[]): boolean {
     if (shapes.length === 0) return false;
-    
+
     const groupBounds = this.getGroupBounds(shapes);
     if (!groupBounds) return false;
-    
+
     const worldPoint = this.screenToWorld(point);
-    
+
     return (
       worldPoint.x >= groupBounds.x &&
       worldPoint.x <= groupBounds.x + groupBounds.width &&
@@ -1872,7 +1890,7 @@ export class CanvasEngine {
 
     for (const shape of shapes) {
       let bounds: { x: number; y: number; width: number; height: number };
-      
+
       if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
         if (shape.type === 'text') {
           const textBounds = this.getTextBounds(shape as TextShape);
@@ -1958,16 +1976,16 @@ export class CanvasEngine {
 
   resizeGroup(shapes: Shape[], handle: ResizeHandle, newWorldPoint: Point, initialBounds: { x: number, y: number, width: number, height: number }, initialShapePositions: Map<string, { x: number, y: number, width: number, height: number }>, initialFontSizes?: Map<string, number>) {
     const minSize = 10 / this.state.viewport.zoom;
-    
+
     let newX = initialBounds.x;
     let newY = initialBounds.y;
     let newWidth = initialBounds.width;
     let newHeight = initialBounds.height;
 
     // Check if this is a corner handle (for aspect ratio preservation)
-    const isCornerHandle = handle === 'topLeft' || handle === 'topRight' || 
-                          handle === 'bottomLeft' || handle === 'bottomRight';
-    
+    const isCornerHandle = handle === 'topLeft' || handle === 'topRight' ||
+      handle === 'bottomLeft' || handle === 'bottomRight';
+
     // Calculate aspect ratio from initial bounds
     const aspectRatio = initialBounds.width / initialBounds.height;
 
@@ -2131,49 +2149,59 @@ export class CanvasEngine {
     const halfHandleSize = handleSize / 2;
 
     this.ctx.save();
-    // Use consistent purple color for all shapes
-    this.ctx.fillStyle = '#8b5cf6';
-    this.ctx.strokeStyle = '#ffffff';
-    this.ctx.lineWidth = 1 / this.state.viewport.zoom;
-    this.ctx.setLineDash([]); // Clear dashed line for handles
 
-    // Determine which handles to show based on shape type
-    let handles;
-    if (cornersOnly) {
-      // Images and groups - corners only (4 handles)
-      handles = [
-        { x: bounds.x, y: bounds.y }, // topLeft
-        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
-        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
-        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
-      ];
-    } else if (isTextShape) {
-      // Text - corners + left/right, no top/bottom center (6 handles)
-      handles = [
-        { x: bounds.x, y: bounds.y }, // topLeft
-        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
-        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
-        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
-        { x: bounds.x, y: bounds.y + bounds.height / 2 }, // left
-        { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 }, // right
-      ];
-    } else {
-      // Rectangles and circles - all 8 handles
-      handles = [
-        { x: bounds.x, y: bounds.y }, // topLeft
-        { x: bounds.x + bounds.width, y: bounds.y }, // topRight
-        { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
-        { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
-        { x: bounds.x + bounds.width / 2, y: bounds.y }, // top
-        { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height }, // bottom
-        { x: bounds.x, y: bounds.y + bounds.height / 2 }, // left
-        { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2 }, // right
-      ];
-    }
+    // Use blue for text handles, purple for others
+    const themeColor = isTextShape ? '#60a5fa' : '#8b5cf6';
+    this.ctx.fillStyle = '#ffffff'; // White fill
+    this.ctx.strokeStyle = themeColor;
+    this.ctx.lineWidth = 1.5 / this.state.viewport.zoom;
+    this.ctx.setLineDash([]);
 
-    handles.forEach(handle => {
-      this.ctx?.fillRect(handle.x - halfHandleSize, handle.y - halfHandleSize, handleSize, handleSize);
-      this.ctx?.strokeRect(handle.x - halfHandleSize, handle.y - halfHandleSize, handleSize, handleSize);
+    // Define different handle shapes/positions
+    const corners = [
+      { x: bounds.x, y: bounds.y }, // topLeft
+      { x: bounds.x + bounds.width, y: bounds.y }, // topRight
+      { x: bounds.x, y: bounds.y + bounds.height }, // bottomLeft
+      { x: bounds.x + bounds.width, y: bounds.y + bounds.height }, // bottomRight
+    ];
+
+    const sides = cornersOnly ? [] : (isTextShape ? [
+      { x: bounds.x, y: bounds.y + bounds.height / 2, vertical: true }, // left
+      { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2, vertical: true }, // right
+    ] : [
+      { x: bounds.x + bounds.width / 2, y: bounds.y, vertical: false }, // top
+      { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height, vertical: false }, // bottom
+      { x: bounds.x, y: bounds.y + bounds.height / 2, vertical: true }, // left
+      { x: bounds.x + bounds.width, y: bounds.y + bounds.height / 2, vertical: true }, // right
+    ]);
+
+    // Draw corners as circles
+    corners.forEach(handle => {
+      this.ctx?.beginPath();
+      this.ctx?.arc(handle.x, handle.y, halfHandleSize, 0, Math.PI * 2);
+      this.ctx?.fill();
+      this.ctx?.stroke();
+    });
+
+    // Draw sides as rectangular/rounded bars
+    sides.forEach(handle => {
+      if (isTextShape) {
+        const barWidth = 4 / this.state.viewport.zoom;
+        const barHeight = handleSize * 1.5;
+        this.ctx?.beginPath();
+        if (this.ctx) {
+          // Rounded rect manual draw since roundRect might not be available in all envs
+          const x = handle.x - barWidth / 2;
+          const y = handle.y - barHeight / 2;
+          this.ctx.rect(x, y, barWidth, barHeight);
+        }
+        this.ctx?.fill();
+        this.ctx?.stroke();
+      } else {
+        // Standard squares for non-text side handles
+        this.ctx?.fillRect(handle.x - halfHandleSize, handle.y - halfHandleSize, handleSize, handleSize);
+        this.ctx?.strokeRect(handle.x - halfHandleSize, handle.y - halfHandleSize, handleSize, handleSize);
+      }
     });
 
     this.ctx.restore();
@@ -2194,7 +2222,7 @@ export class CanvasEngine {
       // Convert Date strings back to Date objects in generationMetadata
       const shapesEntries = parsed.shapes.map(([id, shape]: [string, any]) => {
         if (shape.generationMetadata?.generatedAt &&
-            typeof shape.generationMetadata.generatedAt === 'string') {
+          typeof shape.generationMetadata.generatedAt === 'string') {
           shape.generationMetadata.generatedAt = new Date(shape.generationMetadata.generatedAt);
         }
         return [id, shape];

@@ -22,7 +22,7 @@ export default function MarkdownMessage({ content }: MarkdownMessageProps) {
 
         // Bold text
         strong: ({ children }) => (
-          <strong className="font-semibold text-white">{children}</strong>
+          <strong className="font-semibold text-black">{children}</strong>
         ),
 
         // Unordered lists
@@ -37,34 +37,34 @@ export default function MarkdownMessage({ content }: MarkdownMessageProps) {
 
         // List items
         li: ({ children }) => (
-          <li className="text-gray-200">{children}</li>
+          <li className="text-gray-800">{children}</li>
         ),
 
         // Paragraphs
         p: ({ children }) => (
-          <p className="mb-2 text-gray-200 last:mb-0">{children}</p>
+          <p className="mb-2 text-gray-800 last:mb-0">{children}</p>
         ),
 
         // Headings
         h1: ({ children }) => (
-          <h1 className="text-lg font-semibold text-white mb-2 mt-4 first:mt-0">{children}</h1>
+          <h1 className="text-lg font-semibold text-black mb-2 mt-4 first:mt-0">{children}</h1>
         ),
         h2: ({ children }) => (
-          <h2 className="text-base font-semibold text-white mb-2 mt-3 first:mt-0">{children}</h2>
+          <h2 className="text-base font-semibold text-black mb-2 mt-3 first:mt-0">{children}</h2>
         ),
         h3: ({ children }) => (
-          <h3 className="text-sm font-semibold text-white mb-2 mt-2 first:mt-0">{children}</h3>
+          <h3 className="text-sm font-semibold text-black mb-2 mt-2 first:mt-0">{children}</h3>
         ),
 
         // Code blocks
         code: ({ className, children }) => {
           const isInline = !className;
           return isInline ? (
-            <code className="bg-gray-800 text-blue-400 px-1 py-0.5 rounded text-xs">
+            <code className="bg-gray-100 text-blue-600 px-1 py-0.5 rounded text-xs border border-gray-200">
               {children}
             </code>
           ) : (
-            <code className="block bg-gray-800 text-gray-200 p-3 rounded-lg my-2 overflow-x-auto text-sm">
+            <code className="block bg-gray-50 text-gray-800 p-3 rounded-lg my-2 overflow-x-auto text-sm border border-gray-200">
               {children}
             </code>
           );
@@ -72,7 +72,7 @@ export default function MarkdownMessage({ content }: MarkdownMessageProps) {
 
         // Blockquotes
         blockquote: ({ children }) => (
-          <blockquote className="border-l-4 border-blue-500 pl-4 my-2 italic text-gray-300">
+          <blockquote className="border-l-4 border-blue-500 pl-4 my-2 italic text-gray-500">
             {children}
           </blockquote>
         ),
@@ -83,7 +83,7 @@ export default function MarkdownMessage({ content }: MarkdownMessageProps) {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-400 hover:text-blue-300 underline"
+            className="text-blue-600 hover:text-blue-500 underline"
           >
             {children}
           </a>

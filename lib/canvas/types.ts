@@ -33,6 +33,11 @@ export interface ShapeStyle {
   textBorder?: boolean; // Whether to show text border/outline
   textBorderColor?: string;
   textBorderWidth?: number;
+  lineHeight?: number | string; // e.g., 1.5 or 'Auto'
+  letterSpacing?: number; // percentage
+  textDecoration?: 'none' | 'underline' | 'strikethrough';
+  textCase?: 'none' | 'uppercase' | 'lowercase' | 'titlecase';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
 }
 
 export interface BaseShape {

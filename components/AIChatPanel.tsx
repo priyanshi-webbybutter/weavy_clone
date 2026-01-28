@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Send, Paperclip, Sparkles, RefreshCw, Info } from 'lucide-react';
+import { X, Plus, Send, Paperclip, Sparkles, RefreshCw, Info, ArrowUp } from 'lucide-react';
 import { Shape, ImageShape, TextShape, ArrowShape, Point } from '@/lib/canvas/types';
 import { findOptimalPlacement, findMultiPlacement } from '@/lib/canvas/placementUtils';
 import MarkdownMessage from './MarkdownMessage';
@@ -144,6 +144,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
 
+  // Resize state
+  const [panelWidth, setPanelWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
+  const isResizingRef = useRef(false);
+
   // Sync allShapesRef when allShapes changes
   useEffect(() => {
     allShapesRef.current = allShapes;
@@ -160,6 +165,44 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [isOpen]);
+
+  // Handle Resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    isResizingRef.current = true;
+    document.body.style.cursor = 'col-resize';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+
+      // Calculate new width: mouse X - panel start X (88px)
+      const newWidth = e.clientX - 88;
+
+      // Limit width between 300px and 800px
+      if (newWidth >= 300 && newWidth <= 800) {
+        setPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      isResizingRef.current = false;
+      document.body.style.cursor = 'default';
+    };
+
+    if (isResizing) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   // Load chat history when project changes
   useEffect(() => {
@@ -282,16 +325,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
 
     // Update existing marker result (should already exist from analyzing event)
-    setMarkerResults(prev => prev.map(m => 
+    setMarkerResults(prev => prev.map(m =>
       m.markerId === markerData.id
         ? {
-            ...m,
-            label: label,
-            zoomRegion: zoomRegion,
-            detections: detections,
-            selectedDetectionIndex: 0,
-            isLoading: false
-          }
+          ...m,
+          label: label,
+          zoomRegion: zoomRegion,
+          detections: detections,
+          selectedDetectionIndex: 0,
+          isLoading: false
+        }
         : m
     ));
 
@@ -319,7 +362,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         handleMarkerAnalyzed(marker);
       } else if (type === 'marker-error') {
         // Remove from analyzing on error and update marker
-        setMarkerResults(prev => prev.map(m => 
+        setMarkerResults(prev => prev.map(m =>
           m.markerId === marker.id
             ? { ...m, label: 'Error', isLoading: false }
             : m
@@ -351,11 +394,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       setMarkerResults(prev => prev.map(m =>
         m.markerId === markerId
           ? {
-              ...m,
-              label: selectedDetection.label,
-              zoomRegion: selectedDetection.bbox,
-              selectedDetectionIndex: detectionIndex
-            }
+            ...m,
+            label: selectedDetection.label,
+            zoomRegion: selectedDetection.bbox,
+            selectedDetectionIndex: detectionIndex
+          }
           : m
       ));
 
@@ -1195,31 +1238,31 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       to: generatedImage.id,
       referenceIds: referenceImageIds
     });
-
+  
     console.log('🔍 DEBUG: allShapes available:', allShapes.length);
     console.log('🔍 DEBUG: Looking for IDs:', referenceImageIds);
-
+  
     // Find reference shapes on canvas
     const referenceShapes = allShapes.filter(
       shape => shape.type === 'image' && referenceImageIds.includes(shape.id)
     ) as ImageShape[];
-
+  
     console.log('🔍 DEBUG: Found reference shapes:', referenceShapes.length, referenceShapes.map(s => s.id));
-
+  
     if (referenceShapes.length === 0) {
       console.warn('⚠️ Reference images not found - may have been deleted');
       console.warn('⚠️ Available image shapes:', allShapes.filter(s => s.type === 'image').map(s => s.id));
       return;
     }
-
+  
     // Create arrow from each reference image
     referenceShapes.forEach((refImage, index) => {
       // Calculate edge-to-edge points using helper function
       const { startPoint, endPoint } = calculateEdgeToEdgePoints(refImage, generatedImage, index);
-
+  
       // Create arrow with custom styling
       const arrowId = `arrow-ref-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`;
-
+  
       const arrowShape: ArrowShape = {
         id: arrowId,
         type: 'arrow',
@@ -1242,11 +1285,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           arrowIndex: index
         }
       };
-
+  
       onAddShape(arrowShape);
       console.log(`✅ Created reference arrow ${index + 1}/${referenceShapes.length}`);
     });
-
+  
     console.log(`🎯 Created ${referenceShapes.length} reference arrows`);
   }, [allShapes, onAddShape, calculateEdgeToEdgePoints]);
   */
@@ -1659,7 +1702,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
       // Check for insufficient credits error
       if (error instanceof Error && (
-        error.message?.includes('Insufficient credits') || 
+        error.message?.includes('Insufficient credits') ||
         error.message?.includes('insufficient credits')
       )) {
         setShowSubscriptionPopup(true);
@@ -1737,331 +1780,275 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const hasMessages = messages.length > 0;
 
   return (
-    <div
-      className="fixed left-[68px] top-0 h-screen w-[380px] bg-[#0a0a0a] border-r border-[#2a2a2a] z-50 flex flex-col"
-      style={{ fontWeight: 200 }}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]">
-        <div className="flex items-center gap-2">
-          <span className="text-white text-sm font-medium">Canvas</span>
-          <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[10px] rounded">Beta</span>
+    <>
+      <div
+        className="fixed left-[88px] top-4 h-[calc(100vh-32px)] bg-white border border-[#dcdcdc] rounded-[30px] z-50 flex flex-col font-sans overflow-hidden py-1"
+        style={{ fontWeight: 400, width: `${panelWidth}px` }}
+      >
+        {/* Resize Handle */}
+        <div
+          onMouseDown={handleMouseDown}
+          className="absolute right-0 top-0 w-1.5 h-full cursor-col-resize group/resizer z-[60]"
+          title="Drag to resize"
+        >
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[2px] h-8 bg-gray-300 rounded-full group-hover/resizer:bg-gray-400 group-hover/resizer:h-12 transition-all" />
         </div>
-        <div className="flex items-center gap-2">
-          <CreditsDisplay showButton={false} className="text-xs" />
-          <button
-            onClick={handleNewChat}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
-            title="New chat"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+        {/* Header - Minimal with Right Actions */}
+        <div className="flex items-center justify-between px-6 py-5">
+          <div className="w-10 h-10 flex items-center justify-center overflow-hidden">
+            <img
+              src="/assets/chat-logo.png"
+              alt="Logo"
+              className="w-full h-full object-contain"
+            />
+          </div>
 
-      {/* Brand Bible Card (if established) */}
-      {brandBible && (
-        <div className="px-4 py-3 border-b border-[#2a2a2a]">
-          <div className="bg-[#1a1a1a] rounded-lg p-3 border border-[#2a2a2a]">
-            <div className="text-xs text-gray-400 mb-2 font-medium">Brand Bible</div>
-            <div className="space-y-1.5">
-              <div className="text-xs text-gray-500">
-                <span className="text-gray-400">Industry:</span> {brandBible.industry}
-              </div>
-              <div className="text-xs text-gray-500">
-                <span className="text-gray-400">Mood:</span> {brandBible.mood.join(', ')}
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-gray-400">Colors:</span>
-                {brandBible.colorPalette.map((color, i) => (
-                  <div
-                    key={i}
-                    className="w-4 h-4 rounded border border-[#3a3a3a]"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
+          <div className="flex items-center gap-4 text-gray-500">
+            <div onClick={() => setShowSubscriptionPopup(true)} className="cursor-pointer border border-[#dcdcdc] bg-white hover:bg-gray-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-shadow shadow-sm">
+              <Sparkles className="w-4 h-4 text-gray-500" />
+              <span className="text-xs font-medium text-gray-600">{credits !== null ? credits.toFixed(0) : '0'}</span>
             </div>
+
+            <button onClick={handleNewChat} title="New chat" className="w-8 h-8 flex items-center justify-center rounded-full border border-[#dcdcdc] bg-white text-gray-500 hover:text-black hover:bg-gray-50 transition-all shadow-sm">
+              <Plus className="w-4 h-4" />
+            </button>
+
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full border border-[#dcdcdc] bg-white text-gray-500 hover:text-black hover:bg-gray-50 transition-all shadow-sm">
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto">
-        {!hasMessages ? (
-          /* Welcome Screen */
-          <div className="p-4">
-            {isLoadingHistory ? (
-              // Loading state
-              <div className="flex flex-col items-center justify-center py-12">
-                <RefreshCw className="w-8 h-8 text-blue-400 animate-spin mb-3" />
-                <p className="text-gray-400 text-sm">Loading chat history...</p>
-              </div>
-            ) : (
-              <>
-                {/* Rotating Icon */}
-                <div className="flex justify-center py-6">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
-                    <Sparkles className="w-8 h-8 text-blue-400" />
+        {/* Brand Bible (if active) */}
+        {brandBible && (
+          <div className="px-6 py-2">
+            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 flex items-center justify-between">
+              <span className="text-xs text-gray-600 font-medium">Brand Bible Active</span>
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            </div>
+          </div>
+        )}
+
+        {/* Main Content */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {!hasMessages ? (
+            /* Welcome Screen */
+            <div className="px-6 pt-2 pb-20">
+              {isLoadingHistory ? (
+                <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                  <RefreshCw className="w-8 h-8 text-gray-600 animate-spin mb-3" />
+                  <p className="text-gray-500 text-sm">Loading...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Welcome Text */}
+                  <div className="mb-10 mt-4">
+                    <h1 className="text-3xl text-black font-semibold mb-2">Hi there,</h1>
+                    <h2 className="text-3xl text-gray-400 font-medium leading-tight">What are we creating today?</h2>
                   </div>
-                </div>
 
-                {/* Welcome Text */}
-                <div className="text-center mb-6">
-                  <h2 className="text-white text-lg font-medium mb-2">What do you want to create?</h2>
-                  <p className="text-gray-500 text-sm">
-                    Generate images, edit them, or add one from your canvas to customize it
-                  </p>
-                </div>
-
-                {/* Quick Templates */}
-                <div className="mb-4">
-                  <div className="text-gray-400 text-xs mb-3">Create a</div>
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Templates Grid */}
+                  <div className="space-y-3">
                     {QUICK_TEMPLATES.map(template => (
                       <button
                         key={template.id}
                         onClick={() => handleTemplateClick(template)}
-                        className="bg-[#1a1a1a] rounded-lg p-3 text-left hover:bg-[#2a2a2a] transition-colors border border-[#2a2a2a] hover:border-[#3a3a3a]"
+                        className="w-full text-left p-4 bg-[#dcdcdc] border border-gray-300 rounded-2xl transition-all group relative overflow-hidden h-[110px] flex items-center justify-between hover:bg-[#cfcfcf]"
                       >
-                        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500/30 to-blue-500/30 mb-2 flex items-center justify-center">
-                          <Sparkles className="w-5 h-5 text-purple-400" />
+                        <div className="z-10 relative max-w-[65%] pr-2">
+                          <h3 className="text-black font-medium mb-1.5 group-hover:text-black transition-colors text-base">{template.name}</h3>
+                          <p className="text-gray-500 text-xs leading-relaxed line-clamp-2">{template.description}</p>
                         </div>
-                        <div className="text-white text-xs font-medium">{template.name}</div>
+
+                        <img
+                          src={template.image}
+                          alt=""
+                          className="absolute right-[-5px] bottom-[-10px] w-24 h-24 object-contain transform rotate-6 opacity-90 group-hover:scale-110 group-hover:rotate-12 transition-all duration-300"
+                          onError={(e) => e.currentTarget.style.display = 'none'}
+                        />
                       </button>
                     ))}
                   </div>
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          /* Chat Messages */
-          <div className="p-4 space-y-4">
-            {messages.map(message => (
-              <div
-                key={message.id}
-                className={`${message.role === 'user' ? 'flex justify-end items-end gap-2' : 'mr-4'}`}
-              >
-                {/* Phase Badge for assistant messages */}
-                {message.role === 'assistant' && message.phase && (
-                  <div className="mb-1">
-                    {renderPhaseBadge(message.phase)}
-                  </div>
-                )}
-
-                {/* Message Content */}
+                </>
+              )}
+            </div>
+          ) : (
+            /* Chat Messages */
+            <div className="px-5 py-4 space-y-6 pb-6">
+              {messages.map(message => (
                 <div
-                  className={`rounded-lg p-3 text-sm ${
-                    message.role === 'user'
-                      ? 'bg-gray-900 text-white max-w-[80%] inline-block'
-                      : 'text-gray-200'
-                  }`}
+                  key={message.id}
+                  className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  {/* Inline Marker Chip (Phase 3) - Show before message content */}
-                  {message.role === 'user' && message.markerData && (
-                    <div className="flex items-center gap-2 flex-wrap mb-2 pb-2 border-b border-gray-700/50">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 border border-blue-500/50 rounded-full text-xs">
-                        <img
-                          src={message.markerData.imageUrl}
-                          alt={message.markerData.label}
-                          className="w-4 h-4 rounded-full object-cover"
-                        />
-                        <Info className="w-3 h-3 text-blue-400" />
-                        <span className="text-blue-300">{message.markerData.label}</span>
-                      </span>
-                      <span className="text-gray-500 text-xs">|</span>
-                    </div>
-                  )}
+                  {/* Minimal Layout for Messages */}
+                  <div className={`max-w-[90%] ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
 
-                  {message.role === 'assistant' ? (
-                    <MarkdownMessage content={cleanMarkdownImages(message.content)} />
-                  ) : (
-                    <div className="whitespace-pre-wrap">{message.content}</div>
-                  )}
 
-                  {/* Selected Images Thumbnails */}
-                  {message.selectedImages && message.selectedImages.length > 0 && (
-                    <div className="mt-2 flex items-center gap-2 flex-wrap">
-                      {message.selectedImages.map((img) => (
-                        <button
-                          key={img.id}
-                          onClick={() => onFocusShape?.(img.id)}
-                          className="relative w-12 h-12 rounded overflow-hidden border border-[#3a3a3a] hover:border-blue-500 transition-colors flex-shrink-0"
-                          title="Click to focus on canvas"
-                        >
+
+                    {/* Message Bubble */}
+                    <div
+                      className={`text-sm leading-relaxed ${message.role === 'user'
+                        ? 'bg-[#efefef] text-black px-4 py-2 rounded-2xl rounded-tr-sm'
+                        : 'text-black px-1 py-1'
+                        }`}
+                    >
+                      {/* Inline Marker Chip */}
+                      {message.role === 'user' && message.markerData && (
+                        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-600/30">
                           <img
-                            src={img.url}
-                            alt="Selected"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.currentTarget.style.display = 'none';
-                            }}
+                            src={message.markerData.imageUrl}
+                            alt={message.markerData.label}
+                            className="w-4 h-4 rounded-full object-cover ring-1 ring-white/20"
                           />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Marked Image Display - Thumbnail with Zoom (Phase 4) */}
-                  {message.role === 'user' && message.markerData && (
-                    <div className="mt-3 relative group">
-                      {/* Thumbnail Image */}
-                      <div className="relative w-64 h-64 overflow-hidden rounded-lg border border-[#2a2a2a] cursor-pointer">
-                        <img
-                          src={message.markerData.imageUrl}
-                          alt={message.markerData.label}
-                          className="w-full h-full object-cover"
-                        />
-
-                        {/* Visual Marker Pin Overlay */}
-                        <div
-                          className="absolute bg-blue-500 w-3 h-3 rounded-full border-2 border-white shadow-lg"
-                          style={{
-                            left: `${message.markerData.bbox[0] * 100}%`,
-                            top: `${message.markerData.bbox[1] * 100}%`,
-                            transform: 'translate(-50%, -50%)'
-                          }}
-                        />
-                      </div>
-
-                      {/* Zoom on Hover - Enlarged View */}
-                      <div className="hidden group-hover:block absolute top-0 left-full ml-4 w-96 h-96 rounded-lg border-2 border-blue-500 shadow-2xl z-50 bg-black overflow-hidden">
-                        <img
-                          src={message.markerData.imageUrl}
-                          alt={message.markerData.label}
-                          className="w-full h-full object-contain"
-                        />
-                        {/* Marker pin in zoomed view */}
-                        <div
-                          className="absolute bg-blue-500 w-4 h-4 rounded-full border-2 border-white shadow-lg"
-                          style={{
-                            left: `${message.markerData.bbox[0] * 100}%`,
-                            top: `${message.markerData.bbox[1] * 100}%`,
-                            transform: 'translate(-50%, -50%)'
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Generated Images - for both user and assistant messages */}
-                  {message.images && message.images.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      <div className="text-xs text-gray-400 mb-2">Generated Images:</div>
-                      {message.images.map((img, i) => (
-                        <div key={i} className="rounded-lg overflow-hidden border border-[#3a3a3a] bg-[#1a1a1a]">
-                          <img
-                            src={img.url}
-                            alt={img.prompt || 'Generated image'}
-                            className="w-full h-auto"
-                            loading="lazy"
-                            onError={(e) => {
-                              console.error('❌ Failed to load image:', img.url);
-                              e.currentTarget.style.display = 'none';
-                            }}
-                          />
-                          {img.prompt && (
-                            <div className="p-2 text-xs text-gray-500 border-t border-[#2a2a2a]">
-                              {img.prompt}
-                            </div>
-                          )}
+                          <span className="text-blue-300 text-xs font-medium">{message.markerData.label}</span>
                         </div>
-                      ))}
+                      )}
+
+                      {message.role === 'assistant' ? (
+                        <MarkdownMessage content={cleanMarkdownImages(message.content)} />
+                      ) : (
+                        <div className="whitespace-pre-wrap">{message.content}</div>
+                      )}
+
+                      {/* Selected Images Thumbnails */}
+                      {message.selectedImages && message.selectedImages.length > 0 && (
+                        <div className="mt-3 flex items-center gap-2 flex-wrap pt-2 border-t border-white/10">
+                          {message.selectedImages.map((img) => (
+                            <div key={img.id} className="w-10 h-10 rounded overflow-hidden border border-white/20 opacity-80">
+                              <img src={img.url} className="w-full h-full object-cover" alt="" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Generated Images */}
+                      {message.images && message.images.length > 0 && (
+                        <div className="mt-4 grid grid-cols-1 gap-3">
+                          {message.images.map((img, i) => (
+                            <div key={i} className="rounded-xl overflow-hidden border border-[#3a3a3a] bg-[#1a1a1a]">
+                              <img
+                                src={img.url}
+                                alt={img.prompt}
+                                className="w-full h-auto"
+                              />
+                              {img.prompt && <div className="p-2 text-[10px] text-gray-500 bg-[#151515]">{img.prompt}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
+
+                    {/* Phase Badge */}
+                    {message.role === 'assistant' && message.phase && (
+                      <div className="mt-1 ml-1">{renderPhaseBadge(message.phase)}</div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
-            {/* Loading indicator */}
-            {isLoading && (
-              <div className="flex items-center gap-2 text-gray-400 text-sm">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Canvas is thinking...</span>
-              </div>
-            )}
+              {/* Loading Indicator */}
+              {isLoading && (
+                <div className="flex items-start gap-3">
+                  <div className="w-5 h-5 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center mt-1">
+                    <Sparkles className="w-3 h-3 text-black" />
+                  </div>
+                  <div className="text-gray-500 text-sm flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce"></span>
+                    <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce delay-100"></span>
+                    <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce delay-200"></span>
+                  </div>
+                </div>
+              )}
 
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
 
-      {/* Input Area */}
-      <div className="p-4 border-t border-[#2a2a2a]">
-        {/* Selected Image Thumbnails */}
-        {getSelectedImageShapes().length > 0 && (
-          <div className="mb-2 flex items-center gap-2 flex-wrap">
-            {getSelectedImageShapes().map((img) => (
-              <button
-                key={img.id}
-                onClick={() => onFocusShape?.(img.id, true)}
-                className="relative w-12 h-12 rounded-lg overflow-hidden border-2 border-[#3a3a3a] hover:border-blue-500 transition-all hover:scale-105 active:scale-95 flex-shrink-0"
-                title="Click to center this image on canvas"
-              >
-                <img
-                  src={img.src}
-                  alt="Selected"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Input Area - Floating Modern Box */}
+        <div className="p-5 bg-white">
 
-        {/* Uploaded Images Thumbnails */}
-        {uploadedImages.length > 0 && (
-          <div className="mb-2">
-            <div className="text-xs text-gray-400 mb-2">Uploaded Images</div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {uploadedImages.map((img) => (
-                <div
-                  key={img.id}
-                  className="relative w-12 h-12 rounded-lg overflow-hidden border-2 border-purple-500/50 flex-shrink-0 group"
-                >
-                  <img
-                    src={img.url}
-                    alt="Uploaded"
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                  {/* Remove button */}
-                  <button
-                    onClick={() => removeUploadedImage(img.id)}
-                    className="absolute top-0 right-0 bg-red-500 text-white rounded-bl px-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Remove image"
-                  >
-                    <X className="w-3 h-3" />
+          {/* Pre-input States (Thumbnails) */}
+          {(getSelectedImageShapes().length > 0 || uploadedImages.length > 0) && (
+            <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
+              {getSelectedImageShapes().map(img => (
+                <div key={img.id} className="relative w-10 h-10 rounded border border-blue-500 flex-shrink-0">
+                  <img src={img.src} className="w-full h-full object-cover" alt="" />
+                </div>
+              ))}
+              {uploadedImages.map(img => (
+                <div key={img.id} className="relative w-10 h-10 rounded border border-purple-500 flex-shrink-0 group">
+                  <img src={img.url} className="w-full h-full object-cover" alt="" />
+                  <button onClick={() => removeUploadedImage(img.id)} className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X className="w-2 h-2 text-white" />
                   </button>
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Uploading Images Indicator */}
-        {uploadingImages.size > 0 && (
-          <div className="mb-2">
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <RefreshCw className="w-3 h-3 animate-spin" />
-              <span>Uploading {uploadingImages.size} image(s)...</span>
+          {/* Input Container */}
+          {/* Input Container */}
+          <div
+            className="relative bg-white border border-gray-200 rounded-[24px] focus-within:border-gray-400 focus-within:bg-white transition-all shadow-xl"
+          >
+            <textarea
+              ref={inputRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Start with an idea, or type '@' to mention"
+              className="w-full bg-transparent border-none focus:ring-0 text-black px-5 pt-4 pb-2 text-[15px] resize-none max-h-[120px] min-h-[50px] placeholder:text-gray-400"
+              disabled={isLoading}
+              style={{ height: 'auto', outline: 'none' }}
+            />
+
+            {/* Bottom Toolbar */}
+            <div className="flex items-center justify-between px-3 pb-3 pt-1">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading}
+                  className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors"
+                  title="Attach"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+
+                {/* Agent Pill - White/Blue Style */}
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full border border-blue-100 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
+                  <span className="text-[12px] font-medium text-blue-600">Agent</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* New Icons: Globe, Box, etc. (Visual placeholders to match reference) */}
+                <div className="flex items-center gap-1 mr-2">
+                  <button className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="Web Search">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+                  </button>
+                  <button className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-blue-500 border-blue-500/30 hover:bg-blue-50 transition-colors" title="Canvas Context">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
+                  </button>
+                </div>
+
+                {/* Send Button */}
+                <button
+                  onClick={() => sendMessage(inputValue)}
+                  disabled={!inputValue.trim() || isLoading}
+                  className={`w-9 h-9 flex items-center justify-center rounded-full transition-all ${inputValue.trim() && !isLoading
+                    ? 'bg-black text-white hover:bg-gray-800 hover:scale-105'
+                    : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                    }`}
+                >
+                  <ArrowUp className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Hidden file input for image upload */}
         <input
           type="file"
           ref={fileInputRef}
@@ -2071,74 +2058,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           className="hidden"
         />
 
-        {/* Active Markers - Interactive Chips with Dropdown */}
-        {(markerResults.length > 0 || analyzingMarkers.size > 0) && (
-          <div className="mb-4 p-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <span className="text-sm font-medium text-gray-300">
-                  Active Markers ({markerResults.length})
-                </span>
-                <span className="text-xs text-gray-500">• Will be sent with your message</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {/* All markers (including loading ones) with dropdown */}
-              {markerResults.map(marker => (
-                <MarkerChipWithDropdown
-                  key={marker.markerId}
-                  marker={marker}
-                  allMarkers={markerResults}
-                  isSelected={selectedMarkerId === marker.markerId}
-                  isDropdownOpen={dropdownOpenId === marker.markerId}
-                  onToggleDropdown={handleToggleDropdown}
-                  onSelectMarker={handleSelectMarker}
-                  onRemoveMarker={handleRemoveMarker}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl overflow-hidden">
-          <textarea
-            ref={inputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="What can I help you create?"
-            rows={2}
-            className="w-full bg-transparent px-4 py-3 text-white text-sm resize-none focus:outline-none placeholder:text-gray-500"
-            disabled={isLoading}
-          />
-          <div className="flex items-center justify-between px-3 py-2 border-t border-[#2a2a2a]">
-            {/* Upload Button */}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading}
-              className="p-1.5 text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Upload image"
-            >
-              <Paperclip className="w-4 h-4" />
-            </button>
-
-            {/* Send Button */}
-            <button
-              onClick={() => sendMessage(inputValue)}
-              disabled={!inputValue.trim() || isLoading}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm rounded-lg transition-colors"
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </div>
-      
-      {/* Subscription Tiers Popup */}
+
+      {/* Subscription Popup - Rendered outside to avoid being trapped by backdrop-filter */}
       {showSubscriptionPopup && (
         <SubscriptionTiersPopup
           isOpen={showSubscriptionPopup}
@@ -2146,13 +2068,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           currentCredits={credits || 0}
           creditsRequired={0}
           onSelectTier={async (tierId) => {
-            // TODO: Implement payment processing
-            console.log('Selected tier:', tierId);
             refreshCredits();
           }}
         />
       )}
-    </div>
+    </>
   );
 };
 

@@ -33,14 +33,14 @@ function HomePageContent() {
   const [error, setError] = useState<string | null>(null);
   const [isScrollingUp, setIsScrollingUp] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
-  
+
   // Initialize activeTab from URL query param, default to 'workflow'
   const tabParam = searchParams.get('tab');
-  const initialTab = (tabParam === 'canvas' || tabParam === 'workflow' || tabParam === 'tutorials') 
-    ? tabParam 
+  const initialTab = (tabParam === 'canvas' || tabParam === 'workflow' || tabParam === 'tutorials')
+    ? tabParam
     : 'workflow';
   const [activeTab, setActiveTab] = useState<'workflow' | 'canvas' | 'tutorials'>(initialTab);
-  
+
   // Update tab when URL param changes
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -57,7 +57,7 @@ function HomePageContent() {
       setLoading(true);
       setError(null);
       const token = localStorage.getItem('auth_token');
-      
+
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'GET',
         headers: {
@@ -114,7 +114,7 @@ function HomePageContent() {
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      
+
       if (currentScrollY < 10) {
         // At the top, no shadow
         setIsScrollingUp(false);
@@ -125,7 +125,7 @@ function HomePageContent() {
         // Scrolling up
         setIsScrollingUp(true);
       }
-      
+
       setLastScrollY(currentScrollY);
     };
 
@@ -157,14 +157,14 @@ function HomePageContent() {
       setError(null);
       setIsCreateMenuOpen(false);
       const token = localStorage.getItem('auth_token');
-      
+
       if (!token) {
         setError('Not authenticated. Please log in again.');
         return;
       }
-      
+
       const projectName = type === 'workflow' ? 'canvas-workflow' : 'canvas';
-      
+
       const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: {
@@ -179,17 +179,17 @@ function HomePageContent() {
 
       let data: any = {};
       let errorText = '';
-      
+
       errorText = await response.text();
-      
+
       if (errorText.length === 0) {
         throw new Error(`Server returned empty response (${response.status} ${response.statusText})`);
       }
-      
+
       try {
         data = JSON.parse(errorText);
       } catch (e) {
-        data = { 
+        data = {
           error: 'Failed to create project',
           message: errorText || `HTTP ${response.status} ${response.statusText}`,
         };
@@ -223,10 +223,10 @@ function HomePageContent() {
   // Format date
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
   };
 
@@ -248,9 +248,9 @@ function HomePageContent() {
   }
 
   return (
-    <div 
-      className="min-h-screen text-white" 
-      style={{ 
+    <div
+      className="min-h-screen text-white"
+      style={{
         fontFamily: 'var(--font-poppins), Poppins, sans-serif',
         background: 'radial-gradient(circle at center, rgba(245, 196, 81, 0.08) 0%, #0E1518 70%)',
         backgroundColor: '#0E1518',
@@ -277,11 +277,10 @@ function HomePageContent() {
                 setActiveTab('canvas');
                 router.push('/?tab=canvas');
               }}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${
-                activeTab === 'canvas'
-                  ? 'bg-[#1B2529] text-white shadow-lg'
-                  : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
-              }`}
+              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${activeTab === 'canvas'
+                ? 'bg-[#1B2529] text-white shadow-lg'
+                : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
+                }`}
             >
               <FolderOpen className="w-5 h-5" />
               <span className="font-medium" style={{ fontSize: '80%' }}>My Library</span>
@@ -292,11 +291,10 @@ function HomePageContent() {
                 setActiveTab('tutorials');
                 router.push('/?tab=tutorials');
               }}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${
-                activeTab === 'tutorials'
-                  ? 'bg-[#1B2529] text-white shadow-lg'
-                  : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
-              }`}
+              className={`w-full flex items-center gap-4 px-4 py-3 rounded-[14px] transition-all duration-200 ${activeTab === 'tutorials'
+                ? 'bg-[#1B2529] text-white shadow-lg'
+                : 'text-[#B3BDC4] hover:bg-[#1B2529]/50 hover:text-white'
+                }`}
             >
               <Play className="w-5 h-5" />
               <span className="font-medium" style={{ fontSize: '80%' }}>Tutorials</span>
@@ -316,7 +314,7 @@ function HomePageContent() {
               <button
                 onClick={() => setIsCategoryMenuOpen(!isCategoryMenuOpen)}
                 className="flex items-center gap-2 px-4 py-2 hover:bg-[#2A3439]/70 rounded-full text-sm font-medium text-white transition-all duration-200 backdrop-blur-sm"
-                style={{ 
+                style={{
                   fontFamily: 'var(--font-poppins), Poppins, sans-serif',
                   backgroundColor: 'rgba(42, 52, 57, 0.83)',
                   boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
@@ -376,7 +374,7 @@ function HomePageContent() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-11 pr-4 py-2.5 rounded-full text-sm font-medium text-white placeholder-[#9AA6AD] focus:outline-none transition-all duration-200 backdrop-blur-sm"
-                style={{ 
+                style={{
                   fontFamily: 'var(--font-poppins), Poppins, sans-serif',
                   backgroundColor: 'rgba(42, 52, 57, 0.83)',
                   boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
@@ -391,7 +389,7 @@ function HomePageContent() {
               {/* Filter Icon Button */}
               <button
                 className="w-10 h-10 rounded-full hover:bg-[#2A3439]/70 flex items-center justify-center text-[#9AA6AD] hover:text-white transition-all duration-200 backdrop-blur-sm"
-                style={{ 
+                style={{
                   backgroundColor: 'rgba(42, 52, 57, 0.83)',
                   boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
                 }}
@@ -403,7 +401,7 @@ function HomePageContent() {
               {/* Notifications Icon Button */}
               <button
                 className="w-10 h-10 rounded-full hover:bg-[#2A3439]/70 flex items-center justify-center text-[#9AA6AD] hover:text-white transition-all duration-200 relative backdrop-blur-sm"
-                style={{ 
+                style={{
                   backgroundColor: 'rgba(42, 52, 57, 0.83)',
                   boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
                 }}
@@ -418,7 +416,7 @@ function HomePageContent() {
                 <button
                   onClick={() => setIsCreateMenuOpen(!isCreateMenuOpen)}
                   className="flex items-center gap-2 px-4 py-2 hover:bg-[#2A3439]/70 text-white rounded-full transition-all duration-200 backdrop-blur-sm"
-                  style={{ 
+                  style={{
                     fontFamily: 'var(--font-poppins), Poppins, sans-serif',
                     fontSize: '14px',
                     fontWeight: 500,
@@ -466,9 +464,9 @@ function HomePageContent() {
                       Premium
                     </div>
                   </div>
-                  <div 
+                  <div
                     className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm cursor-pointer hover:brightness-110 transition-all duration-200 border border-[#2A3439]/50 backdrop-blur-xl"
-                    style={{ 
+                    style={{
                       background: 'linear-gradient(to bottom right, rgba(42, 52, 57, 0.83), rgba(26, 35, 39, 0.83))',
                       boxShadow: isScrollingUp ? '0 2px 8px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1)' : 'none'
                     }}
@@ -522,9 +520,9 @@ function HomePageContent() {
                     </div>
                   </div>
                 )}
-                
+
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0E1518] via-transparent to-transparent z-20" />
-                
+
                 <div className="absolute bottom-0 left-0 right-0 p-8 z-30">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="px-3 py-1 bg-[#F5C451]/20 text-[#F5C451] text-xs font-semibold rounded-full">
@@ -603,7 +601,7 @@ function HomePageContent() {
                 {displayedProjects.map((project) => {
                   const projectYear = new Date(project.created_at).getFullYear();
                   const rating = 4.5; // You can replace this with actual rating if available
-                  
+
                   return (
                     <button
                       key={project.id}
@@ -612,7 +610,7 @@ function HomePageContent() {
                       style={{ fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
                     >
                       {/* Poster */}
-                      <div 
+                      <div
                         className="relative aspect-[2/3] rounded-2xl overflow-hidden mb-2.5"
                         style={{ boxShadow: 'inset 0 0 20px rgba(0, 0, 0, 0.3)' }}
                       >
@@ -634,18 +632,18 @@ function HomePageContent() {
                           </div>
                         )}
                       </div>
-                      
+
                       {/* Title */}
-                      <h3 
+                      <h3
                         className="text-white font-medium mb-1.5 truncate text-left"
                         style={{ fontSize: '14px', lineHeight: '1.2' }}
                       >
                         {project.name}
                       </h3>
-                      
+
                       {/* Metadata Row */}
                       <div className="flex items-center gap-2 text-left">
-                        <span 
+                        <span
                           className="text-[#9AA6AD]"
                           style={{ fontSize: '12px', fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
                         >
@@ -654,7 +652,7 @@ function HomePageContent() {
                         <span className="text-[#9AA6AD]" style={{ fontSize: '12px' }}>•</span>
                         <div className="flex items-center gap-1">
                           <Star className="w-3 h-3 fill-[#F5C451] text-[#F5C451]" />
-                          <span 
+                          <span
                             className="text-[#F5C451] font-medium"
                             style={{ fontSize: '12px', fontFamily: 'var(--font-poppins), Poppins, sans-serif' }}
                           >

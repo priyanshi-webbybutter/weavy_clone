@@ -27,6 +27,18 @@ import {
   Copy,
   Bot,
   LogOut,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Settings2,
+  Underline,
+  Strikethrough,
+  List,
+  ListOrdered,
+  CaseLower,
+  CaseUpper,
+  CaseSensitive,
+  X,
 } from 'lucide-react';
 import AIChatPanel from './AIChatPanel';
 import { CanvasArrows } from './CanvasArrows';
@@ -90,6 +102,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const [isFontSizeOpen, setIsFontSizeOpen] = useState(false);
   const [isAlignmentOpen, setIsAlignmentOpen] = useState(false);
   const [isTextStyleOpen, setIsTextStyleOpen] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [textInputValue, setTextInputValue] = useState<string>('');
   const [textInputPos, setTextInputPos] = useState<{ x: number; y: number } | null>(null);
@@ -315,12 +328,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
   // Update properties panel position when shape is selected or moved
   const updatePropertiesPanelPosition = () => {
-    if (!engineRef.current || !canvasRef.current || !selectedShapeId) {
+    if (!engineRef.current || !canvasRef.current) {
       setPropertiesPanelPos(null);
       return;
     }
 
-    const shape = engineRef.current.getShape(selectedShapeId);
+    const targetId = selectedShapeId || editingTextId;
+    if (!targetId) {
+      setPropertiesPanelPos(null);
+      return;
+    }
+
+    const shape = engineRef.current.getShape(targetId);
     if (!shape) {
       setPropertiesPanelPos(null);
       return;
@@ -338,23 +357,25 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       return;
     }
 
+    // Prevent the panel from jumping around during active resizing
+    if (isResizing || isGroupResizing) {
+      return;
+    }
+
     // Position panel above the shape with a small gap, centered horizontally
     const canvasRect = canvasRef.current.getBoundingClientRect();
-    const panelHeight = 90; // Approximate height of the properties panel
-    const gap = 40; // Gap between panel and shape
-    
-    // For text shapes, add significant extra gap to ensure text content is fully visible below panel
-    const isTextShape = shape.type === 'text';
-    const extraGap = isTextShape ? 80 : 0; // Extra gap for text shapes to ensure text is visible
-    
-    // Position panel above the shape
-    const topPosition = bounds.y - panelHeight - gap - extraGap;
-    
-    // If panel would go off-screen at the top, position it below the shape instead
-    const finalY = topPosition < 0 
+    const gap = 12; // Comfortable gap
+    const PANEL_HEIGHT = 60; // Approximate height of the styling panel
+
+    // Position panel closer to the shape
+    const topPosition = bounds.y - gap - PANEL_HEIGHT;
+
+    // If panel would go off-screen at the top (less than ~50px from top of screen), 
+    // position it below the shape instead
+    const finalY = (topPosition < 50)
       ? canvasRect.top + bounds.y + bounds.height + gap
       : canvasRect.top + topPosition;
-    
+
     setPropertiesPanelPos({
       x: canvasRect.left + bounds.centerX,
       y: finalY,
@@ -390,11 +411,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
   useEffect(() => {
     updatePropertiesPanelPosition();
-  }, [selectedShapeId]);
+  }, [selectedShapeId, editingTextId]);
 
   // Update panel position smoothly during interactions
   useEffect(() => {
-    if (engineRef.current && selectedShapeId && (isDrawing || isResizing || isGroupResizing || isGroupMoving || isPanning)) {
+    if (engineRef.current && (selectedShapeId || editingTextId) && (isDrawing || isResizing || isGroupResizing || isGroupMoving || isPanning)) {
       let animationFrameId: number;
       const update = () => {
         updatePropertiesPanelPosition();
@@ -403,7 +424,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       animationFrameId = requestAnimationFrame(update);
       return () => cancelAnimationFrame(animationFrameId);
     }
-  }, [selectedShapeId, isDrawing, isResizing, isGroupResizing, isGroupMoving, isPanning]);
+  }, [selectedShapeId, editingTextId, isDrawing, isResizing, isGroupResizing, isGroupMoving, isPanning]);
 
   // Update text edit popup position when editing starts/changes
   useEffect(() => {
@@ -415,7 +436,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Update text edit popup position smoothly during interactions
   useEffect(() => {
     if (engineRef.current && textEditingImageId && isEditingText &&
-        (isDrawing || isResizing || isPanning)) {
+      (isDrawing || isResizing || isPanning)) {
       let animationFrameId: number;
       const update = () => {
         updateTextEditPopupPosition();
@@ -425,6 +446,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       return () => cancelAnimationFrame(animationFrameId);
     }
   }, [textEditingImageId, isEditingText, isDrawing, isResizing, isPanning]);
+
+  // Sync cursor when tool or state changes
+  useEffect(() => {
+    if (canvasRef.current) {
+      if (isPanning) canvasRef.current.style.cursor = 'grabbing';
+      else if (tool === 'pan') canvasRef.current.style.cursor = 'grab';
+      else if (tool === 'select') canvasRef.current.style.cursor = 'default';
+      else if (tool === 'text') canvasRef.current.style.cursor = 'text';
+      else canvasRef.current.style.cursor = 'crosshair';
+    }
+  }, [tool, isPanning]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -448,24 +480,24 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       if (isOpacityOpen && !target.closest('.opacity-panel')) {
         setIsOpacityOpen(false);
       }
-            if (isLineStyleOpen && !target.closest('.line-style-panel') && !target.closest('[data-line-style-button]')) {
-              setIsLineStyleOpen(false);
-            }
-            if (isFontFamilyOpen && !target.closest('[data-font-family]')) {
-              setIsFontFamilyOpen(false);
-            }
-            if (isFontWeightOpen && !target.closest('[data-font-weight]')) {
-              setIsFontWeightOpen(false);
-            }
-            if (isFontSizeOpen && !target.closest('[data-font-size]')) {
-              setIsFontSizeOpen(false);
-            }
-            if (isAlignmentOpen && !target.closest('[data-alignment]')) {
-              setIsAlignmentOpen(false);
-            }
-            if (isTextStyleOpen && !target.closest('[data-text-style]')) {
-              setIsTextStyleOpen(false);
-            }
+      if (isLineStyleOpen && !target.closest('.line-style-panel') && !target.closest('[data-line-style-button]')) {
+        setIsLineStyleOpen(false);
+      }
+      if (isFontFamilyOpen && !target.closest('[data-font-family]')) {
+        setIsFontFamilyOpen(false);
+      }
+      if (isFontWeightOpen && !target.closest('[data-font-weight]')) {
+        setIsFontWeightOpen(false);
+      }
+      if (isFontSizeOpen && !target.closest('[data-font-size]')) {
+        setIsFontSizeOpen(false);
+      }
+      if (isAlignmentOpen && !target.closest('[data-alignment]')) {
+        setIsAlignmentOpen(false);
+      }
+      if (isTextStyleOpen && !target.closest('[data-text-style]')) {
+        setIsTextStyleOpen(false);
+      }
     };
 
     window.addEventListener('click', handleClickOutside);
@@ -1023,15 +1055,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const updateConnectedArrows = useCallback((movedImageId: string) => {
     if (!engineRef.current) return;
 
-    const allShapes = Array.from(engineRef.current.getState().shapes.values());
+    const allShapes = Array.from(engineRef.current.getState().shapes.values()) as Shape[];
 
     // Find arrows connected to this image
-    const connectedArrows = allShapes.filter(shape =>
+    const connectedArrows = allShapes.filter((shape): shape is ArrowShape =>
       shape.type === 'arrow' &&
-      shape.connectionMetadata &&
+      shape.connectionMetadata !== undefined &&
       (shape.connectionMetadata.sourceImageId === movedImageId ||
-       shape.connectionMetadata.targetImageId === movedImageId)
-    ) as ArrowShape[];
+        shape.connectionMetadata.targetImageId === movedImageId)
+    );
 
     if (connectedArrows.length === 0) return;
 
@@ -1039,13 +1071,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     // Recalculate each arrow's position
     connectedArrows.forEach(arrow => {
-      const sourceImage = allShapes.find(s =>
-        s.id === arrow.connectionMetadata?.sourceImageId
-      ) as ImageShape | undefined;
+      const sourceImage = allShapes.find((s): s is ImageShape =>
+        s.type === 'image' && s.id === arrow.connectionMetadata?.sourceImageId
+      );
 
-      const targetImage = allShapes.find(s =>
-        s.id === arrow.connectionMetadata?.targetImageId
-      ) as ImageShape | undefined;
+      const targetImage = allShapes.find((s): s is ImageShape =>
+        s.type === 'image' && s.id === arrow.connectionMetadata?.targetImageId
+      );
 
       if (!sourceImage || !targetImage) {
         console.warn('⚠️ Could not find source or target image for arrow:', arrow.id);
@@ -1610,6 +1642,16 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return;
 
+    // Prevent browser text selection/drag behaviors
+    e.preventDefault();
+
+    // Clear selection if starting to draw with a tool (rectangle, circle, etc.)
+    if (tool !== 'select' && tool !== 'pan') {
+      engineRef.current.clearSelection();
+      setSelectedShapeId(null);
+      updateSelectedShapesState();
+    }
+
     // Don't handle canvas interactions in crop mode
     if (isCropping) return;
 
@@ -1769,47 +1811,48 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
 
     if (tool === 'pan' || (e.button === 1) || (e.button === 0 && (e as any).spaceKey)) {
       setIsPanning(true);
+      if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
       return;
     }
 
     if (tool === 'select') {
       const selected = engineRef.current.getSelectedShapes();
-      
-        // Check for group resize handle first (before checking shapes)
-        if (selected.length > 1) {
-          const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
-          if (groupHandle) {
-            setIsGroupResizing(true);
-            setResizeHandle(groupHandle);
-            engineRef.current.setHideSelection(true);
-            const groupBounds = engineRef.current.getGroupBounds(selected);
-            if (groupBounds && engineRef.current) {
-              setInitialGroupBounds(groupBounds);
-              // Store initial bounds and font sizes for all shapes in the group
-              const shapeBoundsMap = new Map<string, { x: number, y: number, width: number, height: number }>();
-              const fontSizesMap = new Map<string, number>();
-              selected.forEach(shape => {
-                let bounds: { x: number, y: number, width: number, height: number };
-                if (shape.type === 'rectangle' || shape.type === 'image') {
-                  bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
-                } else if (shape.type === 'text') {
-                  const textShape = shape as TextShape;
-                  const textBounds = engineRef.current!.getTextBounds(textShape);
-                  bounds = { x: shape.x, y: shape.y, width: textBounds.width, height: textBounds.height };
-                  fontSizesMap.set(shape.id, textShape.style.fontSize || 16);
-                } else if (shape.type === 'circle') {
-                  bounds = { x: shape.x, y: shape.y, width: shape.radius * 2, height: shape.radius * 2 };
-                } else {
-                  return;
-                }
-                shapeBoundsMap.set(shape.id, bounds);
-              });
-              setInitialGroupShapeBounds(shapeBoundsMap);
-              setInitialGroupFontSizes(fontSizesMap);
-            }
-            return;
+
+      // Check for group resize handle first (before checking shapes)
+      if (selected.length > 1) {
+        const groupHandle = engineRef.current.getGroupResizeHandleAt(point, selected);
+        if (groupHandle) {
+          setIsGroupResizing(true);
+          setResizeHandle(groupHandle);
+          engineRef.current.setHideSelection(true);
+          const groupBounds = engineRef.current.getGroupBounds(selected);
+          if (groupBounds && engineRef.current) {
+            setInitialGroupBounds(groupBounds);
+            // Store initial bounds and font sizes for all shapes in the group
+            const shapeBoundsMap = new Map<string, { x: number, y: number, width: number, height: number }>();
+            const fontSizesMap = new Map<string, number>();
+            selected.forEach(shape => {
+              let bounds: { x: number, y: number, width: number, height: number };
+              if (shape.type === 'rectangle' || shape.type === 'image') {
+                bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+              } else if (shape.type === 'text') {
+                const textShape = shape as TextShape;
+                const textBounds = engineRef.current!.getTextBounds(textShape);
+                bounds = { x: shape.x, y: shape.y, width: textBounds.width, height: textBounds.height };
+                fontSizesMap.set(shape.id, textShape.style.fontSize || 16);
+              } else if (shape.type === 'circle') {
+                bounds = { x: shape.x, y: shape.y, width: shape.radius * 2, height: shape.radius * 2 };
+              } else {
+                return;
+              }
+              shapeBoundsMap.set(shape.id, bounds);
+            });
+            setInitialGroupShapeBounds(shapeBoundsMap);
+            setInitialGroupFontSizes(fontSizesMap);
           }
-        
+          return;
+        }
+
         // Check if clicking inside group bounds (for group move)
         // Don't start group move if shift is held (allow element toggle instead)
         if (engineRef.current.isPointInGroupBounds(point, selected) && !e.shiftKey) {
@@ -1826,7 +1869,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           return;
         }
       }
-      
+
       const shape = engineRef.current.hitTest(point);
 
       if (shape) {
@@ -1891,9 +1934,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     } else {
       const worldPoint = engineRef.current.screenToWorld(point);
       const id = `shape-${Date.now()}-${Math.random()}`;
-      
+
       let shape: Shape;
-      
+
       switch (tool) {
         case 'rectangle':
           shape = {
@@ -1905,7 +1948,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             height: 0,
             radius: 0,
             style: {
-              fill: '#8b5cf6',
+              fill: '#bdbdbd',
               stroke: '#ffffff',
               strokeWidth: 2,
             },
@@ -1919,7 +1962,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             y: worldPoint.y,
             radius: 0,
             style: {
-              fill: '#8b5cf6',
+              fill: '#bdbdbd',
               stroke: '#ffffff',
               strokeWidth: 2,
             },
@@ -1959,22 +2002,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             y: worldPoint.y,
             width: 200,
             height: 30,
-            text: 'Text',
+            text: '',
             style: {
-              fill: '#ffffff',
+              fill: '#000000',
               fontSize: 16,
               fontFamily: 'Arial',
             },
           };
           engineRef.current.addShape(shape);
 
-          // Switch to select tool immediately
+          // Switch to select tool immediately after adding text
           setTool('select');
 
           // Start editing text immediately (don't select yet - selection will appear after editing)
           setTimeout(() => {
             setEditingTextId(id);
-            setTextInputValue('Text');
+            setTextInputValue('');
             if (canvasRef.current && engineRef.current) {
               const canvasRect = canvasRef.current.getBoundingClientRect();
               const screenPos = engineRef.current.worldToScreen({ x: worldPoint.x, y: worldPoint.y });
@@ -1984,17 +2027,19 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
               });
               // Hide the text shape while editing
               engineRef.current.render(id);
+              // Update panel position for editing
+              updatePropertiesPanelPosition();
             }
           }, 0);
           return; // Don't set isDrawing for text
         default:
           return;
       }
-      
+
       engineRef.current.addShape(shape);
       engineRef.current.selectShape(id); // Select the shape after drawing
       setSelectedShapeId(id);
-      updateSelectedShapesState();
+      // Wait for mouseUp to open panel for new shapes to avoid interrupting drawing
       setIsDrawing(true);
       engineRef.current.setHideSelection(true);
     }
@@ -2062,6 +2107,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         return;
       }
       canvasRef.current.style.cursor = 'default';
+    } else if (canvasRef.current) {
+      if (isPanning) {
+        canvasRef.current.style.cursor = 'grabbing';
+      } else if (tool === 'pan') {
+        canvasRef.current.style.cursor = 'grab';
+      } else if (tool === 'select') {
+        canvasRef.current.style.cursor = 'default';
+      } else if (tool === 'text') {
+        canvasRef.current.style.cursor = 'text';
+      } else {
+        canvasRef.current.style.cursor = 'crosshair';
+      }
     }
 
     if (isSelecting && selectionBox) {
@@ -2107,7 +2164,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       if (!shape) return;
       const worldCurrent = engineRef.current.screenToWorld(point);
       engineRef.current.resizeShape(shape, resizeHandle, worldCurrent, initialShapeBounds, initialFontSize || undefined);
-      updatePropertiesPanelPosition();
+      // Don't update panel position during resize - wait for mouseUp
       return;
     }
 
@@ -2126,7 +2183,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           y: initialShapePos.y + deltaY,
         }, false);
         setDragUpdateTrigger(prev => prev + 1); // Force arrow update
-        updatePropertiesPanelPosition();
+        // Don't update panel position during drag - wait for mouseUp
       } else if (tool === 'freehand') {
         if (shape.type === 'freehand') {
           engineRef.current.updateShape(selectedShapeId, {
@@ -2203,17 +2260,17 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     if (isSelecting && selectionBox && engineRef.current) {
       const startWorld = engineRef.current.screenToWorld(selectionBox.start);
       const endWorld = engineRef.current.screenToWorld(selectionBox.end);
-      
+
       const minX = Math.min(startWorld.x, endWorld.x);
       const maxX = Math.max(startWorld.x, endWorld.x);
       const minY = Math.min(startWorld.y, endWorld.y);
       const maxY = Math.max(startWorld.y, endWorld.y);
-      
+
       // Find all shapes that intersect with the selection box
       const allShapes = engineRef.current.getAllShapes();
       const selectedShapes = allShapes.filter(shape => {
         let bounds: { x: number; y: number; width: number; height: number };
-        
+
         if (shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image') {
           bounds = { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
         } else if (shape.type === 'circle') {
@@ -2235,7 +2292,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         } else {
           return false;
         }
-        
+
         // Check if shape intersects with selection box
         return !(
           bounds.x + bounds.width < minX ||
@@ -2244,7 +2301,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           bounds.y > maxY
         );
       });
-      
+
       // Select all intersecting shapes
       if (selectedShapes.length > 0) {
         engineRef.current.clearSelection();
@@ -2262,7 +2319,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       setIsSelecting(false);
       setSelectionBox(null);
     }
-    
+
     if ((isDrawing || isResizing || isGroupResizing || isGroupMoving) && engineRef.current) {
       engineRef.current.setHideSelection(false);
       engineRef.current.saveState();
@@ -2279,14 +2336,48 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       const zoom = engineRef.current.getState().viewport.zoom;
       setZoomLevel(Math.round(zoom * 100));
     }
-    
-    // If we just finished drawing a new shape (not moving/resizing), switch to select tool
+
+    // If we just finished drawing a new shape (not moving/resizing), switch to select tool and open panel
     if (isDrawing && tool !== 'select' && !isResizing && !isGroupResizing) {
-      setTool('select');
+      // Check if the newly created shape has a valid size
+      const shapesMap = engineRef.current.getState().shapes;
+      const currentShapes = Array.from(shapesMap.values());
+      const lastShapeId = Array.from(shapesMap.keys()).pop();
+      const lastShape = lastShapeId ? shapesMap.get(lastShapeId) : null;
+
+      // Detect "empty" or "accidental click" shapes
+      let isEmpty = false;
+      if (lastShape && lastShape.id === selectedShapeId) {
+        if (lastShape.type === 'rectangle' || lastShape.type === 'image' || lastShape.type === 'text') {
+          if (Math.abs((lastShape as any).width) < 1 && Math.abs((lastShape as any).height) < 1) isEmpty = true;
+        } else if (lastShape.type === 'circle') {
+          if (Math.abs((lastShape as any).radius) < 1) isEmpty = true;
+        }
+      }
+
+      if (isEmpty && lastShapeId) {
+        // Remove the accidental shape
+        engineRef.current.deleteShape(lastShapeId);
+        setSelectedShapeId(null);
+        setTool('select');
+      } else {
+        setTool('select');
+        updateSelectedShapesState();
+      }
     }
-    
+
+    // Restore selection visibility after drawing
+    if (engineRef.current) {
+      engineRef.current.setHideSelection(false);
+    }
+
     setIsDrawing(false);
     setIsPanning(false);
+    if (canvasRef.current) {
+      if (tool === 'pan') canvasRef.current.style.cursor = 'grab';
+      else if (tool === 'select') canvasRef.current.style.cursor = 'default';
+      else canvasRef.current.style.cursor = 'crosshair';
+    }
     setIsResizing(false);
     setIsGroupResizing(false);
     setIsGroupMoving(false);
@@ -2302,6 +2393,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     setInitialMouseWorldPos(null);
     setLastMousePos(null);
     setHoveredShapeId(null);
+
+    // Show the upper floating toolbar after state is cleaned up
+    // Use setTimeout to ensure state updates have propagated
+    setTimeout(() => {
+      updatePropertiesPanelPosition();
+    }, 50);
   };
 
   const getCursorForHandle = (handle: ResizeHandle): string => {
@@ -2409,7 +2506,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!engineRef.current) return;
-      
+
       // Don't handle keyboard shortcuts when editing text
       if (editingTextId) {
         return;
@@ -2471,10 +2568,16 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         }
 
         const selected = engineRef.current.getSelectedShapes();
-        selected.forEach(shape => {
-          engineRef.current?.removeShape(shape.id);
-        });
-        saveCanvasState();
+        if (selected.length > 0) {
+          selected.forEach(shape => {
+            engineRef.current?.removeShape(shape.id);
+          });
+          engineRef.current.clearSelection();
+          setSelectedShapeId(null);
+          updateSelectedShapesState();
+          setPropertiesPanelPos(null);
+          saveCanvasState();
+        }
       }
 
       if (e.key === 'v') setTool('select');
@@ -2486,9 +2589,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       if (e.key === 'h') setTool('pan');
     };
 
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [editingTextId]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingTextId]);
 
   // Listen for marker delete events from AIChatPanel
   useEffect(() => {
@@ -2572,133 +2675,124 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const handleDropdownItemClick = (item: string) => {
     console.log('Dropdown item clicked:', item);
     setIsDropdownOpen(false);
-    
+
     // Handle "Back to files" - navigate to home page with canvas tab
     if (item === 'Back to files') {
       router.push('/?tab=canvas');
       return;
     }
-    
+
     // TODO: Add actual functionality for other dropdown items
   };
 
   return (
-    <div className="w-full h-screen bg-[#0a0a0a] text-white flex">
+    <div className="w-full h-screen bg-white text-black flex">
       {/* Left Sidebar */}
-      <div className="w-16 bg-[#1a1a1a] border-r border-[#2a2a2a] flex flex-col items-center py-4 gap-6">
+      <div className="fixed left-0 top-0 z-[100] w-[55px] m-4 h-[calc(100vh-2rem)] flex flex-col items-center py-4 gap-6 rounded-[35px] sidebar-glass-panel">
         {/* Logo */}
-        <div className="mb-8 relative group">
-          <div className="absolute w-7 h-7 left-[-25px] bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-sm hover:opacity-80 transition-opacity">
+        <div
+          className="mb-8 relative group"
+          onMouseEnter={() => setIsDropdownOpen(true)}
+          onMouseLeave={() => setIsDropdownOpen(false)}
+        >
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm hover:opacity-90 transition-opacity cursor-pointer shadow-lg"
+            style={{
+              background: '#525252',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+            }}
+          >
             W
           </div>
-          <button
-            onClick={handleDropdownToggle}
-            className="absolute -bottom-5 right-[-25px] w-5 h-5 flex items-center justify-center hover:bg-[#2a2a2a] rounded transition-colors cursor-pointer"
-          >
-            <ChevronDown className="w-3 h-3 text-gray-500" />
-          </button>
 
           {/* Dropdown Menu */}
-          {isDropdownOpen && (
-            <>
-              {/* Backdrop to close dropdown */}
-              <div
-                className="fixed inset-0 z-[60]"
-                onClick={() => setIsDropdownOpen(false)}
-              />
+          <div
+            className={`absolute left-12 top-0 w-[200px] rounded-xl border border-gray-200 shadow-2xl z-[70] py-1 transition-all duration-200 origin-top-left ${isDropdownOpen ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'}`}
+            style={{
+              backgroundColor: 'white',
+              border: '1px solid rgba(0, 0, 0, 0.08)',
+              boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+            }}
+          >
+            <button
+              onClick={() => handleDropdownItemClick('Back to files')}
+              className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
+            >
+              Back to files
+            </button>
 
-              {/* Dropdown Content */}
-              <div className="absolute left-[-20px] top-9 w-[200px] bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-2xl z-[70] py-1">
-                <button
-                  onClick={() => handleDropdownItemClick('Back to files')}
-                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
-                >
-                  Back to files
-                </button>
+            <div className="w-full h-px bg-gray-200 my-1" />
 
-                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+            <button
+              onClick={() => handleDropdownItemClick('Create new file')}
+              className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
+            >
+              Create new file
+            </button>
 
-                <button
-                  onClick={() => handleDropdownItemClick('Create new file')}
-                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
-                >
-                  Create new file
-                </button>
+            <button
+              onClick={() => handleDropdownItemClick('Duplicate file')}
+              className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
+            >
+              Duplicate file
+            </button>
 
-                <button
-                  onClick={() => handleDropdownItemClick('Duplicate file')}
-                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
-                >
-                  Duplicate file
-                </button>
+            <div className="w-full h-px bg-gray-200 my-1" />
 
-                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+            <button
+              onClick={() => handleDropdownItemClick('Share file')}
+              className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
+            >
+              Share file
+            </button>
 
-                <button
-                  onClick={() => handleDropdownItemClick('Share file')}
-                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
-                >
-                  Share file
-                </button>
+            <div className="w-full h-px bg-gray-200 my-1" />
 
-                <div className="w-full h-px bg-[#2a2a2a] my-1" />
+            <button
+              onClick={() => handleDropdownItemClick('Preferences')}
+              className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors flex items-center justify-between group"
+            >
+              <span>Preferences</span>
+              <ChevronRight className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" />
+            </button>
 
-                <button
-                  onClick={() => handleDropdownItemClick('Preferences')}
-                  className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors flex items-center justify-between group"
-                >
-                  <span>Preferences</span>
-                  <ChevronRight className="w-3 h-3 text-gray-500 group-hover:text-white transition-colors" />
-                </button>
+            <div className="w-full h-px bg-gray-200 my-1" />
 
-                <div className="w-full h-px bg-[#2a2a2a] my-1" />
-
-                <button
-                  onClick={async () => {
-                    await signOut();
-                    router.push('/login');
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-[#2a2a2a] transition-colors flex items-center gap-2"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
-                </button>
-              </div>
-            </>
-          )}
+            <button
+              onClick={async () => {
+                await signOut();
+                router.push('/login');
+              }}
+              className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-[#656565] hover:text-white transition-colors flex items-center gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
 
         {/* Navigation Icons */}
+        {/* Navigation Icons */}
         <div className="flex flex-col gap-4 flex-1">
-          <button
-            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-              tool === 'select'
-                ? 'bg-yellow-500 text-black'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-            }`}
-            title="Pointer Tool"
-            onClick={() => setTool('select')}
-          >
-            <MousePointer2 className="w-5 h-5" />
-          </button>
-          <button
-            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-              tool === 'pan'
-                ? 'bg-[#8b5cf6] text-white'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-            }`}
-            title="Hand Tool"
-            onClick={() => setTool('pan')}
-          >
-            <Hand className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#2a2a2a] rounded transition-colors"
-            title="Upload Image"
-          >
-            <Upload className="w-5 h-5" />
-          </button>
+
+          {/* Upload Button with Tooltip */}
+          <div className="group relative flex items-center justify-center">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-black hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <Upload className="w-5 h-5 stroke-2" />
+            </button>
+            <div className="absolute left-14 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              Upload Image
+            </div>
+          </div>
           <input
             ref={fileInputRef}
             type="file"
@@ -2883,40 +2977,53 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
               e.target.value = '';
             }}
           />
-          <div className="relative" data-shapes-menu>
+
+          {/* Shapes Menu with Tooltip */}
+          <div className="relative group" data-shapes-menu>
             <button
-              className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-                tool === 'rectangle' || tool === 'circle'
-                  ? 'bg-blue-500 text-white'
-                  : isShapesMenuOpen
-                    ? 'bg-[#2a2a2a] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-              }`}
-              title="Shapes"
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${tool === 'rectangle' || tool === 'circle'
+                ? 'bg-[#1a1a1a] text-white shadow-lg'
+                : isShapesMenuOpen
+                  ? 'bg-gray-200 text-black'
+                  : 'text-gray-500 hover:text-black hover:bg-gray-100'
+                }`}
               onClick={(e) => {
                 e.stopPropagation();
                 setIsShapesMenuOpen((prev) => !prev);
               }}
             >
-              <Shapes className="w-5 h-5" />
+              <Shapes className="w-5 h-5 stroke-2" />
             </button>
+            <div className="absolute left-14 top-2 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              Shapes
+            </div>
             {isShapesMenuOpen && (
-              <div className="absolute left-12 top-0 bg-white text-[#4A4A4A] rounded-2xl shadow-[0px_4px_12px_rgba(0,0,0,0.1)] border border-[#E0E0E0] w-50 p-4 z-50">
+              <div className="absolute left-12 top-0 bg-white text-[#4A4A4A] rounded-2xl shadow-[0px_4px_12px_rgba(0,0,0,0.1)] border border-[#E0E0E0] w-50 p-4 z-[120]">
                 <div className="text-[14px] font-medium mb-3">Shapes</div>
                 <div className="flex items-center gap-4">
                   {[
                     { key: 'square', toolName: 'rectangle', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E]" />, action: () => setTool('rectangle') },
                     { key: 'circle', toolName: 'circle', Icon: () => <div className="w-5 h-5 border border-[#2E2E2E] rounded-full" />, action: () => setTool('circle') },
-                    { key: 'triangle', toolName: null, Icon: () => (
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
-                        <path d="M12 5L4 19H20L12 5Z" />
-                      </svg>
-                    ), action: () => alert('Triangle coming soon') },
-                    { key: 'star', toolName: null, Icon: () => (
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
-                        <path d="M12 3l2.09 6.26L20 9.27l-5 3.64L16.18 19 12 15.77 7.82 19 9 12.91l-5-3.64 5.91-.01L12 3z" />
-                      </svg>
-                    ), action: () => alert('Star coming soon') },
+                    {
+                      key: 'triangle', toolName: null, Icon: () => (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
+                          <path d="M12 5L4 19H20L12 5Z" />
+                        </svg>
+                      ), action: () => alert('Triangle coming soon')
+                    },
+                    {
+                      key: 'star', toolName: null, Icon: () => (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2E2E2E" strokeWidth="1.5">
+                          <path d="M12 3l2.09 6.26L20 9.27l-5 3.64L16.18 19 12 15.77 7.82 19 9 12.91l-5-3.64 5.91-.01L12 3z" />
+                        </svg>
+                      ), action: () => alert('Star coming soon')
+                    },
                   ].map(({ key, toolName, Icon, action }) => (
                     <button
                       key={key}
@@ -2924,11 +3031,10 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         action();
                         setIsShapesMenuOpen(false);
                       }}
-                      className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${
-                        toolName && tool === toolName
-                          ? 'bg-blue-500 text-white'
-                          : 'text-[#2E2E2E] hover:text-[#8b5cf6]'
-                      }`}
+                      className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${toolName && tool === toolName
+                        ? 'bg-[#1a1a1a] text-white'
+                        : 'text-[#2E2E2E] hover:text-[#8b5cf6]'
+                        }`}
                       title={key}
                     >
                       <Icon />
@@ -2938,44 +3044,70 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
               </div>
             )}
           </div>
-          <button
-            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-              tool === 'text'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-            }`}
-            title="Text Tool"
-            onClick={() => setTool('text')}
-          >
-            <Type className="w-5 h-5" />
-          </button>
-          <button
-            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-              tool === 'freehand'
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-            }`}
-            title="Pencil Tool"
-            onClick={() => setTool('freehand')}
-          >
-            <Pencil className="w-5 h-5" />
-          </button>
 
-          {/* AI Chat Button */}
-          <button
-            className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
-              isChatPanelOpen ? 'bg-[#8b5cf6] text-white' : 'text-gray-400 hover:text-white hover:bg-[#2a2a2a]'
-            }`}
-            title="Canvas AI Assistant"
-            onClick={() => setIsChatPanelOpen(!isChatPanelOpen)}
-          >
-            <Bot className="w-5 h-5" />
-          </button>
-        </div>
+          {/* Text Tool with Tooltip */}
+          <div className="group relative flex items-center justify-center">
+            <button
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${tool === 'text'
+                ? 'bg-[#1a1a1a] text-white shadow-lg'
+                : 'text-gray-500 hover:text-black hover:bg-gray-100'
+                }`}
+              onClick={() => setTool('text')}
+            >
+              <Type className="w-5 h-5 stroke-2" />
+            </button>
+            <div className="absolute left-14 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              Text Tool
+            </div>
+          </div>
 
-        {/* Bottom Icon */}
-        <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-white font-bold">
-          N
+          {/* Pencil Tool with Tooltip */}
+          <div className="group relative flex items-center justify-center">
+            <button
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${tool === 'freehand'
+                ? 'bg-[#1a1a1a] text-white shadow-lg'
+                : 'text-gray-500 hover:text-black hover:bg-gray-100'
+                }`}
+              onClick={() => setTool('freehand')}
+            >
+              <Pencil className="w-5 h-5 stroke-2" />
+            </button>
+            <div className="absolute left-14 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              Pencil Tool
+            </div>
+          </div>
+
+          {/* AI Chat Button with Tooltip */}
+          <div className="group relative flex items-center justify-center">
+            <button
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${isChatPanelOpen ? 'bg-black text-white shadow-lg' : 'text-gray-500 hover:text-black hover:bg-gray-100'
+                }`}
+              onClick={() => setIsChatPanelOpen(!isChatPanelOpen)}
+            >
+              <Bot className="w-5 h-5 stroke-2" />
+            </button>
+            <div className="absolute left-14 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)'
+              }}
+            >
+              Canvas AI Assistant
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2985,7 +3117,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         {currentProjectId && (
           <div className="fixed top-6 left-[88px] z-40">
             {isLoadingCanvas ? (
-              <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-gray-400 shadow-2xl min-w-[200px]">
+              <div className="bg-white/80 backdrop-blur-md border border-gray-200 rounded-xl px-4 py-2 text-sm text-gray-500 shadow-sm min-w-[200px]">
                 Loading...
               </div>
             ) : editingProjectName ? (
@@ -2998,20 +3130,20 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 autoFocus
                 className="glass-input rounded-full px-4 py-2 text-sm min-w-[200px] outline-none transition-all duration-200"
                 style={{
-                  backgroundColor: 'rgba(28, 28, 30, 0.6)',
+                  backgroundColor: 'rgba(255, 255, 255, 0.8)',
                   backdropFilter: 'blur(12px)',
                   WebkitBackdropFilter: 'blur(12px)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  color: '#FFFFFF',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  color: '#000000',
                   fontFamily: 'var(--font-poppins), Poppins, sans-serif',
                   fontWeight: '500',
-                  boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
+                  boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.5), 0 2px 4px rgba(0, 0, 0, 0.05)'
                 }}
               />
             ) : (
               <div
                 onClick={handleProjectNameClick}
-                className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl px-4 py-2 text-sm text-white shadow-2xl min-w-[200px] cursor-pointer hover:border-[#3a3a3a] transition-colors"
+                className="bg-white/80 backdrop-blur-md border border-gray-200 rounded-xl px-4 py-2 text-sm text-black shadow-sm min-w-[200px] cursor-pointer hover:border-gray-300 transition-colors"
               >
                 <div className="truncate">{currentProjectName}</div>
               </div>
@@ -3025,22 +3157,13 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="glass-button glass-button-save px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200"
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-all duration-200 shadow-md ${isSaving
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : saveStatus === 'saved'
+                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  : 'bg-[#525252] text-white hover:bg-white hover:text-black border border-transparent hover:border-gray-200'
+                }`}
               style={{
-                backgroundColor: isSaving
-                  ? 'rgba(42, 42, 42, 0.6)'
-                  : saveStatus === 'saved'
-                  ? 'rgba(34, 197, 94, 0.6)'
-                  : 'rgba(255, 255, 255, 0.12)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: isSaving
-                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1)'
-                  : saveStatus === 'saved'
-                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(34, 197, 94, 0.2)'
-                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1)',
-                color: isSaving ? 'rgba(255, 255, 255, 0.5)' : '#FFFFFF',
-                cursor: isSaving ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font-poppins), Poppins, sans-serif'
               }}
               title={isSaving ? 'Saving...' : 'Save canvas'}
@@ -3053,7 +3176,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         {/* Right Side Panel - Credits, Status, Share, Tasks - Hidden when settings panel is open */}
         {!isSettingsPanelOpen && (
           <div className="fixed top-6 right-6 z-40">
-            <div className="bg-[#1a1a1a]/90 backdrop-blur-md border border-[#2a2a2a] rounded-xl p-2.5 shadow-2xl min-w-[240px]">
+            <div className="bg-white/90 backdrop-blur-md border border-gray-200 rounded-xl p-2.5 shadow-xl min-w-[240px]">
               {/* Top Section */}
               <div className="flex items-center justify-between mb-2.5">
                 {/* Left: Credits and Status */}
@@ -3066,8 +3189,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     }}
                     className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
                   >
-                    <span className="text-white text-xs">✨</span>
-                    <span className="text-white text-xs">
+                    <span className="text-black text-xs">✨</span>
+                    <span className="text-black text-xs">
                       {creditsLoading ? '...' : credits !== null ? credits.toFixed(2) : '0.00'}
                     </span>
                   </button>
@@ -3100,7 +3223,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     e.stopPropagation();
                     setIsTasksMenuOpen(!isTasksMenuOpen);
                   }}
-                  className="text-white text-xs flex items-center gap-1.5 hover:text-gray-300 transition-colors"
+                  className="text-black text-xs flex items-center gap-1.5 hover:text-gray-600 transition-colors"
                 >
                   <span>Tasks</span>
                   <svg className={`w-3 h-3 transition-transform ${isTasksMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3108,8 +3231,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   </svg>
                 </button>
                 {isTasksMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-[#2a2a2a] border border-[#3a3a3a] rounded-xl shadow-lg py-2 z-50">
-                    <div className="px-4 py-2 text-sm text-gray-400">No tasks</div>
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-2 z-50">
+                    <div className="px-4 py-2 text-sm text-gray-500">No tasks</div>
                   </div>
                 )}
               </div>
@@ -3148,16 +3271,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         {/* User has implemented custom marker deletion logic */}
 
         {/* Canvas Area */}
-        <div className="flex-1 bg-[#0a0a0a] overflow-hidden relative">
+        <div className="flex-1 bg-white overflow-hidden relative">
           <canvas
             ref={canvasRef}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onMouseLeave={handleMouseUp}
-                  onDoubleClick={handleDoubleClick}
-            className="w-full h-full cursor-crosshair"
-            style={{ display: 'block' }}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onDoubleClick={handleDoubleClick}
+            className="w-full h-full"
+            style={{
+              display: 'block',
+              cursor: isPanning ? 'grabbing' :
+                tool === 'pan' ? 'grab' :
+                  tool === 'select' ? 'default' :
+                    'crosshair'
+            }}
           />
 
           {/* Arrow Overlay - SVG arrows connecting reference to generated images */}
@@ -3173,13 +3302,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           {/* Selection Box Overlay */}
           {isSelecting && selectionBox && (
             <div
-              className="absolute border-2 border-blue-500 bg-blue-200 bg-opacity-20 pointer-events-none z-10"
+              className="absolute pointer-events-none z-10"
               style={{
                 left: `${Math.min(selectionBox.start.x, selectionBox.end.x)}px`,
                 top: `${Math.min(selectionBox.start.y, selectionBox.end.y)}px`,
                 width: `${Math.abs(selectionBox.end.x - selectionBox.start.x)}px`,
                 height: `${Math.abs(selectionBox.end.y - selectionBox.start.y)}px`,
-                borderStyle: 'dashed',
+                backgroundColor: 'rgba(24, 160, 251, 0.12)',
+                border: '1.5px solid #18A0FB',
+                borderRadius: '1px'
               }}
             />
           )}
@@ -3400,17 +3531,18 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           )}
 
           {/* Properties Panel */}
-          {propertiesPanelPos && selectedShapeId && engineRef.current && (() => {
-            const shape = engineRef.current.getShape(selectedShapeId);
+          {propertiesPanelPos && (selectedShapeId || editingTextId) && engineRef.current && (() => {
+            const targetId = selectedShapeId || editingTextId;
+            const shape = engineRef.current.getShape(targetId!);
             if (!shape) return null;
 
             const bounds = engineRef.current.getShapeBoundsInScreen(shape);
             if (!bounds) return null;
 
             const width = shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image' ? Math.round(shape.width) :
-                         shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
+              shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
             const height = shape.type === 'rectangle' || shape.type === 'text' || shape.type === 'image' ? Math.round(shape.height) :
-                          shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
+              shape.type === 'circle' ? Math.round(shape.radius * 2) : 0;
             const fillColor = shape.style.fill || '#808080';
             const strokeColor = shape.style.stroke || 'transparent';
             const opacity = shape.style.opacity ?? 1;
@@ -3567,365 +3699,377 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             if (shape.type === 'text') {
               const textShape = shape;
               const fontFamily = textShape.style.fontFamily || 'Inter';
-              const fontWeight = textShape.style.fontWeight || 'Regular';
-              const fontSize = textShape.style.fontSize || 16;
-              const textAlign = textShape.style.textAlign || 'left';
+              const fontWeightCode = textShape.style.fontWeight || '400';
+
+              const weightMap: Record<string, string> = {
+                '100': 'Thin', '200': 'Extra Light', '300': 'Light', '400': 'Regular',
+                '500': 'Medium', '600': 'Semi Bold', '700': 'Bold', '800': 'Extra Bold', '900': 'Black',
+                'Regular': 'Regular', 'Bold': 'Bold'
+              };
 
               return (
                 <div
-                  className="absolute bg-gray-100 rounded-lg shadow-md px-3 py-2 flex items-center gap-2 z-50"
-                style={{
-                  left: `${propertiesPanelPos.x}px`,
-                  top: `${propertiesPanelPos.y}px`,
-                  transform: 'translateX(-50%)',
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Fill Color */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    setFillPickerPos({ x: rect.left + rect.width / 2, y: rect.bottom + 10 });
-                    setIsFillPickerOpen(true);
-                    setIsStrokePickerOpen(false);
-                    setIsOpacityOpen(false);
-                    setIsRadiusOpen(false);
+                  className="absolute rounded-2xl shadow-2xl flex items-center p-1.5 gap-1.5 z-[105]"
+                  style={{
+                    left: `${propertiesPanelPos.x}px`,
+                    top: `${propertiesPanelPos.y}px`,
+                    transform: 'translate(-50%, -100%)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(0, 0, 0, 0.08)',
+                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
+                    fontFamily: 'var(--font-poppins), Poppins, sans-serif'
                   }}
-                  className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center"
-                  style={{ backgroundColor: fillColor === 'transparent' ? 'white' : fillColor }}
-                  title="Fill Color"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {fillColor === 'transparent' && (
-                    <div className="w-full h-full rounded-full" style={{
-                      backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, transparent 0% 50%) 50% / 4px 4px',
-                    }} />
-                  )}
-                </button>
-
-                {/* No Fill / Stroke Color */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    setStrokePickerPos({ x: rect.left + rect.width / 2, y: rect.bottom + 10 });
-                    setIsStrokePickerOpen(true);
-                    setIsFillPickerOpen(false);
-                    setIsOpacityOpen(false);
-                    setIsFontFamilyOpen(false);
-                    setIsFontWeightOpen(false);
-                    setIsFontSizeOpen(false);
-                    setIsAlignmentOpen(false);
-                    setIsTextStyleOpen(false);
-                  }}
-                  className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center bg-white relative"
-                  title="Stroke Color"
-                >
-                  {strokeColor === 'transparent' || !strokeColor ? (
-                    <div className="w-full h-full rounded-full" style={{
-                      backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, transparent 0% 50%) 50% / 4px 4px',
-                    }}>
-                      <Minus className="w-4 h-4 text-red-500 rotate-45 absolute inset-0 m-auto" />
-                    </div>
-                  ) : (
-                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: strokeColor }} />
-                  )}
-                </button>
-
-                {/* Font Family Dropdown */}
-                <div className="relative" data-font-family>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsFontFamilyOpen(!isFontFamilyOpen);
-                      setIsFontWeightOpen(false);
-                      setIsFontSizeOpen(false);
-                      setIsAlignmentOpen(false);
-                      setIsTextStyleOpen(false);
-                      setIsOpacityOpen(false);
-                    }}
-                    className="px-2 py-1 text-sm text-black border border-gray-300 rounded hover:bg-gray-200 flex items-center gap-1 min-w-[80px]"
-                  >
-                    <span>{fontFamily}</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  {isFontFamilyOpen && (
-                    <div className="absolute top-full mt-1 left-0 bg-white border border-gray-300 rounded shadow-lg py-1 z-50 min-w-[120px]">
-                      {['Inter', 'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'].map((font) => (
-                        <button
-                          key={font}
-                          onClick={() => {
-                            engineRef.current?.updateShape(selectedShapeId, {
-                              style: { ...textShape.style, fontFamily: font },
-                            });
-                            engineRef.current?.saveState();
-                            saveCanvasState();
-                            setIsFontFamilyOpen(false);
-                          }}
-                          className="w-full px-3 py-1 text-sm text-left text-black hover:bg-gray-100"
-                        >
-                          {font}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Font Weight Dropdown */}
-                <div className="relative" data-font-weight>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsFontWeightOpen(!isFontWeightOpen);
-                      setIsFontFamilyOpen(false);
-                      setIsFontSizeOpen(false);
-                      setIsAlignmentOpen(false);
-                      setIsTextStyleOpen(false);
-                      setIsOpacityOpen(false);
-                    }}
-                    className="px-2 py-1 text-sm text-black border border-gray-300 rounded hover:bg-gray-200 flex items-center gap-1 min-w-[80px]"
-                  >
-                    <span>{fontWeight}</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  {isFontWeightOpen && (
-                    <div className="absolute top-full mt-1 left-0 bg-white border border-gray-300 rounded shadow-lg py-1 z-50 min-w-[120px]">
-                      {['Regular', 'Bold', 'Italic', 'Bold Italic', '100', '200', '300', '400', '500', '600', '700', '800', '900'].map((weight) => (
-                        <button
-                          key={weight}
-                          onClick={() => {
-                            engineRef.current?.updateShape(selectedShapeId, {
-                              style: { ...textShape.style, fontWeight: weight },
-                            });
-                            engineRef.current?.saveState();
-                            saveCanvasState();
-                            setIsFontWeightOpen(false);
-                          }}
-                          className="w-full px-3 py-1 text-sm text-left text-black hover:bg-gray-100"
-                        >
-                          {weight}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Font Size Dropdown */}
-                <div className="relative" data-font-size>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsFontSizeOpen(!isFontSizeOpen);
-                      setIsFontFamilyOpen(false);
-                      setIsFontWeightOpen(false);
-                      setIsAlignmentOpen(false);
-                      setIsTextStyleOpen(false);
-                      setIsOpacityOpen(false);
-                    }}
-                    className="px-2 py-1 text-sm text-black border border-gray-300 rounded hover:bg-gray-200 flex items-center gap-1 min-w-[60px]"
-                  >
-                    <span>{Math.round(fontSize)}</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                  {isFontSizeOpen && (
-                    <div className="absolute top-full mt-1 left-0 bg-white border border-gray-300 rounded shadow-lg py-1 z-50 min-w-[100px] max-h-[200px] overflow-y-auto">
-                      {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72, 96, 120, 144, 168, 192, 216, 240].map((size) => (
-                        <button
-                          key={size}
-                          onClick={() => {
-                            if (engineRef.current && selectedShapeId) {
-                              const fontFamily = textShape.style.fontFamily || 'Arial';
-                              let fontWeight = textShape.style.fontWeight || 'normal';
-                              // Convert "Regular" to "normal" for CSS compatibility
-                              if (fontWeight === 'Regular') {
-                                fontWeight = 'normal';
-                              }
-                              
-                              const oldFontSize = textShape.style.fontSize || 16;
-                              const fontSizeRatio = size / oldFontSize;
-                              
-                              // Scale the selection box proportionally with font size
-                              const newWidth = textShape.width * fontSizeRatio;
-                              const newHeight = textShape.height * fontSizeRatio;
-                              
-                              // Update shape with new font size and scaled dimensions
-                              engineRef.current.updateShape(selectedShapeId, {
-                                style: { ...textShape.style, fontSize: size },
-                                width: Math.max(50, newWidth),
-                                height: Math.max(size * 1.2, newHeight),
-                              });
-                              engineRef.current.saveState();
-                              saveCanvasState();
-                            }
-                            setIsFontSizeOpen(false);
-                          }}
-                          className="w-full px-3 py-1 text-sm text-left text-black hover:bg-gray-100"
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Alignment Icon */}
-                <div className="relative" data-alignment>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsAlignmentOpen(!isAlignmentOpen);
-                      setIsFontFamilyOpen(false);
-                      setIsFontWeightOpen(false);
-                      setIsFontSizeOpen(false);
-                      setIsTextStyleOpen(false);
-                      setIsOpacityOpen(false);
-                    }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:text-gray-700 relative"
-                    title="Text Alignment"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                    <ChevronDown className="w-2 h-2 absolute bottom-0 right-0" />
-                  </button>
-                  {isAlignmentOpen && (
-                    <div className="absolute top-full mt-1 left-1/2 transform -translate-x-1/2 bg-white border border-gray-300 rounded shadow-lg py-1 z-50">
-                      {[
-                        { value: 'left', icon: 'M4 6h16M4 12h8M4 18h16' },
-                        { value: 'center', icon: 'M4 6h16M8 12h8M4 18h16' },
-                        { value: 'right', icon: 'M4 6h16M12 12h8M4 18h16' },
-                        { value: 'justify', icon: 'M4 6h16M4 12h16M4 18h16' },
-                      ].map((align) => (
-                        <button
-                          key={align.value}
-                          onClick={() => {
-                            engineRef.current?.updateShape(selectedShapeId, {
-                              style: { ...textShape.style, textAlign: align.value as any },
-                            });
-                            engineRef.current?.saveState();
-                            saveCanvasState();
-                            setIsAlignmentOpen(false);
-                          }}
-                          className="w-full px-3 py-2 flex items-center justify-center hover:bg-gray-100"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={align.icon} />
-                          </svg>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Text Styling Icon */}
-                <div data-text-style>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsTextStyleOpen(!isTextStyleOpen);
-                      setIsFontFamilyOpen(false);
-                      setIsFontWeightOpen(false);
-                      setIsFontSizeOpen(false);
-                      setIsAlignmentOpen(false);
-                      setIsOpacityOpen(false);
-                    }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:text-gray-700"
-                    title="Text Styling"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                </div>
-
-                {/* Opacity Dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setOpacityPos({ x: rect.left + rect.width / 2, y: rect.bottom + 10 });
-                      setIsOpacityOpen(!isOpacityOpen);
-                      setIsFontFamilyOpen(false);
-                      setIsFontWeightOpen(false);
-                      setIsFontSizeOpen(false);
-                      setIsAlignmentOpen(false);
-                      setIsTextStyleOpen(false);
-                    }}
-                    className="px-2 py-1 text-sm text-black border border-gray-300 rounded hover:bg-gray-200 flex items-center gap-1"
-                  >
-                    <div 
-                      className="w-4 h-4 border border-gray-300 relative"
-                      style={{
-                        backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, transparent 0% 50%) 50% / 4px 4px',
+                  {/* Fill Color Circles */}
+                  <div className="flex items-center gap-1 px-1.5 ml-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setFillPickerPos({ x: rect.left + rect.width / 2, y: rect.bottom + 10 });
+                        setIsFillPickerOpen(true);
+                        setIsFontFamilyOpen(false);
+                        setIsFontWeightOpen(false);
                       }}
+                      className="w-5 h-5 rounded-full border border-gray-200 transition-transform active:scale-95 shadow-sm hover:scale-105"
+                      style={{ backgroundColor: fillColor === 'transparent' ? '#000000' : fillColor }}
+                      title="Text Color"
                     />
-                    <span>Opacity</span>
-                    <ChevronDown className="w-3 h-3" />
+                    <button
+                      className="w-5 h-5 rounded-full border border-gray-200 bg-white shadow-sm hover:scale-105"
+                      title="Background Color"
+                    />
+                  </div>
+
+                  <div className="w-[1px] h-6 bg-gray-200/60 mx-1" />
+
+                  {/* Font Family Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsFontFamilyOpen(!isFontFamilyOpen);
+                        setIsFontWeightOpen(false);
+                      }}
+                      className="h-9 px-3 text-[13px] font-medium text-black bg-white/50 hover:bg-white rounded-xl transition-all border border-gray-100 flex items-center gap-2 min-w-[90px]"
+                    >
+                      <span className="truncate">{fontFamily}</span>
+                      <ChevronDown className="w-3.5 h-3.5 opacity-40" />
+                    </button>
+                    {isFontFamilyOpen && (
+                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
+                        {['Inter', 'Arial', 'Helvetica', 'Times New Roman', 'Verdana'].map((font) => (
+                          <button
+                            key={font}
+                            onClick={() => {
+                              const targetId = selectedShapeId || editingTextId;
+                              engineRef.current?.updateShape(targetId!, {
+                                style: { ...textShape.style, fontFamily: font },
+                              });
+                              engineRef.current?.saveState();
+                              saveCanvasState();
+                              setIsFontFamilyOpen(false);
+                            }}
+                            className="w-full px-4 py-2 text-[13px] text-left text-black hover:bg-black/5 transition-colors"
+                          >
+                            {font}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Font Weight Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsFontWeightOpen(!isFontWeightOpen);
+                        setIsFontFamilyOpen(false);
+                      }}
+                      className="h-9 px-3 text-[13px] font-medium text-black bg-white/50 hover:bg-white rounded-xl transition-all border border-gray-100 flex items-center gap-2 min-w-[90px]"
+                    >
+                      <span className="truncate">{weightMap[fontWeightCode] || fontWeightCode}</span>
+                      <ChevronDown className="w-3.5 h-3.5 opacity-40" />
+                    </button>
+                    {isFontWeightOpen && (
+                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
+                        {['100', '200', '300', '400', '500', '600', '700', '800', '900'].map((weightCode) => (
+                          <button
+                            key={weightCode}
+                            onClick={() => {
+                              const targetId = selectedShapeId || editingTextId;
+                              engineRef.current?.updateShape(targetId!, {
+                                style: { ...textShape.style, fontWeight: weightCode },
+                              });
+                              engineRef.current?.saveState();
+                              saveCanvasState();
+                              setIsFontWeightOpen(false);
+                            }}
+                            className="w-full px-4 py-2 text-[13px] text-left text-black hover:bg-black/5 transition-colors"
+                          >
+                            {weightMap[weightCode] || weightCode}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-[1px] h-6 bg-gray-200/60 mx-1" />
+
+                  {/* Font Size Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsFontSizeOpen(!isFontSizeOpen);
+                        setIsFontFamilyOpen(false);
+                        setIsFontWeightOpen(false);
+                        setIsAlignmentOpen(false);
+                      }}
+                      className="h-9 px-2 text-[13px] font-medium text-black bg-white/50 hover:bg-white rounded-xl transition-all border border-gray-100 flex items-center gap-1.5 min-w-[60px]"
+                    >
+                      <span className="truncate">{textShape.style.fontSize || 16}</span>
+                      <ChevronDown className="w-3.5 h-3.5 opacity-40" />
+                    </button>
+                    {isFontSizeOpen && (
+                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[80px] max-h-[200px] overflow-y-auto overflow-x-hidden">
+                        {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72, 96, 120].map((size) => (
+                          <button
+                            key={size}
+                            onClick={() => {
+                              const targetId = selectedShapeId || editingTextId;
+                              const oldFontSize = textShape.style.fontSize || 16;
+                              const scaleFactor = size / oldFontSize;
+                              engineRef.current?.updateShape(targetId!, {
+                                width: textShape.width * scaleFactor,
+                                height: textShape.height * scaleFactor,
+                                style: { ...textShape.style, fontSize: size },
+                              });
+                              engineRef.current?.saveState();
+                              saveCanvasState();
+                              setIsFontSizeOpen(false);
+                            }}
+                            className="w-full px-4 py-1.5 text-[13px] text-left text-black hover:bg-black/5 transition-colors"
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Alignment Dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsAlignmentOpen(!isAlignmentOpen);
+                        setIsFontFamilyOpen(false);
+                        setIsFontWeightOpen(false);
+                        setIsFontSizeOpen(false);
+                      }}
+                      className="h-9 px-2 text-gray-500 hover:text-black bg-white/50 hover:bg-white rounded-xl transition-all border border-gray-100 flex items-center gap-1"
+                    >
+                      {(() => {
+                        const Icon = ({ left: AlignLeft, center: AlignCenter, right: AlignRight, justify: AlignLeft }[textShape.style.textAlign || 'left']) || AlignLeft;
+                        return <Icon className="w-4 h-4" />;
+                      })()}
+                      <ChevronDown className="w-3 h-3 opacity-40 ml-0.5" />
+                    </button>
+                    {isAlignmentOpen && (
+                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl p-1 z-[110] flex gap-1 min-w-[120px]">
+                        {[
+                          { id: 'left', icon: AlignLeft },
+                          { id: 'center', icon: AlignCenter },
+                          { id: 'right', icon: AlignRight },
+                        ].map((align) => (
+                          <button
+                            key={align.id}
+                            onClick={() => {
+                              const targetId = selectedShapeId || editingTextId;
+                              engineRef.current?.updateShape(targetId!, {
+                                style: { ...textShape.style, textAlign: align.id as any },
+                              });
+                              engineRef.current?.saveState();
+                              saveCanvasState();
+                              setIsAlignmentOpen(false);
+                            }}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${(textShape.style.textAlign || 'left') === align.id
+                              ? 'bg-black/10 text-black'
+                              : 'text-gray-400 hover:text-black hover:bg-black/5'
+                              }`}
+                          >
+                            <align.icon className="w-4 h-4" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Advanced Settings Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsAdvancedOpen(!isAdvancedOpen);
+                    }}
+                    className={`h-9 w-9 flex items-center justify-center rounded-xl transition-all border ${isAdvancedOpen
+                      ? 'bg-black/10 text-black border-black/10'
+                      : 'text-gray-500 hover:text-black bg-white/50 hover:bg-white border-gray-100'
+                      }`}
+                  >
+                    <Settings2 className="w-4 h-4" />
                   </button>
-                  {isOpacityOpen && opacityPos && (
+
+                  {/* Advanced Settings Panel */}
+                  {isAdvancedOpen && (
                     <div
-                      className="fixed bg-white rounded-lg shadow-xl z-50 p-4 w-64 opacity-panel"
+                      className="absolute top-0 right-0 bg-white rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-gray-100 p-5 z-[120] min-w-[320px]"
                       style={{
-                        left: `${opacityPos.x}px`,
-                        top: `${opacityPos.y}px`,
-                        transform: 'translateX(-50%)',
+                        transform: 'translate(calc(100% + 16px), -40%)',
+                        fontFamily: 'var(--font-inter), Inter, sans-serif'
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <h4 className="text-sm font-semibold text-black mb-2">Opacity</h4>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={Math.round(opacity * 100)}
-                          onChange={(e) => {
-                            const newOpacity = parseInt(e.target.value) / 100;
-                            engineRef.current?.updateShape(selectedShapeId, {
-                              style: { ...textShape.style, opacity: newOpacity },
-                            });
-                            engineRef.current?.saveState();
-                            saveCanvasState();
-                          }}
-                          className="w-full"
-                        />
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={Math.round(opacity * 100)}
-                          onChange={(e) => {
-                            const newOpacity = parseInt(e.target.value) / 100;
-                            engineRef.current?.updateShape(selectedShapeId, {
-                              style: { ...textShape.style, opacity: newOpacity },
-                            });
-                            engineRef.current?.saveState();
-                            saveCanvasState();
-                          }}
-                          className="glass-input w-16 px-2 py-1 text-sm rounded transition-all duration-200"
-                          style={{
-                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                            backdropFilter: 'blur(8px)',
-                            WebkitBackdropFilter: 'blur(8px)',
-                            border: '1px solid rgba(124, 92, 255, 0.3)',
-                            color: '#000000',
-                            fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                            fontWeight: '500',
-                            boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
-                          }}
-                        />
-                        <span className="text-sm text-black">%</span>
+                      <div className="flex items-center justify-between mb-5 px-1">
+                        <h3 className="text-[15px] font-semibold text-gray-900">Advanced</h3>
+                        <button
+                          onClick={() => setIsAdvancedOpen(false)}
+                          className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-black transition-colors rounded-full hover:bg-gray-100"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-6">
+                        {/* Line Height & Letter Spacing */}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="h-11 px-3 bg-gray-50/80 rounded-xl flex items-center gap-3 group transition-colors hover:bg-gray-100">
+                            <span className="text-[15px] text-gray-400 group-hover:text-black font-medium">A̅</span>
+                            <div className="flex flex-col flex-1">
+                              <input
+                                type="text"
+                                className="bg-transparent border-none outline-none text-[13px] w-full text-black placeholder:text-gray-300 font-medium"
+                                placeholder="Auto"
+                                value={textShape.style.lineHeight || ''}
+                                onChange={(e) => {
+                                  const targetId = selectedShapeId || editingTextId;
+                                  engineRef.current?.updateShape(targetId!, {
+                                    style: { ...textShape.style, lineHeight: e.target.value }
+                                  });
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div className="h-11 px-3 bg-gray-50/80 rounded-xl flex items-center gap-3 group transition-colors hover:bg-gray-100">
+                            <span className="text-[12px] text-gray-400 group-hover:text-black font-bold tracking-tight">|A|</span>
+                            <div className="flex flex-col flex-1">
+                              <input
+                                type="text"
+                                className="bg-transparent border-none outline-none text-[13px] w-full text-black placeholder:text-gray-300 font-medium"
+                                placeholder="0%"
+                                value={textShape.style.letterSpacing !== undefined ? `${textShape.style.letterSpacing}%` : ''}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value.replace('%', ''));
+                                  const targetId = selectedShapeId || editingTextId;
+                                  engineRef.current?.updateShape(targetId!, {
+                                    style: { ...textShape.style, letterSpacing: isNaN(val) ? 0 : val }
+                                  });
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Decoration & Lists Row */}
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1 bg-gray-50/80 p-1 rounded-xl flex-1 justify-between">
+                            {[
+                              { id: 'underline', icon: Underline },
+                              { id: 'overline', icon: Minus }, // Placeholder for overline
+                              { id: 'strikethrough', icon: Strikethrough },
+                            ].map((item) => (
+                              <button
+                                key={item.id}
+                                onClick={() => {
+                                  const targetId = selectedShapeId || editingTextId;
+                                  const current = textShape.style.textDecoration;
+                                  engineRef.current?.updateShape(targetId!, {
+                                    style: { ...textShape.style, textDecoration: (current === item.id ? 'none' : item.id) as any }
+                                  });
+                                }}
+                                className={`h-9 flex-1 flex items-center justify-center rounded-lg transition-all ${textShape.style.textDecoration === item.id
+                                  ? 'bg-white text-black shadow-sm'
+                                  : 'text-gray-400 hover:text-black'
+                                  }`}
+                              >
+                                <item.icon className="w-4 h-4" />
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1 bg-gray-50/80 p-1 rounded-xl flex-[0.7] justify-between">
+                            {[
+                              { id: 'ordered', icon: ListOrdered },
+                              { id: 'bullet', icon: List },
+                            ].map((item) => (
+                              <button
+                                key={item.id}
+                                className="h-9 flex-1 flex items-center justify-center rounded-lg text-gray-400 hover:text-black transition-all hover:bg-white hover:shadow-sm"
+                              >
+                                <item.icon className="w-4 h-4" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Case & Alignment Row */}
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1 bg-gray-50/80 p-1 rounded-xl flex-1 justify-between">
+                            {[
+                              { id: 'titlecase', label: 'Aa' },
+                              { id: 'uppercase', label: 'AA' },
+                              { id: 'lowercase', label: 'aa' },
+                            ].map((item) => (
+                              <button
+                                key={item.id}
+                                onClick={() => {
+                                  const targetId = selectedShapeId || editingTextId;
+                                  const current = textShape.style.textCase;
+                                  engineRef.current?.updateShape(targetId!, {
+                                    style: { ...textShape.style, textCase: (current === item.id ? 'none' : item.id) as any }
+                                  });
+                                }}
+                                className={`h-9 flex-1 flex items-center justify-center rounded-lg transition-all text-sm font-medium ${textShape.style.textCase === item.id
+                                  ? 'bg-white text-black shadow-sm'
+                                  : 'text-gray-400 hover:text-black'
+                                  }`}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1 bg-gray-50/80 p-1 rounded-xl flex-[0.7] justify-between">
+                            {[
+                              { id: 'indent', icon: ChevronRight },
+                              { id: 'align', icon: AlignCenter, rotate: 90 },
+                            ].map((item) => (
+                              <button
+                                key={item.id}
+                                className={`h-9 flex-1 flex items-center justify-center rounded-lg text-gray-400 hover:text-black transition-all hover:bg-white hover:shadow-sm`}
+                                style={{ transform: item.rotate ? `rotate(${item.rotate}deg)` : 'none' }}
+                              >
+                                <item.icon className="w-4 h-4" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
-
-                {/* Download Icon */}
-                <button className="w-8 h-8 flex items-center justify-center text-black hover:text-gray-700" title="Download">
-                  <Download className="w-4 h-4" />
-                </button>
-              </div>
               );
             }
 
@@ -4101,7 +4245,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   }}
                   className="flex items-center gap-1 px-2 py-1 text-sm text-black cursor-pointer hover:text-gray-700"
                 >
-                  <div 
+                  <div
                     className="w-4 h-4 border border-gray-300 relative"
                     style={{
                       backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, transparent 0% 50%) 50% / 4px 4px',
@@ -4217,14 +4361,14 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     const isCorner = handle.length === 2;
                     const handleSize = 10;
                     const positions: Record<string, React.CSSProperties> = {
-                      nw: { top: -handleSize/2, left: -handleSize/2, cursor: 'nwse-resize' },
-                      n: { top: -handleSize/2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
-                      ne: { top: -handleSize/2, right: -handleSize/2, cursor: 'nesw-resize' },
-                      e: { top: '50%', right: -handleSize/2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
-                      se: { bottom: -handleSize/2, right: -handleSize/2, cursor: 'nwse-resize' },
-                      s: { bottom: -handleSize/2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
-                      sw: { bottom: -handleSize/2, left: -handleSize/2, cursor: 'nesw-resize' },
-                      w: { top: '50%', left: -handleSize/2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
+                      nw: { top: -handleSize / 2, left: -handleSize / 2, cursor: 'nwse-resize' },
+                      n: { top: -handleSize / 2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
+                      ne: { top: -handleSize / 2, right: -handleSize / 2, cursor: 'nesw-resize' },
+                      e: { top: '50%', right: -handleSize / 2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
+                      se: { bottom: -handleSize / 2, right: -handleSize / 2, cursor: 'nwse-resize' },
+                      s: { bottom: -handleSize / 2, left: '50%', transform: 'translateX(-50%)', cursor: 'ns-resize' },
+                      sw: { bottom: -handleSize / 2, left: -handleSize / 2, cursor: 'nesw-resize' },
+                      w: { top: '50%', left: -handleSize / 2, transform: 'translateY(-50%)', cursor: 'ew-resize' },
                     };
 
                     return (
@@ -4423,9 +4567,11 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         text: newValue || ' ',
                         width: width,
                         height: height,
-                      }, false);
+                      }, false, false);
                       // Re-render with text hidden
                       engineRef.current.render(editingTextId);
+                      // Update properties panel position as text grows/shrinks
+                      updatePropertiesPanelPosition();
                     }
                   }}
                   onBlur={() => {
@@ -4441,16 +4587,23 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         });
                         engineRef.current.saveState();
                         saveCanvasState();
-                        // Re-render to show the text shape again
-                        engineRef.current.render();
-
-                        // Select the text shape after editing
-                        engineRef.current.selectShape(editingTextId);
-                        setSelectedShapeId(editingTextId);
+                        // Do NOT select the text shape after editing
+                        // Also check if text is empty, if so, we might want to delete it
+                        if (!textInputValue || textInputValue.trim() === '') {
+                          engineRef.current.removeShape(editingTextId);
+                        } else {
+                          engineRef.current.render();
+                        }
                       }
+                    }
+                    if (textInputValue && textInputValue.trim() !== '') {
+                      engineRef.current?.selectShape(editingTextId);
+                      setSelectedShapeId(editingTextId);
+                      setTool('select');
                     }
                     setEditingTextId(null);
                     setTextInputPos(null);
+                    updateSelectedShapesState();
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -4462,9 +4615,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                           const ctx = document.createElement('canvas').getContext('2d');
                           if (ctx) {
                             const fontSize = shape.style.fontSize || 16;
-              const fontFamily = shape.style.fontFamily || 'Arial';
-              const fontWeight = shape.style.fontWeight || 'normal';
-              ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+                            const fontFamily = shape.style.fontFamily || 'Arial';
+                            const fontWeight = shape.style.fontWeight || 'normal';
+                            ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
                             const metrics = ctx.measureText(textInputValue || ' ');
                             const width = Math.max(50, metrics.width + 10);
                             const height = (shape.style.fontSize || 16) * 1.2;
@@ -4473,35 +4626,44 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                               width: width,
                               height: height,
                             });
-                            engineRef.current.saveState();
-                            saveCanvasState();
-
-                            // Select the text shape after editing
-                            engineRef.current.selectShape(editingTextId);
-                            setSelectedShapeId(editingTextId);
+                            // Finalize and clear selection
+                            // Check if text is empty
+                            if (!textInputValue || textInputValue.trim() === '') {
+                              engineRef.current.removeShape(editingTextId);
+                            } else {
+                              engineRef.current.render();
+                            }
                           }
                         }
                       }
+                      if (textInputValue && textInputValue.trim() !== '') {
+                        engineRef.current?.selectShape(editingTextId);
+                        setSelectedShapeId(editingTextId);
+                        setTool('select');
+                      }
                       setEditingTextId(null);
                       setTextInputPos(null);
+                      updateSelectedShapesState();
                     } else if (e.key === 'Escape') {
                       setEditingTextId(null);
                       setTextInputPos(null);
                     }
                   }}
                   autoFocus
-                  className="glass-input px-2 py-1 rounded-lg outline-none transition-all duration-200"
+                  className="outline-none bg-transparent"
                   style={{
                     fontSize: `${shape.style.fontSize || 16}px`,
                     fontFamily: shape.style.fontFamily || 'Arial',
                     color: shape.style.fill || '#000000',
-                    minWidth: '50px',
-                    width: `${measureText(textInputValue).width}px`,
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    border: '1px solid rgba(124, 92, 255, 0.3)',
-                    boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.2), 0 2px 4px rgba(124, 92, 255, 0.2)'
+                    minWidth: '2px',
+                    width: `${measureText(textInputValue).width + (textInputValue ? 10 : 0)}px`,
+                    backgroundColor: 'transparent',
+                    border: textInputValue ? '1px solid #60a5fa' : 'none',
+                    boxShadow: textInputValue ? '0 0 0 1px rgba(96, 165, 250, 0.5)' : 'none',
+                    padding: textInputValue ? '2px 4px' : '0',
+                    margin: textInputValue ? '-3px -5px' : '0',
+                    caretColor: shape.style.fill || '#000000',
+                    outline: 'none'
                   }}
                 />
               </div>
@@ -4509,8 +4671,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           })()}
 
           {/* Color Pickers */}
-          {isFillPickerOpen && fillPickerPos && selectedShapeId && engineRef.current && (() => {
-            const shape = engineRef.current.getShape(selectedShapeId);
+          {isFillPickerOpen && fillPickerPos && (selectedShapeId || editingTextId) && engineRef.current && (() => {
+            const targetId = selectedShapeId || editingTextId;
+            const shape = engineRef.current.getShape(targetId!);
             if (!shape) return null;
             return (
               <ColorPicker
@@ -4518,7 +4681,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 onClose={() => setIsFillPickerOpen(false)}
                 color={shape.style.fill || '#808080'}
                 onChange={(color) => {
-                  engineRef.current?.updateShape(selectedShapeId, {
+                  const targetId = selectedShapeId || editingTextId;
+                  engineRef.current?.updateShape(targetId!, {
                     style: { ...shape.style, fill: color },
                   });
                   engineRef.current?.saveState();
@@ -4530,8 +4694,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             );
           })()}
 
-          {isStrokePickerOpen && strokePickerPos && selectedShapeId && engineRef.current && (() => {
-            const shape = engineRef.current.getShape(selectedShapeId);
+          {isStrokePickerOpen && strokePickerPos && (selectedShapeId || editingTextId) && engineRef.current && (() => {
+            const targetId = selectedShapeId || editingTextId;
+            const shape = engineRef.current.getShape(targetId!);
             if (!shape) return null;
             return (
               <ColorPicker
@@ -4539,7 +4704,8 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 onClose={() => setIsStrokePickerOpen(false)}
                 color={shape.style.stroke || '#ffffff'}
                 onChange={(color) => {
-                  engineRef.current?.updateShape(selectedShapeId, {
+                  const targetId = selectedShapeId || editingTextId;
+                  engineRef.current?.updateShape(targetId!, {
                     style: { ...shape.style, stroke: color },
                   });
                   engineRef.current?.saveState();
@@ -4552,76 +4718,113 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           })()}
 
           {/* Bottom Floating Toolbar */}
-          <div 
+          <div
             className="absolute bottom-8 left-1/2 transform -translate-x-1/2 rounded-full px-3 py-2 flex items-center gap-1.5"
-            style={{ 
-              backgroundColor: 'rgba(28, 28, 30, 0.6)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 4px 16px rgba(0, 0, 0, 0.3)'
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid #dcdcdc',
+              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.08)'
             }}
           >
-            <button
-              onClick={() => setTool('select')}
-              className="glass-button glass-button-active w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
-              style={{
-                backgroundColor: tool === 'select' 
-                  ? 'rgba(124, 92, 255, 0.6)' 
-                  : 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: tool === 'select'
-                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
-                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
-              }}
-              title="Select"
-            >
-              <MousePointer2 className="w-5 h-5 text-white" />
-            </button>
-            <button
-              onClick={() => setTool('pan')}
-              className="glass-button glass-button-active w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
-              style={{
-                backgroundColor: tool === 'pan' 
-                  ? 'rgba(124, 92, 255, 0.6)' 
-                  : 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: tool === 'pan'
-                  ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
-                  : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
-              }}
-              title="Pan"
-            >
-              <Hand className="w-5 h-5 text-white" />
-            </button>
+            <div className="group relative flex items-center justify-center">
+              <button
+                onClick={() => setTool('select')}
+                className="group w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+                style={{
+                  background: tool === 'select'
+                    ? '#ffffff'
+                    : 'transparent',
+                  boxShadow: tool === 'select'
+                    ? '0 2px 8px rgba(0, 0, 0, 0.1)'
+                    : 'none'
+                }}
+              >
+                <MousePointer2 className={`w-5 h-5 transition-colors ${tool === 'select' ? 'text-black' : 'text-gray-400 group-hover:text-black'}`} />
+              </button>
+              <div className="absolute bottom-12 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                Select
+              </div>
+            </div>
+            <div className="group relative flex items-center justify-center">
+              <button
+                onClick={() => setTool('pan')}
+                className="group w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
+                style={{
+                  background: tool === 'pan'
+                    ? '#ffffff'
+                    : 'transparent',
+                  boxShadow: tool === 'pan'
+                    ? '0 2px 8px rgba(0, 0, 0, 0.1)'
+                    : 'none'
+                }}
+              >
+                <Hand className={`w-5 h-5 transition-colors ${tool === 'pan' ? 'text-black' : 'text-gray-400 group-hover:text-black'}`} />
+              </button>
+              <div className="absolute bottom-12 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                Pan
+              </div>
+            </div>
             <div className="w-px h-5 bg-[#C7CBD4]/20 mx-0.5" />
-            <button
-              onClick={handleUndo}
-              className="glass-button w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
-              style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
-              }}
-              title="Undo"
-            >
-              <Undo2 className="w-5 h-5 text-white" />
-            </button>
-            <button
-              onClick={handleRedo}
-              className="glass-button w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200"
-              style={{
-                backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                boxShadow: 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)'
-              }}
-              title="Redo"
-            >
-              <Redo2 className="w-5 h-5 text-white" />
-            </button>
+            <div className="group relative flex items-center justify-center">
+              <button
+                onClick={handleUndo}
+                className="w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 hover:bg-black/5"
+                style={{
+                  backgroundColor: 'transparent'
+                }}
+              >
+                <Undo2 className="w-5 h-5 text-black" />
+              </button>
+              <div className="absolute bottom-12 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                Undo
+              </div>
+            </div>
+            <div className="group relative flex items-center justify-center">
+              <button
+                onClick={handleRedo}
+                className="w-9 h-9 flex items-center justify-center rounded-full transition-all duration-200 hover:bg-black/5"
+                style={{
+                  backgroundColor: 'transparent'
+                }}
+              >
+                <Redo2 className="w-5 h-5 text-black" />
+              </button>
+              <div className="absolute bottom-12 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                Redo
+              </div>
+            </div>
             <div className="w-px h-5 bg-[#C7CBD4]/20 mx-0.5" />
             <div className="relative" data-zoom-menu>
               <button
@@ -4629,51 +4832,51 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   e.stopPropagation();
                   setIsZoomMenuOpen(!isZoomMenuOpen);
                 }}
-                className="glass-button glass-button-expandable px-3 py-1.5 rounded-full text-sm transition-all duration-200 flex items-center gap-1.5"
-                style={{ 
-                  backgroundColor: isZoomMenuOpen 
-                    ? 'rgba(124, 92, 255, 0.6)' 
-                    : 'rgba(255, 255, 255, 0.08)',
-                  backdropFilter: 'blur(12px)',
-                  WebkitBackdropFilter: 'blur(12px)',
-                  boxShadow: isZoomMenuOpen
-                    ? 'inset 0 1px 0 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 0 rgba(0, 0, 0, 0.1), 0 2px 8px rgba(124, 92, 255, 0.2)'
-                    : 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(0, 0, 0, 0.05)',
-                  color: '#FFFFFF',
-                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                  fontWeight: '600'
-                }}
+                className={`px-3 py-1.5 rounded-full text-sm transition-all duration-200 flex items-center gap-1.5 shadow-md font-semibold font-poppins ${isZoomMenuOpen
+                  ? 'bg-white text-black border border-gray-200'
+                  : 'bg-[#525252] text-white hover:bg-white hover:text-black border border-transparent hover:border-gray-200'
+                  }`}
               >
                 <span>{zoomLevel}%</span>
                 <ChevronDown className="w-4 h-4" />
               </button>
+              <div className="absolute bottom-12 px-3 py-1.5 rounded-lg text-sm text-black whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-[110]"
+                style={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                  border: '1px solid rgba(0, 0, 0, 0.1)',
+                  boxShadow: '0 4px 24px rgba(0, 0, 0, 0.1)',
+                  left: '50%',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                Zoom Options
+              </div>
               {isZoomMenuOpen && (
-                <div 
+                <div
                   className="absolute bottom-full mb-2 w-40 z-50"
-                  style={{ 
+                  style={{
                     left: '50%',
                     transform: 'translateX(-50%)',
-                    backgroundColor: 'rgba(28, 28, 30, 0.88)',
-                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    backgroundColor: 'white',
+                    border: '1px solid rgba(0, 0, 0, 0.08)',
                     borderRadius: '12px',
                     backdropFilter: 'blur(14px)',
                     WebkitBackdropFilter: 'blur(14px)',
-                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.3)',
+                    boxShadow: '0 12px 48px rgba(0, 0, 0, 0.15), 0 4px 16px rgba(0, 0, 0, 0.08)',
                     padding: '6px',
                     fontFamily: 'var(--font-poppins), Poppins, sans-serif'
                   }}
                 >
                   <button
                     onClick={handleFitToScreen}
-                    className="w-full px-4 text-left transition-all duration-200 dropdown-option"
-                    style={{ 
-                      color: 'rgba(255, 255, 255, 0.9)',
+                    style={{
                       height: '40px',
                       fontSize: '13px',
                       fontWeight: '500',
                       fontFamily: 'var(--font-poppins), Poppins, sans-serif',
                       borderRadius: '8px'
                     }}
+                    className="w-full px-4 text-left transition-all duration-200 dropdown-option text-gray-700 hover:bg-[#656565] hover:text-white"
                   >
                     Fit to Screen
                   </button>
@@ -4681,11 +4884,9 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                     <button
                       key={zoom}
                       onClick={() => handleZoomChange(zoom)}
-                      className={`w-full px-4 text-left transition-all duration-200 dropdown-option ${
-                        zoomLevel === zoom ? 'dropdown-option-selected' : ''
-                      }`}
-                      style={{ 
-                        color: 'rgba(255, 255, 255, 0.9)',
+                      className={`w-full px-4 text-left transition-all duration-200 dropdown-option text-gray-700 hover:bg-[#656565] hover:text-white ${zoomLevel === zoom ? 'bg-[#656565] text-white' : ''
+                        }`}
+                      style={{
                         height: '40px',
                         fontSize: zoomLevel === zoom ? '14px' : '13px',
                         fontWeight: '500',
@@ -4704,20 +4905,22 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       </div>
 
       {/* Subscription Tiers Popup */}
-      {showSubscriptionPopup && (
-        <SubscriptionTiersPopup
-          isOpen={showSubscriptionPopup}
-          onClose={() => setShowSubscriptionPopup(false)}
-          currentCredits={credits || 0}
-          creditsRequired={0}
-          onSelectTier={async (tierId) => {
-            // TODO: Implement payment processing
-            console.log('Selected tier:', tierId);
-            refreshCredits(); // Refresh after purchase
-          }}
-        />
-      )}
-    </div>
+      {
+        showSubscriptionPopup && (
+          <SubscriptionTiersPopup
+            isOpen={showSubscriptionPopup}
+            onClose={() => setShowSubscriptionPopup(false)}
+            currentCredits={credits || 0}
+            creditsRequired={0}
+            onSelectTier={async (tierId) => {
+              // TODO: Implement payment processing
+              console.log('Selected tier:', tierId);
+              refreshCredits(); // Refresh after purchase
+            }}
+          />
+        )
+      }
+    </div >
   );
 }
 
