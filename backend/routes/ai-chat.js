@@ -1598,23 +1598,12 @@ ${markerDescriptions}
 
     /**
      * Formats the AI response with markdown syntax
-     * Injects generated images into the response text
+     * Images are NOT injected here - they're rendered separately by the frontend
      */
     function formatMarkdownResponse(textResponse, generatedImages) {
-      let formattedResponse = textResponse;
-
-      // If there are generated images, inject them at the beginning
-      if (generatedImages && generatedImages.length > 0) {
-        const imageMarkdown = generatedImages.map((img, index) => {
-          const title = img.prompt ? img.prompt.substring(0, 80) : `Generated Image ${index + 1}`;
-          return `![${title}](${img.url})`;
-        }).join('\n\n');
-
-        // Inject images at the beginning of the response
-        formattedResponse = `${imageMarkdown}\n\n${formattedResponse}`;
-      }
-
-      return formattedResponse;
+      // Don't inject images into markdown - frontend renders them via message.images
+      // This prevents duplicate image display
+      return textResponse || '';
     }
 
     // Check if canvas image was uploaded
