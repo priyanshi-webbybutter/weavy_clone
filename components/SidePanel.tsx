@@ -20,22 +20,22 @@ interface SidePanelProps {
 
 const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes = [], nodeSettingsMap = {} }) => {
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // Extract all images from image generator nodes
   const getAllImages = () => {
     const images: Array<{ url: string; dimensions?: string; nodeId: string }> = [];
-    
+
     nodes.forEach((node) => {
       if (node.type === 'imageGenerator') {
         // Get images from imageUrls array or fallback to imageUrl
         const imageUrls = node.data?.imageUrls || (node.data?.imageUrl ? [node.data.imageUrl] : []);
-        
+
         // Get node settings for dimensions
         const settings = nodeSettingsMap[node.id] || {};
         const width = settings.width || 1024;
         const height = settings.height || 1024;
         const dimensions = `${width} X ${height}`;
-        
+
         imageUrls.forEach((url: string) => {
           if (url) {
             images.push({
@@ -47,7 +47,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
         });
       }
     });
-    
+
     return images;
   };
 
@@ -215,7 +215,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
 
   const renderAssets = () => {
     const images = getAllImages();
-    
+
     return (
       <div
         className="scroll-snap-start"
@@ -363,7 +363,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ isOpen, panelType, onClose, nodes
     <>
       {/* Panel */}
       <div
-        className="fixed left-[68px] top-0 h-screen w-[235px] bg-[#171717] border-r border-[#2a2a2a] z-50 overflow-hidden animate-slide-in shadow-2xl"
+        className="fixed left-[68px] top-0 h-screen w-[232px] bg-[#171717] border-r border-[#2a2a2a] z-50 overflow-hidden animate-slide-in shadow-2xl"
       >
         <div className="h-full overflow-y-auto">
           {/* Header */}

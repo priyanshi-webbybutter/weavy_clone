@@ -26,10 +26,10 @@ export interface PlacementConfig {
 }
 
 const DEFAULT_CONFIG: PlacementConfig = {
-  minGap: 50,
-  preferredGap: 80,
+  minGap: 2,
+  preferredGap: 10,
   maxIterations: 50,
-  spiralStep: 100,
+  spiralStep: 20,
 };
 
 /**
