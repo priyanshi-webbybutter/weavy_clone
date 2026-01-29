@@ -29,18 +29,18 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
   const isClickingRef = useRef(false);
   const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Get images array - support both old (imageUrl) and new (imageUrls) format
   const imageUrls = data.imageUrls || (data.imageUrl ? [data.imageUrl] : []);
   const currentIndex = data.currentImageIndex !== undefined ? data.currentImageIndex : (imageUrls.length > 0 ? imageUrls.length - 1 : 0);
   const currentImageUrl = imageUrls[currentIndex] || data.imageUrl;
-  
+
   const handlePreviousImage = useCallback(() => {
     if (currentIndex > 0 && data.onImageIndexChange) {
       data.onImageIndexChange(id, currentIndex - 1);
     }
   }, [id, currentIndex, data]);
-  
+
   const handleNextImage = useCallback(() => {
     if (currentIndex < imageUrls.length - 1 && data.onImageIndexChange) {
       data.onImageIndexChange(id, currentIndex + 1);
@@ -125,12 +125,12 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
 
     // Set debounce flag immediately
     isClickingRef.current = true;
-    
+
     // Clear any existing timeout
     if (clickTimeoutRef.current) {
       clearTimeout(clickTimeoutRef.current);
     }
-    
+
     // Reset debounce flag after 500ms
     clickTimeoutRef.current = setTimeout(() => {
       isClickingRef.current = false;
@@ -151,12 +151,12 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         borderRadius: '12px',
         background: '#1a1a1a',
         border: `2px solid ${selected ? '#8b5cf6' : '#2a2a2a'}`,
-        minWidth: '450px',
-        maxWidth: '500px',
+        minWidth: data.isGenerating ? '50vw' : '450px',
+        maxWidth: data.isGenerating ? '50vw' : '500px',
         boxShadow: selected
           ? '0 4px 16px rgba(139, 92, 246, 0.4)'
           : '0 2px 8px rgba(0, 0, 0, 0.3)',
-        transition: 'all 0.2s',
+        transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >
       {/* Header with Title and Menu */}
@@ -462,7 +462,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
         }}
         style={{
           width: '100%',
-          height: '400px',
+          height: data.isGenerating ? '50vh' : '400px',
           borderRadius: '8px',
           backgroundImage: currentImageUrl
             ? `url(${currentImageUrl})`
@@ -477,7 +477,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           position: 'relative',
           overflow: 'hidden',
           boxShadow: isPreviewHovered ? 'inset 0 45px 20px -20px rgba(0, 0, 0, 0.4)' : 'none',
-          transition: 'box-shadow 0.2s ease',
+          transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
           cursor: imageUrls.length > 0 ? 'pointer' : 'default',
         }}
       >
@@ -541,15 +541,15 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
                 }}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-              
+
               {/* Counter */}
               <span style={{ color: '#ffffff', fontSize: '13px', opacity: 0.9 }}>
                 {imageUrls.length > 0 ? `${currentIndex + 1} / ${imageUrls.length}` : '0 / 0'}
               </span>
-              
+
               {/* Next Button */}
               <button
                 className="nodrag"
@@ -587,11 +587,11 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
                 }}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
             </div>
-            
+
             {/* Right: Fullscreen Button */}
             <button
               className="nodrag"
@@ -637,7 +637,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 2H6M2 2V6M14 2H10M14 2V6M2 14H6M2 14V10M14 14H10M14 14V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 2H6M2 2V6M14 2H10M14 2V6M2 14H6M2 14V10M14 14H10M14 14V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
@@ -648,17 +648,61 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
             style={{
               position: 'absolute',
               inset: 0,
-              background: 'rgba(0, 0, 0, 0.7)',
+              background: `
+                radial-gradient(3px 3px at 15% 15%, #ffffff 99%, transparent 100%),
+                radial-gradient(5px 5px at 80% 10%, #ffffff 99%, transparent 100%),
+                radial-gradient(4px 4px at 35% 45%, #ffffff 99%, transparent 100%),
+                radial-gradient(6px 6px at 65% 55%, #ffffff 99%, transparent 100%),
+                radial-gradient(3px 3px at 10% 85%, #ffffff 99%, transparent 100%),
+                radial-gradient(4px 4px at 90% 90%, #ffffff 99%, transparent 100%),
+                radial-gradient(5px 5px at 50% 25%, #ffffff 99%, transparent 100%),
+                rgba(0, 0, 0, 0.7)
+              `,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexDirection: 'column',
-              gap: '12px',
               zIndex: 10,
             }}
           >
-            <Loader2 className="animate-spin" size={32} color="#8b5cf6" />
-            <span style={{ color: '#ffffff', fontSize: '13px' }}>Generating image...</span>
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: 'rgba(30, 30, 30, 0.9)',
+                padding: '8px 20px',
+                borderRadius: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
+              }}
+            >
+              <div
+                style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: '#ffffff',
+                  animation: 'spin 1s linear infinite',
+                }}
+              />
+              <span style={{ color: '#ffffff', fontSize: '13px', fontWeight: 500 }}>
+                Generating images using {data.modelName || 'Nano Banana Pro'}
+              </span>
+            </div>
+            <style dangerouslySetInnerHTML={{
+              __html: `
+              @keyframes spin {
+                from { transform: rotate(0deg); }
+                to { transform: rotate(360deg); }
+              }
+            `}} />
           </div>
         )}
         {!currentImageUrl && !data.isGenerating && (
@@ -849,7 +893,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
               top: '30%',
             }}
           />
-          
+
           {/* Prompt Label - Left of Handle (Outside) */}
           <div
             style={{
@@ -862,7 +906,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
           >
             <span style={{ fontSize: '20px', color: '#d946ef', fontWeight: '500' }}>Prompt*</span>
           </div>
-          
+
           {/* Input Handle - Image Prompt (Left Side, Bottom) - Flux */}
           {data.modelId === 'black-forest-labs/flux-1.1-pro-ultra' && (
             <>
@@ -879,7 +923,7 @@ export const ImageGeneratorNode = memo(({ data, id, selected }: NodeProps<ImageG
                   top: '70%',
                 }}
               />
-              
+
               {/* Image Prompt Label - Left of Handle (Outside) */}
               <div
                 style={{

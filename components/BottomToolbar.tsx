@@ -5,14 +5,14 @@ import { MousePointer2, Hand, Undo2, Redo2, ChevronDown } from 'lucide-react';
 
 interface BottomToolbarProps {
   zoom?: number;
-  onZoomChange?: (zoom: number) => void;
+  onZoomChange?: (zoom: number | 'size') => void;
   onUndo?: () => void;
   onRedo?: () => void;
   onToolChange?: (tool: 'pointer' | 'hand') => void;
 }
 
 const BottomToolbar: React.FC<BottomToolbarProps> = ({
-  zoom = 100,
+  zoom = 50,
   onZoomChange,
   onUndo,
   onRedo,
@@ -21,14 +21,14 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
   const [activeTool, setActiveTool] = useState<'pointer' | 'hand'>('pointer');
   const [isZoomOpen, setIsZoomOpen] = useState(false);
 
-  const zoomLevels = [25, 50, 75, 100, 125, 150, 200];
+  const zoomLevels = ['size', 25, 50, 75, 100];
 
   const handleToolClick = (tool: 'pointer' | 'hand') => {
     setActiveTool(tool);
     onToolChange?.(tool);
   };
 
-  const handleZoomSelect = (level: number) => {
+  const handleZoomSelect = (level: number | 'size') => {
     onZoomChange?.(level);
     setIsZoomOpen(false);
   };
@@ -61,10 +61,9 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
           className={`
             w-10 h-10 flex items-center justify-center rounded-lg
             transition-all duration-200
-            ${
-              activeTool === 'pointer'
-                ? 'bg-yellow-400 text-black'
-                : 'text-gray-400 hover:text-white hover:bg-[#242424]'
+            ${activeTool === 'pointer'
+              ? 'bg-yellow-400 text-black'
+              : 'text-gray-400 hover:text-white hover:bg-[#242424]'
             }
           `}
           title="Select (V)"
@@ -78,10 +77,9 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
           className={`
             w-10 h-10 flex items-center justify-center rounded-lg
             transition-all duration-200
-            ${
-              activeTool === 'hand'
-                ? 'bg-yellow-400 text-black'
-                : 'text-gray-400 hover:text-white hover:bg-[#242424]'
+            ${activeTool === 'hand'
+              ? 'bg-yellow-400 text-black'
+              : 'text-gray-400 hover:text-white hover:bg-[#242424]'
             }
           `}
           title="Pan (H)"
@@ -149,18 +147,19 @@ const BottomToolbar: React.FC<BottomToolbarProps> = ({
                 {zoomLevels.map((level) => (
                   <button
                     key={level}
-                    onClick={() => handleZoomSelect(level)}
+                    onClick={() => handleZoomSelect(level as any)}
                     className={`
                       w-full px-4 py-2 text-left text-sm
                       transition-colors duration-150
-                      ${
-                        Math.round(zoom) === level
+                      ${level === 'size'
+                        ? 'text-gray-400 hover:text-white hover:bg-[#242424]'
+                        : Math.round(zoom) === level
                           ? 'bg-[#2a2a2a] text-white'
                           : 'text-gray-400 hover:text-white hover:bg-[#242424]'
                       }
                     `}
                   >
-                    {level}%
+                    {level === 'size' ? 'Size' : `${level}%`}
                   </button>
                 ))}
               </div>

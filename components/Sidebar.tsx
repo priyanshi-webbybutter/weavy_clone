@@ -74,10 +74,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[68px] bg-[#525252] border-r border-[#666666] flex flex-col items-center py-4 z-50">
+    <aside className="fixed left-0 top-0 h-screen w-[68px] bg-[#263341] border-r border-[#666666] flex flex-col items-center py-4 z-50">
       {/* Logo/Brand */}
       <div className="mb-8 relative group">
-        <div className="absolute w-7 h-7 left-[-25px] bg-[#525252] border border-[#666666] rounded-full flex items-center justify-center text-white font-bold text-sm hover:bg-[#666666] transition-colors">
+        <div className="absolute w-7 h-7 left-[-25px] bg-[#263341] border border-[#666666] rounded-full flex items-center justify-center text-white font-bold text-sm hover:bg-[#666666] transition-colors">
           W
         </div>
         <button

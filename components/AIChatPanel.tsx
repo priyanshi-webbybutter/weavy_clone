@@ -68,6 +68,7 @@ interface AIChatPanelProps {
   onFocusShape?: (shapeId: string, keepSelection?: boolean) => void;
   onCenterToShape?: (shapeId: string, animate?: boolean) => void;
   projectId?: string | null;
+  onNewCanvas?: () => void;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -79,30 +80,53 @@ const QUICK_TEMPLATES = [
     name: 'Gradient hero banner',
     description: 'Colorful gradient background',
     prompt: 'Create a modern gradient hero banner for my brand',
-    image: '/templates/gradient.png'
+    image: '/templates/Capture.PNG',
+    static: true,
+    position: 'right-6 top-1/2 -translate-y-1/2'
   },
   {
     id: '3d-abstract',
     name: '3D abstract shape',
-    description: 'Geometric 3D element',
-    prompt: 'Generate a 3D abstract geometric shape for my design',
-    image: '/templates/3d-shape.png'
+    description: 'Modern 3D geometric shapes',
+    prompt: 'Render a high-quality 3D abstract shape',
+    image: '/templates/image-removebg-preview.png',
+    static: true,
+    dimensions: 'w-36 h-36',
+    position: 'right-8 top-1/2 -translate-y-1/2'
   },
   {
     id: 'botanical',
     name: 'Botanical pattern',
-    description: 'Nature/plant pattern',
-    prompt: 'Create a botanical leaf pattern design',
-    image: '/templates/botanical.png'
+    description: 'Nature-inspired patterns',
+    prompt: 'Design a seamless botanical floral pattern',
+    image: '/templates/botanical pattern.png',
+    static: true,
+    dimensions: 'w-44 h-44',
+    position: 'right-[-25px] top-1/2 -translate-y-1/2'
   },
   {
     id: 'doodle',
     name: 'Doodle element set',
     description: 'Hand-drawn style elements',
     prompt: 'Generate hand-drawn doodle design elements',
-    image: '/templates/doodle.png'
+    image: '/templates/doodle element set.png',
+    static: true,
+    dimensions: 'w-40 h-40',
+    position: 'right-0 top-1/2 -translate-y-1/2'
   }
 ];
+
+interface QuickTemplate {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  image: string;
+  static?: boolean;
+  dimensions?: string;
+  position?: string;
+}
+
 
 const AIChatPanel: React.FC<AIChatPanelProps> = ({
   isOpen,
@@ -117,7 +141,62 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   onFocusShape,
   onCenterToShape,
   projectId,
+  onNewCanvas
 }) => {
+  // === HELPER COMPONENT: Image Chip with Hover Preview ===
+  const ImageChip = ({
+    imageUrl,
+    name,
+    onRemove,
+    borderColor = 'border-gray-200'
+  }: {
+    imageUrl: string;
+    name: string;
+    onRemove?: () => void;
+    borderColor?: string;
+  }) => {
+    const [isHovered, setIsHovered] = useState(false);
+
+    return (
+      <div className="relative inline-flex items-center">
+        {/* Hover Preview */}
+        {isHovered && (
+          <div
+            className="absolute bottom-full left-0 mb-2 w-48 h-48 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2 duration-200"
+            style={{ pointerEvents: 'none' }}
+          >
+            <img src={imageUrl} alt={name} className="w-full h-full object-cover" />
+          </div>
+        )}
+
+        {/* The Chip */}
+        <div
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          className={`flex items-center gap-2 px-2 py-1 bg-white border ${borderColor} rounded-full transition-shadow hover:shadow-sm cursor-default`}
+        >
+          <div className="w-5 h-5 rounded-md overflow-hidden flex-shrink-0 border border-gray-100">
+            <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+          </div>
+          <span className="text-[13px] text-gray-600 max-w-[100px] truncate leading-none pt-[1px]">
+            {name}
+          </span>
+          {onRemove && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+              className="p-0.5 hover:bg-gray-100 rounded-full transition-colors ml-0.5"
+            >
+              <X className="w-3 h-3 text-gray-400" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -796,23 +875,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         });
       }
 
-      // Get placeholder IDs to exclude (they'll be removed)
-      const placeholderIds = allShapes
-        .filter(s => s.id.startsWith('placeholder-'))
-        .map(s => s.id);
 
       // Find optimal positions for all images at once using smart placement
       console.log('📍 Finding optimal placements for images...');
       const positions = findMultiPlacement(
         imageData.map(img => ({ width: img.width, height: img.height })),
-        allShapes,
+        allShapesRef.current, // Use ref
         selectedShapes, // Reference shapes
-        placeholderIds,
+        [], // No longer exclude placeholders
         {
-          minGap: 50,
-          preferredGap: 80,
+          minGap: 2,
+          preferredGap: 10,
           maxIterations: 50,
-          spiralStep: 100,
+          spiralStep: 20,
         }
       );
 
@@ -843,6 +918,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         };
 
         onAddShape(imageShape);
+        // Sync ref immediately to avoid overlap in same cycle if this is called multiple times
+        allShapesRef.current = [...allShapesRef.current, imageShape];
         console.log('✅ Image added to canvas:', imageId);
 
         // Arrows now render automatically from CanvasArrows component based on generationMetadata.referenceImageIds
@@ -854,17 +931,13 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       if (action.type === 'add') {
         if (action.asset_type === 'text' && action.content) {
           // Use smart placement for text as well
-          const placeholderIds = allShapes
-            .filter(s => s.id.startsWith('placeholder-'))
-            .map(s => s.id);
-
           const position = findOptimalPlacement(
             300, // Default text width
             50,  // Default text height
-            allShapes,
+            allShapesRef.current,
             selectedShapes,
-            placeholderIds,
-            { minGap: 50, preferredGap: 80 }
+            [], // No longer exclude placeholders
+            { minGap: 2, preferredGap: 10 }
           );
 
           const newShape: TextShape = {
@@ -883,10 +956,15 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             }
           };
           onAddShape(newShape);
+          allShapesRef.current = [...allShapesRef.current, newShape];
         }
       } else if (action.type === 'modify' && action.element_id && action.updates) {
         console.log('🔧 Modifying element:', action.element_id, action.updates);
         onUpdateShape(action.element_id, action.updates as Partial<Shape>);
+        // Update ref for modifications too
+        allShapesRef.current = allShapesRef.current.map(s =>
+          s.id === action.element_id ? { ...s, ...action.updates } as Shape : s
+        );
       }
     }
 
@@ -936,9 +1014,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     // HIGH CONFIDENCE ONLY - explicit generation commands
     const explicitGenerationCommands = [
-      'generate image', 'create image', 'generate a', 'create a',
+      'generate image', 'create image', 'generate a', 'create a', 'make a',
+      'design a', 'render a', 'paint a', 'draw a',
       'paint', 'draw', 'composite', 'merge images', 'blend images',
-      'combine images'
+      'combine images', 'design me', 'give me a'
     ];
 
     // Check for explicit phrases first
@@ -946,19 +1025,36 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       return true;
     }
 
-    // Single words only if with "image/photo/picture"
-    const singleWords = ['generate', 'create', 'make'];
-    const imageNouns = ['image', 'photo', 'picture', 'visual', 'illustration'];
+    // Single words only if with "image/photo/picture" or other visual nouns
+    const singleWords = ['generate', 'create', 'make', 'design', 'render', 'draw', 'paint', 'composite', 'blend', 'merge'];
+    const imageNouns = [
+      'image', 'photo', 'picture', 'visual', 'illustration', 'graphic',
+      'pattern', 'background', 'banner', 'logo', 'icon', 'art', 'sketch',
+      'doodle', 'elements', 'mockup', 'poster', 'canvas', 'wallpaper'
+    ];
 
     const hasSingleWord = singleWords.some(w => lowerMessage.includes(w));
     const hasImageNoun = imageNouns.some(n => lowerMessage.includes(n));
 
     if (hasSingleWord && hasImageNoun) {
+      console.log('✅ Verb + Noun generation detected');
       return true;
     }
 
-    // Don't create placeholder for low-confidence cases
-    // Let backend decide without optimistic placeholder
+    // NEW: Check for common visual keywords anywhere in the message
+    const visualKeywords = ['pattern', 'background', 'banner', 'logo', 'icon', 'illustration', 'graphic', 'doodle', 'mockup', 'poster', 'wallpaper', 'texture'];
+    if (visualKeywords.some(k => lowerMessage.includes(k))) {
+      console.log('✅ Visual keyword detected:', visualKeywords.find(k => lowerMessage.includes(k)));
+      return true;
+    }
+
+    // Special cases for single words that almost always mean generation in this context
+    if (lowerMessage.startsWith('generate ') || lowerMessage.startsWith('render ') || lowerMessage.startsWith('draw ') || lowerMessage.startsWith('paint ')) {
+      console.log('✅ Command-start generation detected');
+      return true;
+    }
+
+    console.log('❌ No image generation detected for message');
     return false;
   }, []);
 
@@ -967,51 +1063,35 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
    * @param frame - Current frame number (0-11) for 12-frame animation cycle
    */
   const createLoadingPlaceholderSVG = useCallback((frame: number = 0): string => {
-    // Calculate rotation based on frame (30 degrees per frame for smooth rotation)
-    const rotation = (frame * 30) % 360;
-
-    // Calculate dot opacities for animated dots effect
-    const dotOpacities = [
-      frame % 4 === 0 ? 1 : 0.3,
-      frame % 4 === 1 ? 1 : 0.3,
-      frame % 4 === 2 ? 1 : 0.3,
-    ];
+    // Subtle pulse for the border
+    const borderOpacity = 0.6 + Math.sin(frame * 0.5) * 0.2;
+    const textOpacity = 0.8 + Math.cos(frame * 0.3) * 0.1;
 
     const svg = `
-      <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#6366f1;stop-opacity:0.3" />
-            <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:0.3" />
-          </linearGradient>
-        </defs>
-
-        <!-- Background -->
-        <rect width="400" height="400" fill="url(#grad)" />
-
-        <!-- Static dashed border -->
-        <rect x="2" y="2" width="396" height="396" fill="none" stroke="#6366f1"
-              stroke-width="3" stroke-dasharray="10,5" opacity="0.5"/>
-
-        <!-- Loading spinner - animated rotation -->
-        <g transform="rotate(${rotation}, 200, 200)">
-          <circle cx="200" cy="200" r="40" fill="none" stroke="#ffffff"
-                  stroke-width="4" stroke-dasharray="60,200" opacity="0.8"/>
-        </g>
-
-        <!-- Text -->
-        <text x="200" y="260" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
-              font-size="18" fill="#ffffff" font-weight="500">
+      <svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="400" fill="transparent" />
+        
+        <!-- Main Card Body -->
+        <rect x="10" y="10" width="380" height="380" rx="32" fill="#ffffff" />
+        <rect x="10" y="10" width="380" height="380" rx="32" fill="#f8fafc" opacity="0.8" />
+        
+        <!-- Border with pulse -->
+        <rect x="10" y="10" width="380" height="380" rx="32" 
+              fill="none" stroke="#3b82f6" stroke-width="8" 
+              opacity="${borderOpacity}" />
+        
+        <!-- Text "Generating" -->
+        <text x="200" y="215" text-anchor="middle" 
+              font-family="'Poppins', 'Inter', system-ui, sans-serif" 
+              font-size="44" fill="#1e293b" font-weight="700"
+              opacity="${textOpacity}">
           Generating
         </text>
-
-        <!-- Animated dots -->
-        <text x="200" y="285" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
-              font-size="24" fill="#ffffff">
-          <tspan opacity="${dotOpacities[0]}">.</tspan>
-          <tspan opacity="${dotOpacities[1]}">.</tspan>
-          <tspan opacity="${dotOpacities[2]}">.</tspan>
-        </text>
+        
+        <!-- Subtle loading indicator -->
+        <circle cx="180" cy="270" r="6" fill="#3b82f6" opacity="${frame % 3 === 0 ? 1 : 0.3}" />
+        <circle cx="200" cy="270" r="6" fill="#3b82f6" opacity="${frame % 3 === 1 ? 1 : 0.3}" />
+        <circle cx="220" cy="270" r="6" fill="#3b82f6" opacity="${frame % 3 === 2 ? 1 : 0.3}" />
       </svg>
     `;
 
@@ -1059,23 +1139,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     // Smart placement using collision detection
     const PLACEHOLDER_SIZE = 400;
 
-    // Get IDs of existing placeholders to exclude from collision
-    const existingPlaceholderIds = allShapes
-      .filter(s => s.id.startsWith('placeholder-'))
-      .map(s => s.id);
 
     // Find optimal placement using smart algorithm
     const position = findOptimalPlacement(
       PLACEHOLDER_SIZE,
       PLACEHOLDER_SIZE,
-      allShapes,
+      allShapesRef.current, // Use ref for sync tracking
       selectedShapes, // Reference shapes
-      existingPlaceholderIds,
+      [], // No longer exclude placeholders to prevent overlap
       {
-        minGap: 50,
-        preferredGap: 80,
+        minGap: 2,
+        preferredGap: 10,
         maxIterations: 50,
-        spiralStep: 100,
+        spiralStep: 20,
       }
     );
 
@@ -1095,6 +1171,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     // Add to canvas immediately
     onAddShape(placeholderShape);
+    allShapesRef.current = [...allShapesRef.current, placeholderShape];
     console.log('🎨 Added loading placeholder:', placeholderId);
 
     // Start animation loop - update every 100ms for smooth animation
@@ -1640,10 +1717,18 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             onRemovePlaceholderDefined: !!onRemovePlaceholder
           });
 
-          // === REMOVE PLACEHOLDERS BEFORE ADDING REAL IMAGES ===
+          // Handle canvas actions with real images FIRST
+          // This keeps the placeholders on screen until the real images are ready
+          try {
+            await handleCanvasActions(data.actions || [], data.generatedImages || []);
+          } catch (canvasError) {
+            console.error('Canvas action error:', canvasError);
+          }
+
+          // === REMOVE PLACEHOLDERS AFTER ADDING REAL IMAGES ===
           const currentPlaceholders = activePlaceholdersRef.current;
           if (currentPlaceholders.length > 0 && data.generatedImages && data.generatedImages.length > 0) {
-            console.log('🗑️ Removing placeholders before adding real images:', currentPlaceholders);
+            console.log('🗑️ Removing placeholders after adding real images:', currentPlaceholders);
 
             // Stop animations and remove all active placeholders
             currentPlaceholders.forEach(placeholderId => {
@@ -1655,14 +1740,6 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             setActivePlaceholders([]);
             activePlaceholdersRef.current = [];
             console.log('✅ All placeholders removed');
-          }
-
-          // Handle canvas actions with real images
-          try {
-            await handleCanvasActions(data.actions || [], data.generatedImages || []);
-          } catch (canvasError) {
-            console.error('Canvas action error:', canvasError);
-            // Error already logged, continue to response handling
           }
         }
 
@@ -1749,7 +1826,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setMessages([]);
     setBrandBible(null);
     setInputValue('');
-    setHistoryLoaded(false); // Allow reloading history
+    setHistoryLoaded(true); // Don't trigger reload from useEffect
+    onNewCanvas?.();
   };
 
   // Handle key press
@@ -1855,7 +1933,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                       <button
                         key={template.id}
                         onClick={() => handleTemplateClick(template)}
-                        className="w-full text-left p-4 bg-[#dcdcdc] border border-gray-300 rounded-2xl transition-all group relative overflow-hidden h-[110px] flex items-center justify-between hover:bg-[#cfcfcf]"
+                        className="w-full text-left p-4 bg-[#f7f7f7] border border-gray-200 rounded-2xl transition-all group relative overflow-hidden h-[110px] flex items-center justify-between hover:bg-[#eeeeee]"
                       >
                         <div className="z-10 relative max-w-[65%] pr-2">
                           <h3 className="text-black font-medium mb-1.5 group-hover:text-black transition-colors text-base">{template.name}</h3>
@@ -1865,7 +1943,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                         <img
                           src={template.image}
                           alt=""
-                          className="absolute right-[-5px] bottom-[-10px] w-24 h-24 object-contain transform rotate-6 opacity-90 group-hover:scale-110 group-hover:rotate-12 transition-all duration-300"
+                          className={`absolute ${(template as any).dimensions || 'w-24 h-24'} object-contain transform opacity-90 transition-all duration-300 ${(template as any).position || ((template as any).static ? 'right-6 top-1/2 -translate-y-1/2' : 'right-[-5px] bottom-[-10px] rotate-6 group-hover:scale-110 group-hover:rotate-12')}`}
                           onError={(e) => e.currentTarget.style.display = 'none'}
                         />
                       </button>
@@ -1967,33 +2045,41 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           )}
         </div>
 
-        {/* Input Area - Floating Modern Box */}
         <div className="p-5 bg-white">
-
-          {/* Pre-input States (Thumbnails) */}
-          {(getSelectedImageShapes().length > 0 || uploadedImages.length > 0) && (
-            <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
-              {getSelectedImageShapes().map(img => (
-                <div key={img.id} className="relative w-10 h-10 rounded border border-blue-500 flex-shrink-0">
-                  <img src={img.src} className="w-full h-full object-cover" alt="" />
-                </div>
-              ))}
-              {uploadedImages.map(img => (
-                <div key={img.id} className="relative w-10 h-10 rounded border border-purple-500 flex-shrink-0 group">
-                  <img src={img.url} className="w-full h-full object-cover" alt="" />
-                  <button onClick={() => removeUploadedImage(img.id)} className="absolute -top-1 -right-1 bg-red-500 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <X className="w-2 h-2 text-white" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Input Container */}
           {/* Input Container */}
           <div
             className="relative bg-white border border-gray-200 rounded-[24px] focus-within:border-gray-400 focus-within:bg-white transition-all shadow-xl"
           >
+            {/* Pre-input States (Image Chips) - NOW INSIDE BORDER */}
+            {(getSelectedImageShapes().length > 0 || uploadedImages.length > 0) && (
+              <div className="pt-4 px-4 flex items-center gap-2 flex-wrap">
+                {getSelectedImageShapes().map(img => {
+                  const name = img.generationMetadata?.prompt
+                    ? (img.generationMetadata.prompt.length > 15
+                      ? img.generationMetadata.prompt.substring(0, 15) + '...'
+                      : img.generationMetadata.prompt)
+                    : 'Selected Image';
+
+                  return (
+                    <ImageChip
+                      key={img.id}
+                      imageUrl={img.src}
+                      name={name}
+                      borderColor="border-blue-100"
+                    />
+                  );
+                })}
+                {uploadedImages.map(img => (
+                  <ImageChip
+                    key={img.id}
+                    imageUrl={img.url}
+                    name={img.file.name || 'Uploaded Image'}
+                    onRemove={() => removeUploadedImage(img.id)}
+                    borderColor="border-gray-100"
+                  />
+                ))}
+              </div>
+            )}
             <textarea
               ref={inputRef}
               value={inputValue}
@@ -2063,17 +2149,20 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
       </div>
 
       {/* Subscription Popup - Rendered outside to avoid being trapped by backdrop-filter */}
-      {showSubscriptionPopup && (
-        <SubscriptionTiersPopup
-          isOpen={showSubscriptionPopup}
-          onClose={() => setShowSubscriptionPopup(false)}
-          currentCredits={credits || 0}
-          creditsRequired={0}
-          onSelectTier={async (tierId) => {
-            refreshCredits();
-          }}
-        />
-      )}
+      {
+        showSubscriptionPopup && (
+          <SubscriptionTiersPopup
+            isOpen={showSubscriptionPopup}
+            onClose={() => setShowSubscriptionPopup(false)}
+            currentCredits={credits || 0}
+            creditsRequired={0}
+            onSelectTier={async (tierId) => {
+              refreshCredits();
+            }}
+          />
+        )
+      }
+
     </>
   );
 };

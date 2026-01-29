@@ -327,7 +327,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
   return (
     <>
       {/* Settings Panel - No backdrop to allow canvas interactions */}
-      <div className="fixed right-0 top-0 h-screen w-[240px] bg-[#525252] border-l border-[#666666] z-50 flex flex-col shadow-2xl" style={{ fontWeight: 200 }}>
+      <div className="fixed right-0 top-0 h-screen w-[232px] bg-[#263341] border-l border-[#666666] z-50 flex flex-col shadow-2xl" style={{ fontWeight: 200 }}>
         {/* Top Section - Credits, Status, Share, Tasks */}
         <div className="px-4 py-2.5 border-b border-[#666666]">
           {/* Top Section */}
@@ -369,7 +369,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   onClick={onTasksDropdownToggle}
                 />
                 {/* Dropdown Panel - Positioned to the left, same line */}
-                <div className="absolute top-1/2 -translate-y-1/2 right-full mr-4 bg-[#525252]/90 backdrop-blur-md border border-[#666666] rounded-xl shadow-2xl w-[280px] z-40">
+                <div className="absolute top-1/2 -translate-y-1/2 right-full mr-4 bg-[#263341]/90 backdrop-blur-md border border-[#666666] rounded-xl shadow-2xl w-[280px] z-40">
                   {/* Header */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-[#666666]">
                     <span className="text-white text-sm">Task manager</span>
@@ -547,7 +547,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     {/* Collapsible Header */}
                     <button
                       onClick={() => toggleNodeExpanded(node.id)}
-                      className="w-full flex items-center justify-between px-3 py-2 bg-[#525252] hover:bg-[#666666] transition-colors"
+                      className="w-full flex items-center justify-between px-3 py-2 bg-[#263341] hover:bg-[#666666] transition-colors"
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-white" style={{ fontWeight: 200 }}>{nodeName}</span>
@@ -585,7 +585,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
 
                     {/* Collapsible Content */}
                     {isExpanded && (
-                      <div className="px-3 py-2.5 bg-[#525252] space-y-2.5">
+                      <div className="px-3 py-2.5 bg-[#263341] space-y-2.5">
                         {node.type === 'imageGenerator' && isNodeFlux ? (
                           /* Flux Settings - Full Settings */
                           <>
@@ -687,7 +687,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 value={nodeSettings.seed || ''}
                                 onChange={(e) => handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined, node.id)}
                                 placeholder="Leave empty for random"
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                               />
                             </div>
                           </>
@@ -841,7 +841,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 value={nodeSettings.seed ?? ''}
                                 onChange={(e) => handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined, node.id)}
                                 placeholder="Leave empty for random"
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                               />
                             </div>
                             {/* Safety */}
@@ -884,7 +884,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                         handleSettingChange('seed', Math.floor(Math.random() * 1000000), node.id);
                                       }
                                     }}
-                                    className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                                    className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
                                   />
                                   <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
                                 </label>
@@ -893,7 +893,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   value={nodeSettings.seed || 41269}
                                   onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0, node.id)}
                                   disabled={nodeSettings.seedRandom !== false}
-                                  className="flex-1 bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="flex-1 bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{ fontWeight: 200 }}
                                 />
                               </div>
@@ -926,7 +926,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   type="checkbox"
                                   checked={nodeSettings.promptUpsampling === true}
                                   onChange={(e) => handleSettingChange('promptUpsampling', e.target.checked, node.id)}
-                                  className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                                  className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
                                 />
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Prompt Upsampling</span>
@@ -1033,7 +1033,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                       onSettingsChange(node.id, newSettings);
                                     }
                                   }}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="1K">1K</option>
                                   <option value="2K">2K</option>
@@ -1055,7 +1055,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 min="512"
                                 max="8192"
                                 step="256"
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                               />
                             </div>
                             {/* Height */}
@@ -1071,7 +1071,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 min="512"
                                 max="8192"
                                 step="256"
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                               />
                             </div>
                             {/* Aspect Ratio */}
@@ -1123,7 +1123,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.enhancePrompt !== false ? 'true' : 'false'}
                                   onChange={(e) => handleSettingChange('enhancePrompt', e.target.value === 'true', node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="true">Enabled</option>
                                   <option value="false">Disabled</option>
@@ -1141,7 +1141,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.sequentialImageGeneration || 'disabled'}
                                   onChange={(e) => handleSettingChange('sequentialImageGeneration', e.target.value as 'enabled' | 'disabled', node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="disabled">Disabled</option>
                                   <option value="enabled">Enabled</option>
@@ -1163,7 +1163,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.aspectRatio || '16:9'}
                                   onChange={(e) => handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'], node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="16:9">16:9</option>
                                   <option value="9:16">9:16</option>
@@ -1210,7 +1210,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.quality || '720p'}
                                   onChange={(e) => handleSettingChange('quality', e.target.value, node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="360p">360p</option>
                                   <option value="540p">540p</option>
@@ -1230,7 +1230,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.effect || 'None'}
                                   onChange={(e) => handleSettingChange('effect', e.target.value, node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="None">None</option>
                                   <option value="Let's YMCA!">Let's YMCA!</option>
@@ -1263,7 +1263,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 onChange={(e) => handleSettingChange('negativePrompt', e.target.value, node.id)}
                                 placeholder="Enter negative prompt..."
                                 rows={3}
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                                 style={{ fontWeight: 200 }}
                               />
                             </div>
@@ -1277,7 +1277,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.motionMode || 'normal'}
                                   onChange={(e) => handleSettingChange('motionMode', e.target.value, node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="normal">normal</option>
                                   <option value="fast">fast</option>
@@ -1303,7 +1303,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                         handleSettingChange('seed', Math.floor(Math.random() * 1000000), node.id);
                                       }
                                     }}
-                                    className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                                    className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
                                   />
                                   <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
                                 </label>
@@ -1312,7 +1312,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                   value={nodeSettings.seed || 597311}
                                   onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0, node.id)}
                                   disabled={nodeSettings.seedRandom !== false}
-                                  className="flex-1 bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="flex-1 bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{ fontWeight: 200 }}
                                 />
                               </div>
@@ -1327,7 +1327,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 <select
                                   value={nodeSettings.style || 'None'}
                                   onChange={(e) => handleSettingChange('style', e.target.value, node.id)}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="None">None</option>
                                   <option value="cinematic">Cinematic</option>
@@ -1348,7 +1348,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                     console.log('🔊 Enable Sound Effects checkbox changed (multi):', e.target.checked, 'for node:', node.id);
                                     handleSettingChange('enableSoundEffects', e.target.checked ? true : false, node.id);
                                   }}
-                                  className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                                  className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
                                 />
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Enable Sound Effects</span>
@@ -1367,7 +1367,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 onChange={(e) => handleSettingChange('soundEffectPrompt', e.target.value, node.id)}
                                 placeholder="Enter sound effect prompt..."
                                 rows={3}
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                                 style={{ fontWeight: 200 }}
                               />
                             </div>
@@ -1378,7 +1378,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                             <div className="mb-1.5">
                               <span className="text-gray-300" style={{ fontWeight: 200 }}>Content:</span>
                             </div>
-                            <div className="bg-[#525252] border border-[#666666] rounded p-1.5 text-gray-400 max-h-24 overflow-y-auto" style={{ fontWeight: 200 }}>
+                            <div className="bg-[#263341] border border-[#666666] rounded p-1.5 text-gray-400 max-h-24 overflow-y-auto" style={{ fontWeight: 200 }}>
                               {node.data?.value || 'No content'}
                             </div>
                           </div>
@@ -1399,7 +1399,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                     const newSettings = { ...nodeSettings, modelName: e.target.value };
                                     onSettingsChange?.(node.id, newSettings);
                                   }}
-                                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                                 >
                                   <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                                 </select>
@@ -1425,7 +1425,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                                 }}
                                 placeholder="Enter model instructions..."
                                 rows={6}
-                                className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                                className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                                 style={{ fontWeight: 200 }}
                               />
                             </div>
@@ -1454,7 +1454,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     onChange={(e) =>
                       handleSettingChange('modelName', e.target.value)
                     }
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                     {/* More models will be added here */}
@@ -1479,7 +1479,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   }
                   placeholder="Enter model instructions..."
                   rows={6}
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                   style={{ fontWeight: 200 }}
                 />
               </div>
@@ -1565,7 +1565,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   onChange={(e) => handleSettingChange('negativePrompt', e.target.value)}
                   placeholder="Enter negative prompt..."
                   rows={3}
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                   style={{ fontWeight: 200 }}
                 />
               </div>
@@ -1599,7 +1599,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                           handleSettingChange('seed', Math.floor(Math.random() * 1000000));
                         }
                       }}
-                      className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                      className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
                     />
                     <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
                   </label>
@@ -1608,7 +1608,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     value={settings.seed || 597311}
                     onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0)}
                     disabled={settings.seedRandom !== false}
-                    className="flex-1 bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ fontWeight: 200 }}
                   />
                 </div>
@@ -1635,7 +1635,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                       console.log('🔊 Enable Sound Effects checkbox changed:', e.target.checked);
                       handleSettingChange('enableSoundEffects', e.target.checked ? true : false);
                     }}
-                    className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
+                    className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-purple-500 focus:ring-purple-500 focus:ring-1"
                   />
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Enable Sound Effects</span>
@@ -1654,7 +1654,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   onChange={(e) => handleSettingChange('soundEffectPrompt', e.target.value)}
                   placeholder="Enter sound effect prompt..."
                   rows={3}
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] resize-y"
                   style={{ fontWeight: 200 }}
                 />
               </div>
@@ -1673,7 +1673,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     onChange={(e) =>
                       handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])
                     }
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="1:1">1:1 (Square)</option>
                     <option value="16:9">16:9 (Landscape)</option>
@@ -1776,7 +1776,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined)
                   }
                   placeholder="Leave empty for random"
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                 />
               </div>
             </>
@@ -1924,7 +1924,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   value={settings.seed ?? ''}
                   onChange={(e) => handleSettingChange('seed', e.target.value ? parseInt(e.target.value) : undefined)}
                   placeholder="Leave empty for random"
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                 />
               </div>
               {/* Safety */}
@@ -1967,7 +1967,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                           handleSettingChange('seed', Math.floor(Math.random() * 1000000));
                         }
                       }}
-                      className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                      className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
                     />
                     <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Random</span>
                   </label>
@@ -1976,7 +1976,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     value={settings.seed || 41269}
                     onChange={(e) => handleSettingChange('seed', parseInt(e.target.value) || 0)}
                     disabled={settings.seedRandom !== false}
-                    className="flex-1 bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676] disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ fontWeight: 200 }}
                   />
                 </div>
@@ -2009,7 +2009,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     type="checkbox"
                     checked={settings.promptUpsampling === true}
                     onChange={(e) => handleSettingChange('promptUpsampling', e.target.checked)}
-                    className="w-3 h-3 bg-[#525252] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
+                    className="w-3 h-3 bg-[#263341] border border-[#666666] rounded text-cyan-500 focus:ring-cyan-500 focus:ring-1"
                   />
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-gray-300" style={{ fontWeight: 200 }}>Prompt Upsampling</span>
@@ -2118,7 +2118,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                         onSettingsChange(nodeId, newSettings);
                       }
                     }}
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="1K">1K (1024x1024)</option>
                     <option value="2K">2K (2048x2048)</option>
@@ -2146,7 +2146,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   min="512"
                   max="8192"
                   step="256"
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                 />
               </div>
 
@@ -2165,7 +2165,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                   min="512"
                   max="8192"
                   step="256"
-                  className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
+                  className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 focus:outline-none focus:border-[#767676]"
                 />
               </div>
 
@@ -2181,7 +2181,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     onChange={(e) =>
                       handleSettingChange('aspectRatio', e.target.value as NodeSettings['aspectRatio'])
                     }
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="1:1">1:1 (Square)</option>
                     <option value="4:3">4:3 (Standard)</option>
@@ -2240,7 +2240,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     onChange={(e) =>
                       handleSettingChange('enhancePrompt', e.target.value === 'true')
                     }
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="true">Enabled</option>
                     <option value="false">Disabled</option>
@@ -2264,7 +2264,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                     onChange={(e) =>
                       handleSettingChange('sequentialImageGeneration', e.target.value as 'enabled' | 'disabled')
                     }
-                    className="w-full bg-[#525252] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
+                    className="w-full bg-[#263341] text-white text-[10px] border border-[#666666] rounded px-2 py-1.5 pr-6 focus:outline-none focus:border-[#767676] appearance-none cursor-pointer"
                   >
                     <option value="disabled">Disabled</option>
                     <option value="enabled">Enabled</option>
@@ -2293,7 +2293,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 <button
                   onClick={() => handleRunsChange(-1)}
                   disabled={runs <= 1}
-                  className="w-10 h-10 bg-[#525252] hover:bg-[#666666] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg border border-[#666666] transition-colors flex items-center justify-center text-lg"
+                  className="w-10 h-10 bg-[#263341] hover:bg-[#666666] disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg border border-[#666666] transition-colors flex items-center justify-center text-lg"
                 >
                   −
                 </button>
@@ -2302,7 +2302,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
                 </div>
                 <button
                   onClick={() => handleRunsChange(1)}
-                  className="w-10 h-10 bg-[#525252] hover:bg-[#666666] text-white rounded-lg border border-[#666666] transition-colors flex items-center justify-center text-lg"
+                  className="w-10 h-10 bg-[#263341] hover:bg-[#666666] text-white rounded-lg border border-[#666666] transition-colors flex items-center justify-center text-lg"
                 >
                   +
                 </button>
@@ -2403,7 +2403,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           background: #8b5cf6;
           border-radius: 50%;
           cursor: pointer;
-          border: 2px solid #525252;
+          border: 2px solid #263341;
         }
 
         .slider::-moz-range-thumb {
@@ -2412,7 +2412,7 @@ const NodeSettingsPanel: React.FC<NodeSettingsPanelProps> = ({
           background: #8b5cf6;
           border-radius: 50%;
           cursor: pointer;
-          border: 2px solid #525252;
+          border: 2px solid #263341;
         }
       `}</style>
     </>

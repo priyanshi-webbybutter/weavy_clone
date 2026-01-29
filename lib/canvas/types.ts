@@ -38,6 +38,7 @@ export interface ShapeStyle {
   textDecoration?: 'none' | 'underline' | 'strikethrough';
   textCase?: 'none' | 'uppercase' | 'lowercase' | 'titlecase';
   verticalAlign?: 'top' | 'middle' | 'bottom';
+  backgroundColor?: string;
 }
 
 export interface BaseShape {

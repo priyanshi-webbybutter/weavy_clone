@@ -920,8 +920,8 @@ export class CanvasEngine {
     this.ctx.translate(this.state.viewport.x, this.state.viewport.y);
     this.ctx.scale(this.state.viewport.zoom, this.state.viewport.zoom);
 
-    // Draw grid - disabled for plain background
-    // this.drawGrid();
+    // Draw grid
+    this.drawGrid();
 
     // Draw shapes
     const shapes = Array.from(this.state.shapes.values());
@@ -967,30 +967,24 @@ export class CanvasEngine {
   private drawGrid() {
     if (!this.ctx) return;
 
-    const gridSize = 20;
+    const gridSize = 25; // 25px grid is standard for dots
+    const dotSize = 0.8; // Small dots
     const bounds = this.getVisibleBounds();
 
-    this.ctx.strokeStyle = '#2a2a2a';
-    this.ctx.lineWidth = 1 / this.state.viewport.zoom;
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'; // Subtle dark dots
 
-    // Vertical lines
     const startX = Math.floor(bounds.minX / gridSize) * gridSize;
     const endX = Math.ceil(bounds.maxX / gridSize) * gridSize;
-    for (let x = startX; x <= endX; x += gridSize) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(x, bounds.minY);
-      this.ctx.lineTo(x, bounds.maxY);
-      this.ctx.stroke();
-    }
-
-    // Horizontal lines
     const startY = Math.floor(bounds.minY / gridSize) * gridSize;
     const endY = Math.ceil(bounds.maxY / gridSize) * gridSize;
-    for (let y = startY; y <= endY; y += gridSize) {
-      this.ctx.beginPath();
-      this.ctx.moveTo(bounds.minX, y);
-      this.ctx.lineTo(bounds.maxX, y);
-      this.ctx.stroke();
+
+    for (let x = startX; x <= endX; x += gridSize) {
+      for (let y = startY; y <= endY; y += gridSize) {
+        this.ctx.beginPath();
+        // Dot stays small on screen by dividing radius by zoom
+        this.ctx.arc(x, y, dotSize / this.state.viewport.zoom, 0, Math.PI * 2);
+        this.ctx.fill();
+      }
     }
   }
 
@@ -1402,6 +1396,14 @@ export class CanvasEngine {
     this.ctx.rect(shape.x, shape.y, shape.width, shape.height);
     this.ctx.clip();
 
+    // Draw background if specified
+    if (shape.style.backgroundColor) {
+      this.ctx.save();
+      this.ctx.fillStyle = shape.style.backgroundColor;
+      this.ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+      this.ctx.restore();
+    }
+
     // Build font string with weight
     const baseFontSize = shape.style.fontSize || 16;
 
@@ -1593,9 +1595,11 @@ export class CanvasEngine {
       return; // Skip normal selection drawing
     }
 
-    // Use consistent blue solid style for text, purple dashed for others
-    if (shape.type === 'text') {
-      this.ctx.strokeStyle = '#60a5fa'; // Light blue for text selection
+    // Use blue solid style for text and images, purple dashed for others
+    const isBlueSelection = shape.type === 'text' || shape.type === 'image';
+
+    if (isBlueSelection) {
+      this.ctx.strokeStyle = '#3b82f6'; // Blue for text and image selection
       this.ctx.lineWidth = 1.5 / this.state.viewport.zoom;
       this.ctx.setLineDash([]); // Solid line
     } else {
@@ -2150,8 +2154,8 @@ export class CanvasEngine {
 
     this.ctx.save();
 
-    // Use blue for text handles, purple for others
-    const themeColor = isTextShape ? '#60a5fa' : '#8b5cf6';
+    // Use blue for text and image handles, purple for others
+    const themeColor = (isTextShape || cornersOnly) ? '#3b82f6' : '#8b5cf6';
     this.ctx.fillStyle = '#ffffff'; // White fill
     this.ctx.strokeStyle = themeColor;
     this.ctx.lineWidth = 1.5 / this.state.viewport.zoom;
