@@ -2466,4 +2466,350 @@ router.get('/history/:projectId', async (req, res) => {
   }
 });
 
+// ===================================================================
+// STREAMING AI CHAT ENDPOINT - Progressive response with SSE
+// ===================================================================
+router.post('/stream', upload.single('canvasImage'), async (req, res) => {
+  // Set headers for Server-Sent Events
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+  res.flushHeaders();
+
+  // Helper to send SSE events
+  const sendEvent = (type, data) => {
+    res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+  };
+
+  let tempFilePath = null;
+
+  try {
+    // Parse FormData fields
+    const message = req.body.message;
+    const conversationHistory = req.body.conversationHistory ? JSON.parse(req.body.conversationHistory) : [];
+    const canvasContext = req.body.canvasContext ? JSON.parse(req.body.canvasContext) : null;
+    const brandBible = req.body.brandBible ? JSON.parse(req.body.brandBible) : null;
+    const projectId = req.body.projectId || null;
+
+    // Get authenticated user
+    const { user, supabaseClient } = await getAuthenticatedUserForChat(req);
+
+    // Check credits
+    if (user) {
+      const creditCheck = await creditService.hasEnoughCredits(user.id, 'gemini-2.5-flash', 1000);
+      if (!creditCheck.hasEnough) {
+        sendEvent('error', { 
+          message: 'Insufficient credits',
+          creditsRemaining: creditCheck.currentCredits 
+        });
+        res.end();
+        return;
+      }
+    }
+
+    // Extract auth token
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    }
+
+    // Parse selected images
+    let selectedImages = [];
+    try {
+      if (req.body.selectedImages) {
+        selectedImages = JSON.parse(req.body.selectedImages);
+        console.log(`📷 [STREAM] Received ${selectedImages.length} selected images`);
+      }
+    } catch (e) {
+      console.error('Failed to parse selectedImages');
+    }
+
+    // Handle canvas image
+    let canvasImageData = null;
+    if (req.file) {
+      tempFilePath = req.file.path;
+      const imageBuffer = fs.readFileSync(tempFilePath);
+      canvasImageData = {
+        inlineData: {
+          data: imageBuffer.toString('base64'),
+          mimeType: req.file.mimetype || 'image/png'
+        }
+      };
+    }
+
+    console.log('🚀 [STREAM] Starting streaming AI chat...');
+
+    // ===================================================================
+    // STEP 1: Quick intent detection and acknowledgement generation
+    // ===================================================================
+    const quickModel = genAI.getGenerativeModel({ 
+      model: 'gemini-2.5-flash',
+      generationConfig: { temperature: 0.7, maxOutputTokens: 200 }
+    });
+
+    const intentPrompt = `You are an AI design assistant. Analyze this user request and provide a quick acknowledgement.
+
+User request: "${message}"
+${selectedImages.length > 0 ? `User has ${selectedImages.length} image(s) selected for reference.` : ''}
+
+Respond with JSON only (no markdown, no code blocks):
+{
+  "intent": "image_generation" or "text_response" or "canvas_edit",
+  "acknowledgement": "One confident sentence about what you'll create. Use present tense, friendly creator tone. Example: 'I'll create this Instagram post for you with the mixed-media collage aesthetic you described.'"
+}`;
+
+    // Detect image generation keywords
+    const imageKeywords = ['generate', 'create', 'make', 'design', 'draw', 'produce', 'build'];
+    const lowerMessage = message.toLowerCase();
+    const hasImageKeyword = imageKeywords.some(kw => lowerMessage.includes(kw));
+    
+    // Default intent based on keywords
+    let intent = { 
+      intent: hasImageKeyword ? 'image_generation' : 'text_response', 
+      acknowledgement: hasImageKeyword 
+        ? `I'll create that for you.`
+        : "I'll help you with that." 
+    };
+    
+    try {
+      const intentResult = await quickModel.generateContent(intentPrompt);
+      const intentText = intentResult.response.text();
+      console.log('🔍 [STREAM] Raw intent response:', intentText.substring(0, 200));
+      
+      // Extract JSON from response
+      const jsonMatch = intentText.match(/\{[\s\S]*?\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        // Only override if we got valid data
+        if (parsed.intent && parsed.acknowledgement) {
+          intent = parsed;
+        }
+      }
+      console.log('🎯 [STREAM] Intent detected:', intent.intent, '| Acknowledgement:', intent.acknowledgement.substring(0, 50));
+    } catch (e) {
+      console.log('⚠️ [STREAM] Failed to parse intent, using keyword-based fallback:', e.message);
+      console.log('⚠️ [STREAM] Fallback intent:', intent.intent);
+    }
+
+    // SEND ACKNOWLEDGEMENT IMMEDIATELY
+    sendEvent('acknowledgement', { 
+      text: intent.acknowledgement,
+      intent: intent.intent
+    });
+    console.log('✅ [STREAM] Sent acknowledgement:', intent.acknowledgement.substring(0, 50) + '...');
+
+    // ===================================================================
+    // STEP 2: If image generation, signal generating status and proceed
+    // ===================================================================
+    if (intent.intent === 'image_generation') {
+      sendEvent('generating', { status: true });
+      console.log('🎨 [STREAM] Starting image generation...');
+
+      // Initialize chat with system prompt
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash",
+        tools: tools,
+      });
+
+      const chat = model.startChat({
+        history: [],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] }
+      });
+
+      // Build user message with context
+      let userMessageText = message;
+      if (selectedImages.length > 0) {
+        userMessageText += `\n\n[SYSTEM: User has ${selectedImages.length} reference image(s) selected. Use them for compositing/reference.]`;
+      }
+      userMessageText += `\n\n[CRITICAL: Call call_image_generator IMMEDIATELY. Do NOT explain what you will do.]`;
+
+      // Send to Gemini
+      const messageParts = [];
+      if (canvasImageData) {
+        messageParts.push(canvasImageData);
+        messageParts.push({ text: `[CANVAS SCREENSHOT ATTACHED]\n\n${userMessageText}` });
+      } else {
+        messageParts.push({ text: userMessageText });
+      }
+
+      let result = await chat.sendMessage(messageParts);
+      let response = result.response;
+      let functionCalls = response.functionCalls();
+
+      // Track generated images
+      let generatedImages = [];
+      let description = '';
+
+      console.log('🔍 [STREAM] Function calls detected:', {
+        hasFunctionCalls: !!functionCalls,
+        count: functionCalls?.length || 0,
+        names: functionCalls?.map(fc => fc.name) || []
+      });
+
+      // Execute function calls
+      if (functionCalls && functionCalls.length > 0) {
+        for (const call of functionCalls) {
+          if (call.name === 'call_image_generator') {
+            console.log('🎨 [STREAM] Executing image generator:', call.args.prompt?.substring(0, 50) + '...');
+            
+            const toolResult = await executeToolCall(call.name, call.args, selectedImages, projectId, token);
+            
+            if (toolResult.success && toolResult.imageUrl) {
+              generatedImages.push({
+                url: toolResult.imageUrl,
+                prompt: toolResult.prompt,
+                aspectRatio: toolResult.aspectRatio
+              });
+
+              // Send images immediately when ready
+              sendEvent('images', { generatedImages });
+              console.log('✅ [STREAM] Sent generated image');
+
+              // Get description from Gemini
+              result = await chat.sendMessage([{
+                functionResponse: {
+                  name: call.name,
+                  response: toolResult
+                }
+              }]);
+              response = result.response;
+            } else {
+              console.error('❌ [STREAM] Tool execution failed:', toolResult.error);
+              sendEvent('error', { message: toolResult.error || 'Image generation failed' });
+            }
+          }
+        }
+      } else {
+        // FALLBACK: Gemini didn't call the tool - force image generation directly
+        console.log('⚠️ [STREAM] No function calls - forcing direct image generation');
+        
+        const toolResult = await generateImage(
+          message, // Use original message as prompt
+          '1:1',   // Default aspect ratio
+          selectedImages,
+          projectId,
+          token
+        );
+
+        if (toolResult.success && toolResult.imageUrl) {
+          generatedImages.push({
+            url: toolResult.imageUrl,
+            prompt: message,
+            aspectRatio: toolResult.aspectRatio
+          });
+          
+          sendEvent('images', { generatedImages });
+          console.log('✅ [STREAM] Sent generated image (fallback)');
+        } else {
+          console.error('❌ [STREAM] Fallback generation failed:', toolResult.error);
+          sendEvent('error', { message: toolResult.error || 'Image generation failed' });
+        }
+      }
+
+      // Get final text response for description
+      let textResponse = '';
+      try {
+        textResponse = response.text();
+      } catch (e) {
+        console.log('⚠️ [STREAM] Could not get text response:', e.message);
+      }
+      
+      // Parse description (skip acknowledgement-like first line)
+      if (textResponse) {
+        const paragraphs = textResponse.split(/\n\n+/);
+        if (paragraphs.length > 1) {
+          description = paragraphs.slice(1).join('\n\n');
+        } else {
+          description = textResponse;
+        }
+      }
+
+      // If no description from Gemini but we have images, generate a simple one
+      if (!description && generatedImages.length > 0) {
+        description = `I've generated the image based on your request. The design captures the essence of "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}".`;
+      }
+
+      // Send description
+      if (description) {
+        sendEvent('description', { text: description });
+        console.log('✅ [STREAM] Sent description');
+      }
+
+      // Save to database if authenticated
+      if (projectId && user && supabaseClient) {
+        // Save user message
+        await saveChatMessage(supabaseClient, projectId, user.id, {
+          role: 'user',
+          content: message
+        });
+        
+        // Save assistant message
+        await saveChatMessage(supabaseClient, projectId, user.id, {
+          role: 'assistant',
+          content: intent.acknowledgement + '\n\n' + description,
+          images: generatedImages,
+          phase: 'EXECUTION'
+        });
+      }
+
+    } else {
+      // ===================================================================
+      // NON-IMAGE RESPONSE - Just send text response
+      // ===================================================================
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2.5-flash",
+        tools: tools,
+      });
+
+      const chat = model.startChat({
+        history: [],
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] }
+      });
+
+      const messageParts = [];
+      if (canvasImageData) {
+        messageParts.push(canvasImageData);
+        messageParts.push({ text: `[CANVAS SCREENSHOT]\n\n${message}` });
+      } else {
+        messageParts.push({ text: message });
+      }
+
+      const result = await chat.sendMessage(messageParts);
+      const textResponse = result.response.text();
+
+      sendEvent('description', { text: textResponse });
+
+      // Save to database
+      if (projectId && user && supabaseClient) {
+        await saveChatMessage(supabaseClient, projectId, user.id, {
+          role: 'user',
+          content: message
+        });
+        await saveChatMessage(supabaseClient, projectId, user.id, {
+          role: 'assistant',
+          content: textResponse,
+          phase: 'STRATEGY'
+        });
+      }
+    }
+
+    // End stream
+    sendEvent('done', { success: true });
+    console.log('✅ [STREAM] Stream completed');
+    res.end();
+
+  } catch (error) {
+    console.error('❌ [STREAM] Error:', error.message);
+    sendEvent('error', { message: error.message });
+    res.end();
+  } finally {
+    // Clean up temp file
+    if (tempFilePath) {
+      try { fs.unlinkSync(tempFilePath); } catch (e) {}
+    }
+  }
+});
+
 module.exports = router;

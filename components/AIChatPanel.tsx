@@ -25,6 +25,10 @@ interface Message {
     bbox: number[]; // [x1, y1, x2, y2] in normalized [0, 1] coordinates
   };
   timestamp: Date;
+  // Streaming response fields
+  acknowledgement?: string;
+  description?: string;
+  isGenerating?: boolean;
 }
 
 interface BrandBible {
@@ -79,28 +83,28 @@ const QUICK_TEMPLATES = [
     name: 'Gradient hero banner',
     description: 'Colorful gradient background',
     prompt: 'Create a modern gradient hero banner for my brand',
-    image: '/templates/gradient.png'
+    emoji: '🌈'
   },
   {
     id: '3d-abstract',
     name: '3D abstract shape',
     description: 'Geometric 3D element',
     prompt: 'Generate a 3D abstract geometric shape for my design',
-    image: '/templates/3d-shape.png'
+    emoji: '🔷'
   },
   {
     id: 'botanical',
     name: 'Botanical pattern',
     description: 'Nature/plant pattern',
     prompt: 'Create a botanical leaf pattern design',
-    image: '/templates/botanical.png'
+    emoji: '🌿'
   },
   {
     id: 'doodle',
     name: 'Doodle element set',
     description: 'Hand-drawn style elements',
     prompt: 'Generate hand-drawn doodle design elements',
-    image: '/templates/doodle.png'
+    emoji: '✏️'
   }
 ];
 
@@ -1739,9 +1743,208 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
   }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, selectedShapes, detectImageGeneration, addGenerationPlaceholder, replacePlaceholderWithImage, onUpdateShape, createErrorPlaceholderSVG, stopPlaceholderAnimation, uploadedImages]);
 
+  // ===================================================================
+  // STREAMING SEND MESSAGE - Progressive response with SSE
+  // ===================================================================
+  const sendMessageStreaming = useCallback(async (messageText: string) => {
+    if (!messageText.trim() || isLoading) return;
+
+    // Check credits
+    if (credits !== null && credits <= 0) {
+      setShowSubscriptionPopup(true);
+      setInputValue('');
+      return;
+    }
+
+    // Get selected images
+    const selectedImageShapes = getSelectedImageShapes();
+    const selectedImagesData = selectedImageShapes.map(img => ({
+      id: img.id,
+      url: img.src
+    }));
+    const allImages = [...selectedImagesData, ...uploadedImages.map(img => ({
+      id: img.id,
+      url: img.url
+    }))];
+
+    // Add user message
+    const userMessage: Message = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: messageText,
+      selectedImages: allImages.length > 0 ? allImages : undefined,
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, userMessage]);
+    setInputValue('');
+    setIsLoading(true);
+
+    // Create placeholder assistant message for streaming updates
+    const assistantMessageId = `msg-${Date.now()}-assistant`;
+    const assistantMessage: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      acknowledgement: '',
+      isGenerating: false,
+      images: [],
+      description: '',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, assistantMessage]);
+
+    try {
+      // Capture canvas
+      const canvasBlob = await onCaptureCanvas();
+
+      // Get selected images for compositing
+      const selectedImages = await getSelectedImagesBase64();
+
+      // Build FormData
+      const formData = new FormData();
+      formData.append('message', messageText);
+      formData.append('conversationHistory', JSON.stringify(
+        messages.map(m => ({ role: m.role, content: m.content }))
+      ));
+      formData.append('canvasContext', JSON.stringify(buildCanvasContext()));
+
+      if (brandBible) {
+        formData.append('brandBible', JSON.stringify(brandBible));
+      }
+      if (projectId) {
+        formData.append('projectId', projectId);
+      }
+      if (selectedImages.length > 0) {
+        formData.append('selectedImages', JSON.stringify(selectedImages));
+      }
+      if (canvasBlob) {
+        formData.append('canvasImage', canvasBlob, 'canvas-capture.png');
+      }
+
+      // Get auth token
+      const token = localStorage.getItem('auth_token');
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Stream response using fetch with ReadableStream
+      const response = await fetch(`${API_BASE_URL}/ai-chat/stream`, {
+        method: 'POST',
+        headers: headers,
+        body: formData
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      let buffer = '';
+      let generatedImagesReceived: { url: string; prompt: string; aspectRatio?: string }[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              console.log('📡 [STREAM] Received event:', data.type);
+
+              setMessages(prev => prev.map(msg => {
+                if (msg.id !== assistantMessageId) return msg;
+
+                switch (data.type) {
+                  case 'acknowledgement':
+                    return { 
+                      ...msg, 
+                      acknowledgement: data.text, 
+                      content: data.text 
+                    };
+
+                  case 'generating':
+                    return { ...msg, isGenerating: true };
+
+                  case 'images':
+                    generatedImagesReceived = data.generatedImages || [];
+                    // Also add to canvas
+                    if (generatedImagesReceived.length > 0) {
+                      handleCanvasActions([], generatedImagesReceived);
+                    }
+                    return { 
+                      ...msg, 
+                      isGenerating: false, 
+                      images: generatedImagesReceived 
+                    };
+
+                  case 'description':
+                    return { 
+                      ...msg, 
+                      description: data.text,
+                      content: (msg.acknowledgement || '') + '\n\n' + data.text
+                    };
+
+                  case 'error':
+                    return {
+                      ...msg,
+                      isGenerating: false,
+                      content: `Error: ${data.message}`
+                    };
+
+                  case 'done':
+                    return { ...msg, isGenerating: false };
+
+                  default:
+                    return msg;
+                }
+              }));
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
+        }
+      }
+
+      // Refresh credits
+      refreshCredits();
+
+      // Clear uploaded images
+      setUploadedImages([]);
+
+    } catch (error) {
+      console.error('Streaming error:', error);
+
+      // Update assistant message with error
+      setMessages(prev => prev.map(msg => {
+        if (msg.id !== assistantMessageId) return msg;
+        return {
+          ...msg,
+          isGenerating: false,
+          content: error instanceof Error 
+            ? `I encountered an error: ${error.message}`
+            : 'Sorry, an unexpected error occurred.'
+        };
+      }));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, projectId, uploadedImages, credits, refreshCredits]);
+
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
-    sendMessage(template.prompt);
+    sendMessageStreaming(template.prompt); // Use streaming version
   };
 
   // Handle new chat
@@ -1756,7 +1959,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(inputValue);
+      sendMessageStreaming(inputValue); // Use streaming version
     }
   };
 
@@ -1855,19 +2058,16 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                       <button
                         key={template.id}
                         onClick={() => handleTemplateClick(template)}
-                        className="w-full text-left p-4 bg-[#dcdcdc] border border-gray-300 rounded-2xl transition-all group relative overflow-hidden h-[110px] flex items-center justify-between hover:bg-[#cfcfcf]"
+                        className="w-full text-left p-4 bg-[#f5f5f5] border border-gray-200 rounded-2xl transition-all group relative overflow-hidden h-[90px] flex items-center justify-between hover:bg-[#ebebeb] hover:border-gray-300"
                       >
-                        <div className="z-10 relative max-w-[65%] pr-2">
-                          <h3 className="text-black font-medium mb-1.5 group-hover:text-black transition-colors text-base">{template.name}</h3>
+                        <div className="z-10 relative max-w-[75%] pr-2">
+                          <h3 className="text-black font-medium mb-1 group-hover:text-black transition-colors text-sm">{template.name}</h3>
                           <p className="text-gray-500 text-xs leading-relaxed line-clamp-2">{template.description}</p>
                         </div>
 
-                        <img
-                          src={template.image}
-                          alt=""
-                          className="absolute right-[-5px] bottom-[-10px] w-24 h-24 object-contain transform rotate-6 opacity-90 group-hover:scale-110 group-hover:rotate-12 transition-all duration-300"
-                          onError={(e) => e.currentTarget.style.display = 'none'}
-                        />
+                        <span className="text-3xl opacity-70 group-hover:scale-110 group-hover:opacity-100 transition-all duration-300">
+                          {template.emoji}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1907,7 +2107,53 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                       )}
 
                       {message.role === 'assistant' ? (
-                        <MarkdownMessage content={cleanMarkdownImages(message.content)} />
+                        <div className="space-y-3">
+                          {/* Acknowledgement - shows immediately for streaming */}
+                          {message.acknowledgement ? (
+                            <div className="text-black/90">{message.acknowledgement}</div>
+                          ) : (
+                            <MarkdownMessage content={cleanMarkdownImages(message.content)} />
+                          )}
+
+                          {/* Skeleton loader - shows while generating */}
+                          {message.isGenerating && (
+                            <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                              <div 
+                                className="w-full h-64 bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100"
+                                style={{
+                                  backgroundSize: '200% 100%',
+                                  animation: 'shimmer 1.5s infinite linear'
+                                }}
+                              />
+                              <div className="p-3 flex items-center gap-2 text-xs text-gray-400">
+                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                                <span>Generating image...</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Generated images - replaces skeleton */}
+                          {message.images && message.images.length > 0 && (
+                            <div className="grid grid-cols-1 gap-3">
+                              {message.images.map((img, i) => (
+                                <div key={i} className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+                                  <img
+                                    src={img.url}
+                                    alt={img.prompt}
+                                    className="w-full h-auto"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Description - shows after image */}
+                          {message.description && (
+                            <div className="text-black/80 text-sm whitespace-pre-wrap">
+                              <MarkdownMessage content={message.description} />
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <div className="whitespace-pre-wrap">{message.content}</div>
                       )}
@@ -1918,22 +2164,6 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                           {message.selectedImages.map((img) => (
                             <div key={img.id} className="w-10 h-10 rounded overflow-hidden border border-white/20 opacity-80">
                               <img src={img.url} className="w-full h-full object-cover" alt="" />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Generated Images */}
-                      {message.images && message.images.length > 0 && (
-                        <div className="mt-4 grid grid-cols-1 gap-3">
-                          {message.images.map((img, i) => (
-                            <div key={i} className="rounded-xl overflow-hidden border border-[#3a3a3a] bg-[#1a1a1a]">
-                              <img
-                                src={img.url}
-                                alt={img.prompt}
-                                className="w-full h-auto"
-                              />
-                              {img.prompt && <div className="p-2 text-[10px] text-gray-500 bg-[#151515]">{img.prompt}</div>}
                             </div>
                           ))}
                         </div>
@@ -2037,7 +2267,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
                 {/* Send Button */}
                 <button
-                  onClick={() => sendMessage(inputValue)}
+                  onClick={() => sendMessageStreaming(inputValue)}
                   disabled={!inputValue.trim() || isLoading}
                   className={`w-9 h-9 flex items-center justify-center rounded-full transition-all ${inputValue.trim() && !isLoading
                     ? 'bg-black text-white hover:bg-gray-800 hover:scale-105'
