@@ -96,7 +96,7 @@ const QUICK_TEMPLATES = [
     image: '/templates/image-removebg-preview.png',
     static: true,
     dimensions: 'w-36 h-36',
-    position: 'right-8 top-1/2 -translate-y-1/2'
+    position: 'right-1 top-1/2 -translate-y-1/2'
   },
   {
     id: 'botanical',
@@ -115,7 +115,7 @@ const QUICK_TEMPLATES = [
     prompt: 'Generate hand-drawn doodle design elements',
     image: '/templates/doodle element set.png',
     static: true,
-    dimensions: 'w-40 h-40',
+    dimensions: 'w-28 h-28',
     position: 'right-0 top-1/2 -translate-y-1/2'
   }
 ];
@@ -220,6 +220,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const currentReferenceIdsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const allShapesRef = useRef<Shape[]>(allShapes);
+  // Track processed image URLs to prevent duplicates across re-renders
+  const processedImageUrlsRef = useRef<Set<string>>(new Set());
 
   // Marker results state
   const [markerResults, setMarkerResults] = useState<MarkerResult[]>([]);
@@ -228,7 +230,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const [dropdownOpenId, setDropdownOpenId] = useState<string | null>(null);
 
   // Resize state
-  const [panelWidth, setPanelWidth] = useState(400);
+  const [panelWidth, setPanelWidth] = useState(350);
   const [isResizing, setIsResizing] = useState(false);
   const isResizingRef = useRef(false);
 
@@ -261,11 +263,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current) return;
 
-      // Calculate new width: mouse X - panel start X (88px)
-      const newWidth = e.clientX - 88;
+      // Calculate new width: mouse X - panel start X (75px)
+      const newWidth = e.clientX - 75;
 
-      // Limit width between 300px and 800px
-      if (newWidth >= 300 && newWidth <= 800) {
+      // Limit width between 300px and 450px
+      if (newWidth >= 300 && newWidth <= 450) {
         setPanelWidth(newWidth);
       }
     };
@@ -828,8 +830,21 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     });
 
     // Handle generated images with smart placement
+    // Handle generated images with smart placement
     if (images.length > 0) {
-      console.log(`🎨 Processing ${images.length} generated images...`);
+      // Deduplicate images to prevent double-generation of the same image
+      // Also check against global processed set to prevent duplicates across re-renders
+      const uniqueImages = images.filter((img, index, self) => {
+        const isFirstInList = index === self.findIndex((t) => t.url === img.url);
+        const isNotProcessed = !processedImageUrlsRef.current.has(img.url);
+        return isFirstInList && isNotProcessed;
+      });
+
+      const skippedCount = images.length - uniqueImages.length;
+      console.log(`🎨 Processing ${uniqueImages.length} generated images (skipped ${skippedCount} duplicates)...`);
+
+      // Mark these as processed immediately to prevent concurrent handling
+      uniqueImages.forEach(img => processedImageUrlsRef.current.add(img.url));
 
       // Load all images first to get actual dimensions
       const imageData: Array<{
@@ -839,7 +854,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         height: number;
       }> = [];
 
-      for (const image of images) {
+      for (const image of uniqueImages) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.src = image.url;
@@ -931,7 +946,12 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
 
     // Handle other actions (text, shapes, modifications)
-    for (const action of actions) {
+    // Prevent duplicate images: Filter out 'add' actions for images if we already have generated images
+    const filteredActions = images.length > 0
+      ? actions.filter(a => !(a.type === 'add' && (a.asset_type === 'image' || a.content?.includes('<img'))))
+      : actions;
+
+    for (const action of filteredActions) {
       if (action.type === 'add') {
         if (action.asset_type === 'text' && action.content) {
           // Use smart placement for text as well
@@ -1030,11 +1050,11 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
 
     // Single words only if with "image/photo/picture" or other visual nouns
-    const singleWords = ['generate', 'create', 'make', 'design', 'render', 'draw', 'paint', 'composite', 'blend', 'merge'];
+    const singleWords = ['generate', 'create', 'make', 'design', 'render', 'draw', 'paint', 'composite', 'blend', 'merge', 'new'];
     const imageNouns = [
       'image', 'photo', 'picture', 'visual', 'illustration', 'graphic',
       'pattern', 'background', 'banner', 'logo', 'icon', 'art', 'sketch',
-      'doodle', 'elements', 'mockup', 'poster', 'canvas', 'wallpaper'
+      'doodle', 'elements', 'element', 'mockup', 'poster', 'canvas', 'wallpaper', 'asset'
     ];
 
     const hasSingleWord = singleWords.some(w => lowerMessage.includes(w));
@@ -1046,14 +1066,19 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }
 
     // NEW: Check for common visual keywords anywhere in the message
-    const visualKeywords = ['pattern', 'background', 'banner', 'logo', 'icon', 'illustration', 'graphic', 'doodle', 'mockup', 'poster', 'wallpaper', 'texture'];
+    const visualKeywords = [
+      'pattern', 'background', 'banner', 'logo', 'icon', 'illustration',
+      'graphic', 'doodle', 'mockup', 'poster', 'wallpaper', 'texture',
+      'hand-drawn', 'element', 'branding', 'identity', 'sticker'
+    ];
     if (visualKeywords.some(k => lowerMessage.includes(k))) {
       console.log('✅ Visual keyword detected:', visualKeywords.find(k => lowerMessage.includes(k)));
       return true;
     }
 
     // Special cases for single words that almost always mean generation in this context
-    if (lowerMessage.startsWith('generate ') || lowerMessage.startsWith('render ') || lowerMessage.startsWith('draw ') || lowerMessage.startsWith('paint ')) {
+    const commandStarts = ['generate ', 'render ', 'draw ', 'paint ', 'create ', 'make ', 'design '];
+    if (commandStarts.some(cmd => lowerMessage.startsWith(cmd))) {
       console.log('✅ Command-start generation detected');
       return true;
     }
@@ -1140,14 +1165,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const addGenerationPlaceholder = useCallback((): string => {
     const placeholderId = `placeholder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Smart placement using collision detection
-    const PLACEHOLDER_SIZE = 400;
-
+    // Smart placement using collision detection - use portrait orientation like the screenshot
+    const PLACEHOLDER_WIDTH = 380;
+    const PLACEHOLDER_HEIGHT = 480;
 
     // Find optimal placement using smart algorithm
     const position = findOptimalPlacement(
-      PLACEHOLDER_SIZE,
-      PLACEHOLDER_SIZE,
+      PLACEHOLDER_WIDTH,
+      PLACEHOLDER_HEIGHT,
       allShapesRef.current, // Use ref for sync tracking
       selectedShapes, // Reference shapes
       [], // No longer exclude placeholders to prevent overlap
@@ -1161,30 +1186,29 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     console.log(`🎯 Smart placement for placeholder at (${position.x}, ${position.y})`);
 
-    // Create placeholder image shape with SVG data URL (initial frame)
+    // Create placeholder image shape (src is ignored by custom engine drawer for placeholders)
     const placeholderShape: ImageShape = {
       id: placeholderId,
       type: 'image',
       x: position.x,
       y: position.y,
-      width: PLACEHOLDER_SIZE,
-      height: PLACEHOLDER_SIZE,
-      src: createLoadingPlaceholderSVG(0),
-      style: { opacity: 0.8 }
+      width: PLACEHOLDER_WIDTH,
+      height: PLACEHOLDER_HEIGHT,
+      src: '', // Will be rendered as animation by CanvasEngine
+      style: { opacity: 1 }
     };
 
     // Add to canvas immediately
     onAddShape(placeholderShape);
     allShapesRef.current = [...allShapesRef.current, placeholderShape];
-    console.log('🎨 Added loading placeholder:', placeholderId);
+    console.log('🎨 Added loading placeholder shape:', placeholderId);
 
-    // Start animation loop - update every 100ms for smooth animation
-    let frame = 0;
+    // No longer using setInterval here - animation will be handled by the engine
+    // But we still need to trigger occasional re-renders if the engine isn't auto-animating
+    // For now, let's keep a slower interval just to ensure canvas refreshes
     const animationInterval = setInterval(() => {
-      frame = (frame + 1) % 12; // 12 frames in the animation cycle
-      const newSvg = createLoadingPlaceholderSVG(frame);
-      onUpdateShape(placeholderId, { src: newSvg });
-    }, 100);
+      onUpdateShape(placeholderId, { style: { opacity: 0.99 + Math.random() * 0.01 } });
+    }, 150);
 
     // Store the interval for cleanup
     placeholderAnimationRef.current.set(placeholderId, animationInterval);
@@ -1856,6 +1880,26 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setInputValue('');
     setIsLoading(true);
 
+    // Clear markers after sending message
+    if (markerResults.length > 0) {
+      console.log('🧹 Clearing markers after streaming message sent');
+      markerResults.forEach(marker => {
+        window.dispatchEvent(new CustomEvent('marker-delete', {
+          detail: { markerId: marker.markerId }
+        }));
+      });
+      setMarkerResults([]);
+    }
+
+    // === PLACEHOLDER LOGIC: Detect if image generation expected ===
+    const willGenerateImage = detectImageGeneration(messageText, selectedShapes, markerResults);
+    let placeholderId: string | null = null;
+
+    if (willGenerateImage) {
+      console.log('🎨 Streaming: Image generation detected - adding placeholder');
+      placeholderId = addGenerationPlaceholder();
+    }
+
     // Create placeholder assistant message for streaming updates
     const assistantMessageId = `msg-${Date.now()}-assistant`;
     const assistantMessage: Message = {
@@ -1945,10 +1989,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
                 switch (data.type) {
                   case 'acknowledgement':
-                    return { 
-                      ...msg, 
-                      acknowledgement: data.text, 
-                      content: data.text 
+                    return {
+                      ...msg,
+                      acknowledgement: data.text,
+                      content: data.text
                     };
 
                   case 'generating':
@@ -1959,25 +2003,39 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                     // Also add to canvas
                     if (generatedImagesReceived.length > 0) {
                       handleCanvasActions([], generatedImagesReceived);
+
+                      // Remove our placeholder now that we have real images
+                      if (placeholderId) {
+                        onRemovePlaceholder?.(placeholderId);
+                        setActivePlaceholders(prev => prev.filter(id => id !== placeholderId));
+                        activePlaceholdersRef.current = activePlaceholdersRef.current.filter(id => id !== placeholderId);
+                        placeholderId = null; // Prevent duplicate removal
+                      }
                     }
-                    return { 
-                      ...msg, 
-                      isGenerating: false, 
-                      images: generatedImagesReceived 
+                    return {
+                      ...msg,
+                      isGenerating: false,
+                      images: generatedImagesReceived
                     };
 
                   case 'description':
-                    return { 
-                      ...msg, 
+                    return {
+                      ...msg,
                       description: data.text,
                       content: (msg.acknowledgement || '') + '\n\n' + data.text
                     };
 
                   case 'error':
+                    // Cleanup placeholder on error
+                    if (placeholderId) {
+                      onRemovePlaceholder?.(placeholderId);
+                      setActivePlaceholders(prev => prev.filter(id => id !== placeholderId));
+                      activePlaceholdersRef.current = activePlaceholdersRef.current.filter(id => id !== placeholderId);
+                    }
                     return {
                       ...msg,
                       isGenerating: false,
-                      content: `Error: ${data.message}`
+                      content: `Error: ${data.message || data.text || 'Unknown error'}`
                     };
 
                   case 'done':
@@ -2009,7 +2067,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         return {
           ...msg,
           isGenerating: false,
-          content: error instanceof Error 
+          content: error instanceof Error
             ? `I encountered an error: ${error.message}`
             : 'Sorry, an unexpected error occurred.'
         };
@@ -2017,7 +2075,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, projectId, uploadedImages, credits, refreshCredits]);
+  }, [messages, isLoading, buildCanvasContext, brandBible, handleCanvasActions, onCaptureCanvas, getSelectedImagesBase64, getSelectedImageShapes, projectId, uploadedImages, credits, refreshCredits, detectImageGeneration, addGenerationPlaceholder, onRemovePlaceholder, markerResults, selectedShapes]);
 
   // Handle template click
   const handleTemplateClick = (template: typeof QUICK_TEMPLATES[0]) => {
@@ -2047,7 +2105,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
 
     const colors = {
       STRATEGY: 'bg-blue-500/20 text-blue-400',
-      EXECUTION: 'bg-purple-500/20 text-purple-400',
+      EXECUTION: 'bg-[#9d9eb152] text-[#00000080]',
       REFINEMENT: 'bg-green-500/20 text-green-400'
     };
 
@@ -2065,7 +2123,8 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
   return (
     <>
       <div
-        className="fixed left-[88px] top-4 h-[calc(100vh-32px)] bg-white border border-[#dcdcdc] rounded-[30px] z-50 flex flex-col font-sans overflow-hidden py-1"
+        data-chat-panel
+        className="fixed left-[75px] top-4 h-[calc(100vh-32px)] bg-white border border-[#dcdcdc] rounded-[30px] z-50 flex flex-col font-sans overflow-hidden py-1"
         style={{ fontWeight: 400, width: `${panelWidth}px` }}
       >
         {/* Resize Handle */}
@@ -2077,7 +2136,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[2px] h-8 bg-gray-300 rounded-full group-hover/resizer:bg-gray-400 group-hover/resizer:h-12 transition-all" />
         </div>
         {/* Header - Minimal with Right Actions */}
-        <div className="flex items-center justify-between px-6 py-5">
+        <div className="flex items-center justify-between px-[0.5rem] pt-[0.6rem] pb-[0.2rem] border-b border-[#00000021]">
           <div className="w-10 h-10 flex items-center justify-center overflow-hidden">
             <img
               src="/assets/chat-logo.png"
@@ -2087,9 +2146,9 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           </div>
 
           <div className="flex items-center gap-4 text-gray-500">
-            <div onClick={() => setShowSubscriptionPopup(true)} className="cursor-pointer border border-[#dcdcdc] bg-white hover:bg-gray-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-shadow shadow-sm">
-              <Sparkles className="w-4 h-4 text-gray-500" />
-              <span className="text-xs font-medium text-gray-600">{credits !== null ? credits.toFixed(0) : '0'}</span>
+            <div onClick={() => setShowSubscriptionPopup(true)} className="cursor-pointer flex items-center gap-1.5 hover:bg-gray-50 transition-colors px-3 py-1.5 border border-[#dcdcdc] rounded-full">
+              <img src="/templates/credit.png" alt="credits" className="w-4 h-4 object-contain" />
+              <span className="text-xs font-medium text-black">{credits !== null ? credits.toFixed(2) : '0.00'}</span>
             </div>
 
             <button onClick={handleNewChat} title="New chat" className="w-8 h-8 flex items-center justify-center rounded-full border border-[#dcdcdc] bg-white text-gray-500 hover:text-black hover:bg-gray-50 transition-all shadow-sm">
@@ -2116,7 +2175,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {!hasMessages ? (
             /* Welcome Screen */
-            <div className="px-6 pt-2 pb-20">
+            <div className="px-6 pt-2">
               {isLoadingHistory ? (
                 <div className="flex flex-col items-center justify-center py-20 opacity-50">
                   <RefreshCw className="w-8 h-8 text-gray-600 animate-spin mb-3" />
@@ -2157,7 +2216,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
             </div>
           ) : (
             /* Chat Messages */
-            <div className="px-5 py-4 space-y-6 pb-6">
+            <div className="px-5 py-4 space-y-6">
               {messages.map(message => (
                 <div
                   key={message.id}
@@ -2196,19 +2255,28 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                             <MarkdownMessage content={cleanMarkdownImages(message.content)} />
                           )}
 
-                          {/* Skeleton loader - shows while generating */}
+                          {/* Skeleton loader - shows while generating (Updated to match screenshot) */}
                           {message.isGenerating && (
-                            <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
-                              <div 
-                                className="w-full h-64 bg-gradient-to-r from-gray-100 via-gray-200 to-gray-100"
-                                style={{
-                                  backgroundSize: '200% 100%',
-                                  animation: 'shimmer 1.5s infinite linear'
-                                }}
-                              />
-                              <div className="p-3 flex items-center gap-2 text-xs text-gray-400">
-                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                                <span>Generating image...</span>
+                            <div className="space-y-3">
+                              <div className="rounded-2xl overflow-hidden border border-gray-100 bg-[#f3f4f6] shadow-sm">
+                                <div
+                                  className="w-full h-64 bg-gradient-to-r from-gray-100/50 via-gray-200/50 to-gray-100/50"
+                                  style={{
+                                    backgroundSize: '200% 100%',
+                                    animation: 'shimmer 2s infinite linear'
+                                  }}
+                                />
+                                <div className="p-3 pb-4 bg-white/40 flex items-center gap-2 text-[13px] text-gray-400 font-medium">
+                                  <div className="w-1.5 h-1.5 bg-purple-400 rounded-full shadow-[0_0_8px_rgba(192,132,252,0.6)] animate-pulse" />
+                                  <span>Generating image...</span>
+                                </div>
+                              </div>
+
+                              {/* The three dots loader below the box */}
+                              <div className="flex gap-1.5 ml-1 pt-1 opacity-40">
+                                <div className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                                <div className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                                <div className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce" />
                               </div>
                             </div>
                           )}
@@ -2278,14 +2346,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
           )}
         </div>
 
-        <div className="p-5 bg-white">
+        <div className="p-2 bg-white">
           {/* Input Container */}
           <div
-            className="relative bg-white border border-gray-200 rounded-[24px] focus-within:border-gray-400 focus-within:bg-white transition-all shadow-xl"
+            className="relative bg-white border border-gray-200 rounded-[17px] focus-within:border-gray-400 focus-within:bg-white transition-all shadow-xl"
           >
             {/* Pre-input States (Image Chips) - NOW INSIDE BORDER */}
             {(getSelectedImageShapes().length > 0 || uploadedImages.length > 0) && (
-              <div className="pt-4 px-4 flex items-center gap-2 flex-wrap">
+              <div className="p-2 flex items-center gap-2 flex-wrap">
                 {getSelectedImageShapes().map(img => {
                   const name = img.generationMetadata?.prompt
                     ? (img.generationMetadata.prompt.length > 15
@@ -2319,7 +2387,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Start with an idea, or type '@' to mention"
-              className="w-full bg-transparent border-none focus:ring-0 text-black px-5 pt-4 pb-2 text-[15px] resize-none max-h-[120px] min-h-[50px] placeholder:text-gray-400"
+              className="w-full bg-transparent border-none focus:ring-0 text-black px-2 pt-2 pb-0 text-[15px] resize-none max-h-[120px] min-h-[50px] placeholder:text-gray-400"
               disabled={isLoading}
               style={{ height: 'auto', outline: 'none' }}
             />
@@ -2330,14 +2398,14 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading}
-                  className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors"
+                  className="flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors py-[0.25rem] px-[0.35rem]"
                   title="Attach"
                 >
                   <Paperclip className="w-4 h-4" />
                 </button>
 
                 {/* Agent Pill - White/Blue Style */}
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white rounded-full border border-blue-100 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-1.5 px-[0.35rem] py-[0.25rem] bg-white rounded-full border border-blue-100 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
                   <Sparkles className="w-3.5 h-3.5 text-blue-500 fill-blue-500" />
                   <span className="text-[12px] font-medium text-blue-600">Agent</span>
                 </div>
@@ -2346,10 +2414,10 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
               <div className="flex items-center gap-2">
                 {/* New Icons: Globe, Box, etc. (Visual placeholders to match reference) */}
                 <div className="flex items-center gap-1 mr-2">
-                  <button className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="Web Search">
+                  <button className="flex items-center justify-center rounded-full border border-gray-200 text-gray-400 hover:text-black hover:bg-gray-100 transition-colors py-[0.25rem] px-[0.35rem]" title="Web Search">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
                   </button>
-                  <button className="w-8 h-8 flex items-center justify-center rounded-full border border-gray-200 text-blue-500 border-blue-500/30 hover:bg-blue-50 transition-colors" title="Canvas Context">
+                  <button className="flex items-center justify-center rounded-full border border-gray-200 text-blue-500 border-blue-500/30 hover:bg-blue-50 transition-colors py-[0.25rem] px-[0.35rem]" title="Canvas Context">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
                   </button>
                 </div>
@@ -2359,7 +2427,7 @@ const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   onClick={() => sendMessageStreaming(inputValue)}
                   disabled={!inputValue.trim() || isLoading}
                   className={`w-9 h-9 flex items-center justify-center rounded-full transition-all ${inputValue.trim() && !isLoading
-                    ? 'bg-black text-white hover:bg-gray-800 hover:scale-105'
+                    ? 'bg-[#263341] text-white hover:bg-[#1e2833] hover:scale-105'
                     : 'bg-gray-100 text-gray-300 cursor-not-allowed'
                     }`}
                 >

@@ -1116,9 +1116,62 @@ export class CanvasEngine {
         break;
 
       case 'image':
-        this.drawImage(shape as ImageShape);
+        if (shape.id.startsWith('placeholder-')) {
+          this.drawPlaceholderAnimation(shape as ImageShape);
+        } else {
+          this.drawImage(shape as ImageShape);
+        }
         break;
     }
+
+    this.ctx.restore();
+  }
+
+  private drawPlaceholderAnimation(shape: ImageShape) {
+    if (!this.ctx) return;
+
+    const { x, y, width, height } = shape;
+    const centerX = x + width / 2;
+    const centerY = y + height / 2;
+
+    // Animation timing for subtle feedback
+    const time = Date.now() / 1000;
+    const pulse = (Math.sin(time * 2) + 1) / 2; // 0 to 1 pulse
+
+    this.ctx.save();
+
+    // 1. Draw Background Card (Light and simple)
+    const radius = 12;
+    this.ctx.beginPath();
+    this.ctx.moveTo(x + radius, y);
+    this.ctx.lineTo(x + width - radius, y);
+    this.ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    this.ctx.lineTo(x + width, y + height - radius);
+    this.ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    this.ctx.lineTo(x + radius, y + height);
+    this.ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    this.ctx.lineTo(x, y + radius);
+    this.ctx.quadraticCurveTo(x, y, x + radius, y);
+    this.ctx.closePath();
+
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fill();
+
+    // 2. Draw Slate-Gray Border
+    this.ctx.strokeStyle = '#94a3b8'; // Slate 400
+    this.ctx.lineWidth = 4 / this.state.viewport.zoom;
+    this.ctx.stroke();
+
+    // 3. Draw "generating......" Text (All lowercase as requested)
+    this.ctx.globalAlpha = 0.6 + pulse * 0.4; // Subtle pulsing text
+    this.ctx.fillStyle = '#94a3b8';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+
+    // Use a rounded-style font if possible, fallback to Inter/sans-serif
+    const fontSize = 32;
+    this.ctx.font = `500 ${fontSize}px "Assistant", "Inter", "Poppins", sans-serif`;
+    this.ctx.fillText('generating......', centerX, centerY);
 
     this.ctx.restore();
   }

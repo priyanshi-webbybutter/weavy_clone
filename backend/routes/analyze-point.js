@@ -18,14 +18,14 @@ async function retryWithBackoff(fn, maxRetries = 5) {
 
       // Check if it's a retryable error (rate limit, temporary failure)
       const isRetryable = error.message?.includes('429') ||
-                          error.message?.includes('RESOURCE_EXHAUSTED') ||
-                          error.message?.includes('UNAVAILABLE');
+        error.message?.includes('RESOURCE_EXHAUSTED') ||
+        error.message?.includes('UNAVAILABLE');
 
       if (!isRetryable) throw error;
 
       // Exponential backoff with jitter
       const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
-      console.log(`⏳ Rate limited, retrying in ${(delay/1000).toFixed(1)}s... (attempt ${i + 1}/${maxRetries})`);
+      console.log(`⏳ Rate limited, retrying in ${(delay / 1000).toFixed(1)}s... (attempt ${i + 1}/${maxRetries})`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -45,7 +45,7 @@ router.post('/analyze-point', async (req, res) => {
 
     // Structured output with bounding boxes and priority system
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp'
+      model: 'gemini-2.0-flash'
     });
 
     const prompt = `You are a precise object detection AI. A user clicked at normalized coordinates [${normalizedX.toFixed(4)}, ${normalizedY.toFixed(4)}] on this image (where 0.0 is top/left and 1.0 is bottom/right).

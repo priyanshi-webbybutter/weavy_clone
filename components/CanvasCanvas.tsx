@@ -316,16 +316,29 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   const updateSelectedShapesState = () => {
     if (!engineRef.current) {
       setSelectedShapes([]);
+      setSelectedShapeId(null);
       setAllShapesState([]);
       setIsSettingsPanelOpen(false);
+      setPropertiesPanelPos(null);
       return;
     }
     const shapes = engineRef.current.getSelectedShapes();
     setSelectedShapes(shapes);
+
+    // Sync selectedShapeId with the primary selection (first selected shape)
+    if (shapes.length === 1) {
+      setSelectedShapeId(shapes[0].id);
+    } else if (shapes.length === 0) {
+      setSelectedShapeId(null);
+      setPropertiesPanelPos(null);
+    }
+
     // Also update all shapes state for AI chat panel
     setAllShapesState(engineRef.current.getAllShapes());
     if (shapes.length > 0) {
       setIsSettingsPanelOpen(true);
+      // Trigger a position update for the properties panel
+      setTimeout(updatePropertiesPanelPosition, 10);
     } else {
       setIsSettingsPanelOpen(false);
     }
@@ -367,19 +380,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       return;
     }
 
-    // Position panel above the shape with a small gap, centered horizontally
+    // Position panel relative to shape
     const canvasRect = canvasRef.current.getBoundingClientRect();
-    const gap = 12; // Comfortable gap
-    const PANEL_HEIGHT = 60; // Approximate height of the styling panel
+    const gap = 32; // Increased gap for better separation
+    const PANEL_HEIGHT = 60; // Approximate height of the styling panel used for bounds check
 
-    // Position panel closer to the shape
-    const topPosition = bounds.y - gap - PANEL_HEIGHT;
-
-    // If panel would go off-screen at the top (less than ~50px from top of screen), 
-    // position it below the shape instead
-    const finalY = (topPosition < 50)
-      ? canvasRect.top + bounds.y + bounds.height + gap
-      : canvasRect.top + topPosition;
+    // Always position ABOVE as requested
+    // We want visual bottom of panel at (bounds.y - gap).
+    // Since CSS has transform: translate(-50%, -100%), style.top IS the visual bottom.
+    const finalY = canvasRect.top + (bounds.y - gap);
 
     setPropertiesPanelPos({
       x: canvasRect.left + bounds.centerX,
@@ -502,6 +511,29 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
       }
       if (isTextStyleOpen && !target.closest('[data-text-style]')) {
         setIsTextStyleOpen(false);
+      }
+
+      // CLEAR SELECTION if click is completely outside the canvas area, sidebars, and panels
+      // We whitelist everything that IS considered part of the workspace
+      const isOutsideWorkspace =
+        !target.closest('[data-canvas-area]') &&
+        !target.closest('.sidebar-glass-panel') &&
+        !target.closest('.properties-panel') &&
+        !target.closest('[data-chat-panel]') &&
+        !target.closest('.color-picker') &&
+        !target.closest('.opacity-panel') &&
+        !target.closest('.line-style-panel') &&
+        !target.closest('.font-family-dropdown') &&
+        !target.closest('.font-weight-dropdown') &&
+        !target.closest('[data-text-input-overlay]');
+
+      if (isOutsideWorkspace && !editingTextId) {
+        if (engineRef.current && (engineRef.current.getSelectedShapes().length > 0)) {
+          console.log('🌑 Clicking outside workspace - clearing selection');
+          engineRef.current.clearSelection();
+          updateSelectedShapesState();
+          saveCanvasState();
+        }
       }
     };
 
@@ -1021,6 +1053,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     }
 
     saveCanvasState();
+    updateSelectedShapesState();
   };
 
   // Handle updating shape from AI Chat Panel
@@ -1062,6 +1095,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
     engineRef.current.saveState();
     engineRef.current.render();
     saveCanvasState();
+    updateSelectedShapesState();
 
     console.log('🗑️ Removed placeholder:', placeholderId);
   }, [saveCanvasState]);
@@ -1661,6 +1695,15 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!engineRef.current || !canvasRef.current) return;
+
+    // IF EDITING TEXT: Manually blur the input when clicking on the canvas
+    // This is needed because e.preventDefault() below blocks natural focus change
+    const isEditing = editingTextId || isEditingText;
+    if (isEditing) {
+      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
+        (document.activeElement as HTMLElement).blur();
+      }
+    }
 
     // Prevent browser text selection/drag behaviors
     e.preventDefault();
@@ -3134,7 +3177,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           {/* AI Chat Button with Tooltip */}
           <div className="group relative flex items-center justify-center">
             <button
-              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${isChatPanelOpen ? 'bg-black text-white shadow-lg' : 'text-[#263341] hover:text-black hover:bg-gray-100'
+              className={`w-10 h-10 flex items-center justify-center rounded-full transition-colors ${isChatPanelOpen ? 'bg-[#263341] text-white shadow-lg' : 'text-[#263341] hover:text-black hover:bg-gray-100'
                 }`}
               onClick={() => setIsChatPanelOpen(!isChatPanelOpen)}
             >
@@ -3215,72 +3258,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
           </div>
         )}
 
-        {/* Right Side Panel - Credits, Status, Share, Tasks - Hidden when settings panel is open */}
-        {!isSettingsPanelOpen && (
-          <div className="fixed top-6 right-6 z-40">
-            <div className="bg-white/90 backdrop-blur-md border border-gray-200 rounded-xl p-2.5 shadow-xl min-w-[240px]">
-              {/* Top Section */}
-              <div className="flex items-center justify-between mb-2.5">
-                {/* Left: Credits and Status */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (credits !== null && credits <= 0) {
-                        setShowSubscriptionPopup(true);
-                      }
-                    }}
-                    className="flex items-center gap-1.5 hover:opacity-80 transition-opacity cursor-pointer"
-                  >
-                    <span className="text-black text-xs">✨</span>
-                    <span className="text-black text-xs">
-                      {creditsLoading ? '...' : credits !== null ? credits.toFixed(2) : '0.00'}
-                    </span>
-                  </button>
-                  {credits !== null && credits > 0 && credits < 10 && (
-                    <div className="bg-yellow-400/20 border border-yellow-400/30 rounded-sm px-2 py-0.5 flex relative">
-                      <span className="text-yellow-400 text-[10px]">Low credits</span>
-                    </div>
-                  )}
-                  {credits !== null && credits <= 0 && (
-                    <button
-                      onClick={() => setShowSubscriptionPopup(true)}
-                      className="bg-[#8b5cf6] hover:bg-[#7c3aed] text-white text-[10px] px-2 py-0.5 rounded-sm transition-colors"
-                    >
-                      Buy Credits
-                    </button>
-                  )}
-                </div>
-                {/* Right: Share Button */}
-                <div className="flex items-center gap-2">
-                  <button className="bg-[#e5e5e5] hover:bg-white text-black px-2 py-0.5 rounded-sm text-xs transition-colors flex items-center gap-1.5">
-                    <span className="text-xs">↗</span>
-                    <span>Share</span>
-                  </button>
-                </div>
-              </div>
-              {/* Bottom Section: Tasks Dropdown */}
-              <div className="relative" data-tasks-menu>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsTasksMenuOpen(!isTasksMenuOpen);
-                  }}
-                  className="text-black text-xs flex items-center gap-1.5 hover:text-gray-600 transition-colors"
-                >
-                  <span>Tasks</span>
-                  <svg className={`w-3 h-3 transition-transform ${isTasksMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {isTasksMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-2 z-50">
-                    <div className="px-4 py-2 text-sm text-gray-500">No tasks</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+
 
         {/* Shape Settings Panel */}
         <ShapeSettingsPanel
@@ -3321,7 +3299,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
         {/* User has implemented custom marker deletion logic */}
 
         {/* Canvas Area */}
-        <div className="flex-1 overflow-hidden relative" style={{ backgroundColor: '#fafcff' }}>
+        <div data-canvas-area className="flex-1 overflow-hidden relative" style={{ backgroundColor: '#fafcff' }}>
           <canvas
             ref={canvasRef}
             onMouseDown={handleMouseDown}
@@ -3564,7 +3542,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       setIsGeneratingEditedImage(false);
                     }
                   }}
-                  className="px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="px-5 py-2 text-sm font-medium text-white bg-[#263341] rounded-lg hover:bg-[#1e2832] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={isGeneratingEditedImage || extractedTextRegions.length === 0}
                 >
                   {isGeneratingEditedImage ? (
@@ -3601,11 +3579,12 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
             if (shape.type === 'image') {
               return (
                 <div
-                  className="absolute bg-white rounded-lg shadow-md px-3 py-2.5 flex items-center gap-2 z-50"
+                  className="absolute bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] px-2 py-1.5 flex items-center gap-1 z-50 border border-gray-100"
                   style={{
                     left: `${propertiesPanelPos.x}px`,
                     top: `${propertiesPanelPos.y}px`,
-                    transform: 'translateX(-50%)',
+                    transform: 'translate(-50%, -100%)',
+                    fontFamily: 'var(--font-poppins), Poppins, sans-serif'
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -3615,7 +3594,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       e.stopPropagation();
                       setIsCropping(true);
                       setCroppingImageId(selectedShapeId);
-                      // Initialize crop rect to full image bounds
                       setCropRect({
                         x: shape.x,
                         y: shape.y,
@@ -3623,19 +3601,20 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         height: height
                       });
                     }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors shrink-0"
                     title="Crop Image"
                   >
-                    <Crop className="w-4 h-4" />
+                    <Crop className="w-4 h-4 text-gray-500" />
+                    <span className="text-[13px] font-medium">Crop</span>
                   </button>
+
+                  <div className="w-[1px] h-4 bg-gray-100 mx-1" />
 
                   {/* Duplicate Button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!engineRef.current) return;
-
-                      // Create duplicate with offset position
                       const imageShape = shape as ImageShape;
                       const newShape: ImageShape = {
                         ...imageShape,
@@ -3643,7 +3622,6 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                         x: imageShape.x + 20,
                         y: imageShape.y + 20,
                       };
-
                       engineRef.current.addShape(newShape);
                       engineRef.current.clearSelection();
                       engineRef.current.selectShape(newShape.id);
@@ -3651,19 +3629,20 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       updateSelectedShapesState();
                       saveCanvasState();
                     }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors shrink-0"
                     title="Duplicate Image"
                   >
-                    <Copy className="w-4 h-4" />
+                    <Copy className="w-4 h-4 text-gray-500" />
+                    <span className="text-[13px] font-medium">Duplicate</span>
                   </button>
+
+                  <div className="w-[1px] h-4 bg-gray-100 mx-1" />
 
                   {/* Download Button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       const imageShape = shape as ImageShape;
-
-                      // Create a temporary link and trigger download
                       const link = document.createElement('a');
                       link.href = imageShape.src;
                       link.download = `image-${Date.now()}.png`;
@@ -3671,75 +3650,53 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       link.click();
                       document.body.removeChild(link);
                     }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded"
+                    className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors shrink-0"
                     title="Download Image"
                   >
-                    <Download className="w-4 h-4" />
+                    <Download className="w-4 h-4 text-gray-500" />
+                    <span className="text-[13px] font-medium">Export</span>
                   </button>
+
+                  <div className="w-[1px] h-4 bg-gray-100 mx-1" />
 
                   {/* Edit Text Button */}
                   <button
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (!engineRef.current) return;
-
                       const imageShape = shape as ImageShape;
-
-                      // Start extraction
                       setIsExtractingText(true);
                       setTextExtractionError(null);
                       setTextEditingImageId(imageShape.id);
-
                       try {
-                        // Call OCR API
                         const response = await fetch(`${API_BASE_URL}/extract-text`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({ imageUrl: imageShape.src }),
                         });
-
-                        if (!response.ok) {
-                          const errorData = await response.json();
-                          throw new Error(errorData.message || 'Failed to extract text');
-                        }
-
+                        if (!response.ok) throw new Error('Failed to extract text');
                         const data = await response.json();
-
-                        if (!data.success) {
-                          throw new Error(data.message || 'Text extraction failed');
-                        }
-
-                        // Check if any text was found
-                        if (!data.textRegions || data.textRegions.length === 0) {
-                          setTextExtractionError('No text detected in this image. Please try an image with visible text.');
-                          setIsExtractingText(false);
-                          return;
-                        }
-
-                        console.log(`✅ Extracted ${data.textRegions.length} text region(s)`);
-
-                        // Store extracted text
+                        if (!data.success) throw new Error(data.message || 'Text extraction failed');
                         setExtractedTextRegions(data.textRegions);
                         setEditedTextRegions(data.textRegions.map((r: any) => r.text));
-
-                        // Position will be updated by useEffect hook
                         setIsEditingText(true);
                       } catch (error: any) {
-                        console.error('❌ Error extracting text:', error);
-                        setTextExtractionError(error.message || 'Failed to extract text from image');
+                        setTextExtractionError(error.message || 'Failed to extract text');
                       } finally {
                         setIsExtractingText(false);
                       }
                     }}
-                    className="w-8 h-8 flex items-center justify-center text-black hover:bg-gray-100 rounded relative"
+                    className="flex items-center gap-2 px-3 py-2 text-gray-700 hover:bg-gray-50 rounded-xl transition-colors shrink-0 relative"
                     title="Edit Text"
                     disabled={isExtractingText}
                   >
                     {isExtractingText ? (
-                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
                     ) : (
-                      <Type className="w-4 h-4" />
+                      <Type className="w-4 h-4 text-gray-500" />
                     )}
+                    <span className="text-[13px] font-medium">Edit Text</span>
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center px-1 py-0.5 bg-blue-500 text-white text-[8px] font-bold rounded-full shadow-sm animate-pulse">NEW</span>
                   </button>
                 </div>
               );
@@ -3824,7 +3781,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       <ChevronDown className="w-3.5 h-3.5 opacity-40" />
                     </button>
                     {isFontFamilyOpen && (
-                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
+                      <div className="absolute top-full mt-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
                         {['Inter', 'Arial', 'Helvetica', 'Times New Roman', 'Verdana'].map((font) => (
                           <button
                             key={font}
@@ -3860,7 +3817,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       <ChevronDown className="w-3.5 h-3.5 opacity-40" />
                     </button>
                     {isFontWeightOpen && (
-                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
+                      <div className="absolute top-full mt-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[140px] overflow-hidden">
                         {['100', '200', '300', '400', '500', '600', '700', '800', '900'].map((weightCode) => (
                           <button
                             key={weightCode}
@@ -3900,7 +3857,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       <ChevronDown className="w-3.5 h-3.5 opacity-40" />
                     </button>
                     {isFontSizeOpen && (
-                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[80px] max-h-[200px] overflow-y-auto overflow-x-hidden">
+                      <div className="absolute top-full mt-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl py-1 z-[110] min-w-[80px] max-h-[200px] overflow-y-auto overflow-x-hidden">
                         {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72, 96, 120].map((size) => (
                           <button
                             key={size}
@@ -3945,7 +3902,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                       <ChevronDown className="w-3 h-3 opacity-40 ml-0.5" />
                     </button>
                     {isAlignmentOpen && (
-                      <div className="absolute bottom-full mb-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl p-1 z-[110] flex gap-1 min-w-[120px]">
+                      <div className="absolute top-full mt-2 left-0 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-2xl p-1 z-[110] flex gap-1 min-w-[120px]">
                         {[
                           { id: 'left', icon: AlignLeft },
                           { id: 'center', icon: AlignCenter },
@@ -4144,7 +4101,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                 style={{
                   left: `${propertiesPanelPos.x}px`,
                   top: `${propertiesPanelPos.y}px`,
-                  transform: 'translateX(-50%)',
+                  transform: 'translate(-50%, -100%)',
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -4617,6 +4574,7 @@ function CanvasCanvasInner({ initialProjectId }: CanvasCanvasProps = {}) {
                   transform: `scale(${engineRef.current.getState().viewport.zoom})`,
                   transformOrigin: 'top left',
                 }}
+                data-text-input-overlay
               >
                 <input
                   type="text"

@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS model_pricing (
 -- Insert default model pricing (approximate values - should be updated dynamically)
 -- Gemini models (pricing per 1M tokens)
 INSERT INTO model_pricing (model_id, model_name, price_per_token, provider) VALUES
-  ('gemini-2.0-flash-exp', 'Gemini 2.0 Flash', 0.000000075, 'gemini'), -- $0.075 per 1M tokens
+  ('gemini-2.0-flash', 'Gemini 2.0 Flash', 0.000000075, 'gemini'), -- $0.075 per 1M tokens
   ('gemini-1.5-pro', 'Gemini 1.5 Pro', 0.00000125, 'gemini'), -- $1.25 per 1M tokens
   ('gemini-1.5-flash', 'Gemini 1.5 Flash', 0.000000075, 'gemini') -- $0.075 per 1M tokens
 ON CONFLICT (model_id) DO NOTHING;

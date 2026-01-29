@@ -69,7 +69,7 @@ router.post('/extract-text', async (req, res) => {
     }
 
     // Use Gemini 2.0 Flash for OCR
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const prompt = `Extract ALL text from this image.
 For each distinct text element, provide:

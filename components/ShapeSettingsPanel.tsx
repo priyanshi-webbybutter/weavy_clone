@@ -214,11 +214,10 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
 
   return (
     <div
-      className="fixed right-6 top-6 bottom-6 w-[232px] bg-white z-50 flex flex-col rounded-[48px] overflow-hidden"
+      className="fixed right-6 top-6 bottom-6 w-[232px] bg-white z-50 flex flex-col rounded-[37px] overflow-hidden"
       style={{
         fontFamily: 'var(--font-poppins), sans-serif',
         border: '0.1px solid #cfcfcf',
-        boxShadow: 'var(--tw-ring-offset-shadow, 0 0 #0000006b), -1px 0px 17px 0px #00000026, var(--tw-shadow)'
       }}
     >
       {/* Header with Title and Icon */}
@@ -228,99 +227,103 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-8 pb-8">
+      <div className="flex-1 overflow-y-auto custom-scrollbar pl-2 pr-2 pb-2 space-y-8">
         {/* Text Color Section */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-gray-900 text-[13px] font-bold tracking-tight">Text Color</div>
-            <div className="relative group">
-              <input
-                type="color"
-                value={commonFill || '#000000'}
-                onChange={(e) => updateStyle({ fill: e.target.value })}
-                className="w-6 h-6 rounded-lg cursor-pointer absolute inset-0 opacity-0 z-10"
-              />
-              <button className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-100">
-                <span className="text-lg leading-none font-medium text-[20px]">+</span>
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-3">
-            {MATERIALS.map((m, i) => (
-              <button
-                key={i}
-                onClick={() => updateStyle({ fill: m.value })}
-                className={`aspect-square bg-[#F8F9FA] rounded-[16px] flex items-center justify-center p-1.5 border transition-all hover:shadow-md group ${commonFill === m.value ? 'border-black' : 'border-transparent'
-                  }`}
-              >
-                <div
-                  className="w-full h-full rounded-full shadow-[inset_0_-2px_6px_rgba(0,0,0,0.2),0_4px_8px_rgba(0,0,0,0.1)] transition-transform group-hover:scale-110"
-                  style={{ background: m.bg }}
+        {shapeType !== 'image' && (
+          <div>
+            <div className="flex items-center justify-between">
+              <div className="text-gray-900 text-[13px] font-bold tracking-tight">Text Color</div>
+              <div className="relative group">
+                <input
+                  type="color"
+                  value={commonFill || '#000000'}
+                  onChange={(e) => updateStyle({ fill: e.target.value })}
+                  className="w-6 h-6 rounded-lg cursor-pointer absolute inset-0 opacity-0 z-10"
                 />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Background Section */}
-        <div>
-          <div className="flex items-center justify-between mb-5">
-            <div className="text-gray-900 text-[13px] font-bold tracking-tight">Background</div>
-          </div>
-
-          <div className="flex items-center gap-2 bg-[#F1F3F5] p-2 rounded-[22px] border border-black/[0.02]">
-            <div className="relative group shrink-0">
-              <input
-                type="color"
-                value={(shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA'}
-                onChange={(e) => updateStyle(shapeType === 'text' ? { backgroundColor: e.target.value } : { fill: e.target.value })}
-                className="w-10 h-10 rounded-xl cursor-pointer absolute inset-0 opacity-0 z-10"
-              />
-              <div
-                className="w-10 h-10 rounded-[16px] bg-white shadow-sm border border-black/5 p-1 transition-transform group-hover:scale-105"
-              >
-                <div className="w-full h-full rounded-[10px]" style={{ backgroundColor: (shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA' }} />
+                <button className="w-6 h-6 flex items-center justify-center text-gray-400 hover:text-black transition-colors rounded-lg hover:bg-gray-100">
+                  <span className="text-lg leading-none font-medium text-[20px]">+</span>
+                </button>
               </div>
             </div>
-
-            <div className="flex-1 px-2">
-              <input
-                type="text"
-                value={((shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA').replace('#', '').toUpperCase()}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (/^[0-9A-F]{0,6}$/i.test(val)) {
-                    const newHex = val.length === 6 ? `#${val}` : (shapeType === 'text' ? commonBackgroundColor : commonFill);
-                    updateStyle(shapeType === 'text' ? { backgroundColor: newHex } : { fill: newHex });
-                  }
-                }}
-                className="bg-transparent border-none outline-none text-black text-[13px] w-full font-bold uppercase tracking-wider"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 px-3 border-l border-gray-200">
-              <input
-                type="text"
-                value={Math.round((commonOpacity ?? 1) * 100)}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value);
-                  if (!isNaN(val)) updateStyle({ opacity: Math.min(100, Math.max(0, val)) / 100 });
-                }}
-                className="bg-transparent border-none outline-none text-black text-[13px] w-6 font-bold text-right"
-              />
-              <span className="text-gray-400 text-[13px] font-bold">%</span>
+            <div className="grid grid-cols-4 gap-3">
+              {MATERIALS.map((m, i) => (
+                <button
+                  key={i}
+                  onClick={() => updateStyle({ fill: m.value })}
+                  className={`aspect-square bg-[#F8F9FA] rounded-[16px] flex items-center justify-center p-1.5 border transition-all hover:shadow-md group ${commonFill === m.value ? 'border-black' : 'border-transparent'
+                    }`}
+                >
+                  <div
+                    className="w-full h-full rounded-full shadow-[inset_0_-2px_6px_rgba(0,0,0,0.2),0_4px_8px_rgba(0,0,0,0.1)] transition-transform group-hover:scale-110"
+                    style={{ background: m.bg }}
+                  />
+                </button>
+              ))}
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Background Section */}
+        {shapeType !== 'image' && (
+          <div>
+            <div className="flex items-center justify-between mb-5">
+              <div className="text-gray-900 text-[13px] font-bold tracking-tight">Background</div>
+            </div>
+
+            <div className="flex items-center gap-2 bg-[#606b7626] p-2 rounded-[25px] w-full border border-black/[0.02]">
+              <div className="relative group shrink-0">
+                <input
+                  type="color"
+                  value={(shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA'}
+                  onChange={(e) => updateStyle(shapeType === 'text' ? { backgroundColor: e.target.value } : { fill: e.target.value })}
+                  className="w-10 h-10 rounded-xl cursor-pointer absolute inset-0 opacity-0 z-10"
+                />
+                <div
+                  className="w-10 h-10 rounded-[16px] bg-white shadow-sm border border-black/5 p-1 transition-transform group-hover:scale-105"
+                >
+                  <div className="w-full h-full rounded-[10px]" style={{ backgroundColor: (shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA' }} />
+                </div>
+              </div>
+
+              <div className="flex-1 px-2">
+                <input
+                  type="text"
+                  value={((shapeType === 'text' ? commonBackgroundColor : commonFill) || '#F8F9FA').replace('#', '').toUpperCase()}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^[0-9A-F]{0,6}$/i.test(val)) {
+                      const newHex = val.length === 6 ? `#${val}` : (shapeType === 'text' ? commonBackgroundColor : commonFill);
+                      updateStyle(shapeType === 'text' ? { backgroundColor: newHex } : { fill: newHex });
+                    }
+                  }}
+                  className="bg-transparent border-none outline-none text-black text-[13px] w-full font-[100] uppercase tracking-wider"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 px-3 border-l border-gray-200">
+                <input
+                  type="text"
+                  value={Math.round((commonOpacity ?? 1) * 100)}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val)) updateStyle({ opacity: Math.min(100, Math.max(0, val)) / 100 });
+                  }}
+                  className="bg-transparent border-none outline-none text-black text-[13px] w-6 font-[100] text-right"
+                />
+                <span className="text-gray-400 text-[13px] font-bold">%</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stroke Section */}
-        {shapeType !== 'text' && (
+        {shapeType !== 'text' && shapeType !== 'image' && (
           <div>
             <div className="flex items-center justify-between mb-5">
               <div className="text-gray-900 text-[14px] font-bold tracking-tight">Stroke</div>
             </div>
 
-            <div className="flex items-center gap-2 bg-[#F2F2F2] p-1.5 rounded-[22px] border border-black/[0.02] mb-3">
+            <div className="flex items-center gap-2 bg-[#606b7626] p-1.5 rounded-[25px] w-full border border-black/[0.02] mb-3">
               <div className="relative group shrink-0">
                 <input
                   type="color"
@@ -345,12 +348,12 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
                       updateStyle({ stroke: val.length === 6 ? `#${val}` : getCommonValue(s => s.style.stroke) });
                     }
                   }}
-                  className="bg-transparent border-none outline-none text-black text-[13px] w-full font-bold uppercase tracking-wider"
+                  className="bg-transparent border-none outline-none text-black text-[13px] w-full font-[100] uppercase tracking-wider"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between bg-[#F2F2F2] px-5 h-12 rounded-[22px] border border-black/[0.02]">
+            <div className="flex items-center justify-between bg-[#606b7626] px-5 h-12 rounded-[25px] w-full border border-black/[0.02]">
               <span className="text-gray-400 text-[11px] font-bold uppercase tracking-wider">Stroke Width</span>
               <input
                 type="number"
@@ -358,7 +361,7 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
                 max="20"
                 value={getCommonValue(s => s.style.strokeWidth) ?? 1}
                 onChange={(e) => updateStyle({ strokeWidth: parseInt(e.target.value) || 0 })}
-                className="w-10 bg-transparent border-none outline-none text-black text-[13px] text-right font-bold"
+                className="w-10 bg-transparent border-none outline-none text-black text-[13px] text-right font-[100]"
               />
             </div>
           </div>
@@ -369,20 +372,11 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
           <div>
             <div className="flex items-center justify-between mb-5">
               <div className="text-gray-900 text-[14px] font-bold tracking-tight">Dimensions</div>
-              <button
-                onClick={() => setAspectRatioLocked(!aspectRatioLocked)}
-                className={`w-10 h-10 flex items-center justify-center rounded-[16px] transition-all border ${aspectRatioLocked
-                  ? 'bg-black text-white border-black'
-                  : 'bg-[#F2F2F2] text-gray-400 border-transparent hover:text-black'
-                  }`}
-              >
-                <Link className="w-4 h-4" />
-              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-[#F2F2F2] p-4 rounded-[24px] border border-black/[0.02]">
-                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-2">Width</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-[#F2F2F2] p-2.5 rounded-[16px] border border-black/[0.02]">
+                <div className="text-gray-400 text-[9px] font-bold uppercase tracking-wider mb-1">Width</div>
                 <input
                   type="number"
                   min="1"
@@ -401,11 +395,11 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
                       }
                     }
                   }}
-                  className="w-full bg-transparent border-none outline-none text-black text-[14px] font-bold"
+                  className="w-full bg-transparent border-none outline-none text-black text-[12px] font-[200]"
                 />
               </div>
-              <div className="bg-[#F2F2F2] p-4 rounded-[24px] border border-black/[0.02]">
-                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-2">Height</div>
+              <div className="bg-[#F2F2F2] p-2.5 rounded-[16px] border border-black/[0.02]">
+                <div className="text-gray-400 text-[9px] font-bold uppercase tracking-wider mb-1">Height</div>
                 <input
                   type="number"
                   min="1"
@@ -424,7 +418,7 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
                       }
                     }
                   }}
-                  className="w-full bg-transparent border-none outline-none text-black text-[14px] font-bold"
+                  className="w-full bg-transparent border-none outline-none text-black text-[12px] font-[200]"
                 />
               </div>
             </div>
@@ -449,7 +443,7 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
                 min="0"
                 value={(firstShape as RectangleShape).radius || 0}
                 onChange={(e) => updateShape(firstShape.id, { radius: parseInt(e.target.value) || 0 } as Partial<Shape>)}
-                className="w-10 bg-transparent border-none outline-none text-black text-[13px] text-right font-bold"
+                className="w-10 bg-transparent border-none outline-none text-black text-[13px] text-right font-[200]"
               />
             </div>
           </div>
@@ -566,25 +560,25 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
         {/* Image Actions Section */}
         {!isMultiSelection && shapeType === 'image' && (
           <div>
-            <div className="text-gray-900 text-[14px] font-bold tracking-tight mb-5">Image Actions</div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="text-gray-900 text-[12px] font-bold tracking-tight mb-3">Image Actions</div>
+            <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => onCropImage?.(firstShape.id)}
-                className="flex items-center justify-center gap-2 h-12 bg-[#F2F2F2] hover:bg-gray-200 border border-black/[0.02] rounded-[20px] text-black text-[13px] font-bold transition-all"
+                className="flex items-center justify-center gap-2 h-9 bg-[#F2F2F2] hover:bg-gray-200 border border-black/[0.02] rounded-[14px] text-black text-[11px] font-[200] transition-all"
               >
-                <Crop className="w-4 h-4 text-gray-400" />
+                <Crop className="w-3.5 h-3.5 text-gray-400" />
                 Crop
               </button>
               <button
                 onClick={() => onDuplicateShape?.(firstShape.id)}
-                className="flex items-center justify-center gap-2 h-12 bg-[#F2F2F2] hover:bg-gray-200 border border-black/[0.02] rounded-[20px] text-black text-[13px] font-bold transition-all"
+                className="flex items-center justify-center gap-2 h-9 bg-[#F2F2F2] hover:bg-gray-200 border border-black/[0.02] rounded-[14px] text-black text-[11px] font-[200] transition-all"
               >
-                <Copy className="w-4 h-4 text-gray-400" />
+                <Copy className="w-3.5 h-3.5 text-gray-400" />
                 Duplicate
               </button>
               <button
                 onClick={() => onDownloadImage?.(firstShape.id)}
-                className="col-span-2 flex items-center justify-center gap-2 h-14 bg-black text-white rounded-[24px] text-[13px] font-bold transition-all active:scale-95 shadow-xl shadow-black/10"
+                className="col-span-2 flex items-center justify-center gap-2 h-10 bg-black text-white rounded-[16px] text-[11px] font-[200] transition-all active:scale-95 shadow-xl shadow-black/10"
               >
                 <Download className="w-4 h-4" />
                 Save Image
@@ -596,24 +590,24 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
         {/* Position Section */}
         {!isMultiSelection && (
           <div>
-            <div className="text-gray-900 text-[14px] font-bold tracking-tight mb-5">Position</div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-[#F2F2F2] p-4 rounded-[24px] border border-black/[0.02]">
-                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-2">X Coordinate</div>
+            <div className="text-gray-900 text-[12px] font-bold tracking-tight mb-3">Position</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-[#F2F2F2] p-2.5 rounded-[16px] border border-black/[0.02]">
+                <div className="text-gray-400 text-[9px] font-bold uppercase tracking-wider mb-1">X Coordinate</div>
                 <input
                   type="number"
                   value={Math.round(firstShape.x)}
                   onChange={(e) => updateShape(firstShape.id, { x: parseInt(e.target.value) || 0 } as Partial<Shape>)}
-                  className="w-full bg-transparent border-none outline-none text-black text-[14px] font-bold"
+                  className="w-full bg-transparent border-none outline-none text-black text-[12px] font-[200]"
                 />
               </div>
-              <div className="bg-[#F2F2F2] p-4 rounded-[24px] border border-black/[0.02]">
-                <div className="text-gray-400 text-[10px] font-bold uppercase tracking-wider mb-2">Y Coordinate</div>
+              <div className="bg-[#F2F2F2] p-2.5 rounded-[16px] border border-black/[0.02]">
+                <div className="text-gray-400 text-[9px] font-bold uppercase tracking-wider mb-1">Y Coordinate</div>
                 <input
                   type="number"
                   value={Math.round(firstShape.y)}
                   onChange={(e) => updateShape(firstShape.id, { y: parseInt(e.target.value) || 0 } as Partial<Shape>)}
-                  className="w-full bg-transparent border-none outline-none text-black text-[14px] font-bold"
+                  className="w-full bg-transparent border-none outline-none text-black text-[12px] font-[200]"
                 />
               </div>
             </div>
@@ -621,14 +615,14 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
         )}
 
         {/* Delete Shape Button */}
-        <div className="pt-4">
+        <div className="pt-2">
           <button
             onClick={() => {
               selectedShapes.forEach(shape => {
                 onSettingsChange(shape.id, { _delete: true } as any);
               });
             }}
-            className="w-full py-5 bg-[#FFF5F5] hover:bg-red-50 text-red-500 text-[14px] font-bold rounded-[28px] transition-all active:scale-95 border border-red-100/50"
+            className="w-full py-3 bg-[#FFF5F5] hover:bg-red-50 text-red-500 text-[12px] font-bold rounded-[18px] transition-all active:scale-95 border border-red-100/50"
           >
             Delete {isMultiSelection ? `${selectedShapes.length} shapes` : 'shape'}
           </button>
@@ -650,7 +644,7 @@ const ShapeSettingsPanel: React.FC<ShapeSettingsPanelProps> = ({
           background: #E1E7EB;
         }
       `}</style>
-    </div>
+    </div >
   );
 };
 
