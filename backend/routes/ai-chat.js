@@ -2442,15 +2442,37 @@ router.get('/history/:projectId', async (req, res) => {
     console.log(`✅ Found ${messages?.length || 0} messages`);
 
     // Transform database format to frontend Message format
-    const formattedMessages = (messages || []).map(msg => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content,
-      phase: msg.phase,
-      images: msg.images || [],
-      actions: msg.actions || [],
-      timestamp: new Date(msg.created_at),
-    }));
+    const formattedMessages = (messages || []).map(msg => {
+      let acknowledgement = null;
+      let description = null;
+      let content = msg.content;
+      
+      // Try to parse v2 format (JSON with _format: 'v2')
+      if (msg.role === 'assistant' && msg.content && msg.content.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(msg.content);
+          if (parsed._format === 'v2') {
+            acknowledgement = parsed.acknowledgement || null;
+            description = parsed.description || null;
+            content = ''; // Clear content since we have structured fields
+          }
+        } catch (e) {
+          // Not JSON, use content as-is (old format)
+        }
+      }
+      
+      return {
+        id: msg.id,
+        role: msg.role,
+        content: content,
+        acknowledgement: acknowledgement,
+        description: description,
+        phase: msg.phase,
+        images: msg.images || [],
+        actions: msg.actions || [],
+        timestamp: new Date(msg.created_at),
+      };
+    });
 
     res.json({
       success: true,
@@ -2745,10 +2767,15 @@ Respond with JSON only (no markdown, no code blocks):
           content: message
         });
         
-        // Save assistant message
+        // Save assistant message with structured format for parsing on load
+        const structuredContent = JSON.stringify({
+          _format: 'v2',
+          acknowledgement: intent.acknowledgement,
+          description: description || ''
+        });
         await saveChatMessage(supabaseClient, projectId, user.id, {
           role: 'assistant',
-          content: intent.acknowledgement + '\n\n' + description,
+          content: structuredContent,
           images: generatedImages,
           phase: 'EXECUTION'
         });
