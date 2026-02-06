@@ -51,10 +51,10 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
 
   useEffect(() => {
     fetchCredits();
-    
+
     // Refresh credits every 30 seconds
     const interval = setInterval(fetchCredits, 30000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -81,13 +81,12 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${
-        hasNoCredits 
-          ? 'bg-red-500/20 text-red-400' 
-          : isLowCredits 
-          ? 'bg-yellow-500/20 text-yellow-400' 
-          : 'bg-[#2a2a2a] text-gray-300'
-      }`}>
+      <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md ${hasNoCredits
+          ? 'bg-red-50 text-red-600 border border-red-100'
+          : isLowCredits
+            ? 'bg-yellow-50 text-yellow-600 border border-yellow-100'
+            : 'bg-gray-100 text-gray-700 border border-gray-200'
+        }`}>
         <Coins className="w-4 h-4" />
         <span className="text-sm font-medium">
           {credits !== null ? credits.toFixed(2) : '0.00'} credits
@@ -102,7 +101,7 @@ export default function CreditsDisplay({ className = '', showButton = true }: Cr
           Buy Credits
         </button>
       )}
-      
+
       {/* Subscription Tiers Popup */}
       {showSubscriptionPopup && (
         <SubscriptionTiersPopup

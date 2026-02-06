@@ -86,12 +86,12 @@ export default function SubscriptionTiersPopup({
   const handleSelectTier = async (tierId: string) => {
     setSelectedTier(tierId);
     setIsProcessing(true);
-    
+
     // Call the callback if provided
     if (onSelectTier) {
       await onSelectTier(tierId);
     }
-    
+
     // TODO: Integrate with payment processing
     // For now, just show a message
     setTimeout(() => {
@@ -102,28 +102,28 @@ export default function SubscriptionTiersPopup({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="relative bg-[#1a1a1a] border border-[#2a2a2a] rounded-2xl shadow-2xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="relative bg-white border border-gray-100 rounded-3xl shadow-2xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[#2a2a2a]">
+        <div className="flex items-center justify-between p-6 border-b border-gray-50">
           <div>
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {creditsRequired > 0 
-                ? `Insufficient Credits` 
+            <h2 className="text-2xl font-bold text-[#263341] mb-2">
+              {creditsRequired > 0
+                ? `Insufficient Credits`
                 : `Upgrade Your Plan`}
             </h2>
             {creditsRequired > 0 && (
-              <p className="text-sm text-gray-400">
-                You need <span className="text-yellow-400 font-semibold">{creditsRequired.toFixed(2)} credits</span> but only have{' '}
-                <span className="text-red-400 font-semibold">{currentCredits.toFixed(2)} credits</span> remaining.
+              <p className="text-sm text-gray-400 font-medium">
+                You need <span className="text-yellow-600 font-bold">{creditsRequired.toFixed(2)} credits</span> but only have{' '}
+                <span className="text-red-500 font-bold">{currentCredits.toFixed(2)} credits</span> remaining.
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-[#2a2a2a] rounded-lg"
+            className="text-gray-400 hover:text-[#263341] transition-all p-2 hover:bg-gray-50 rounded-xl"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5 stroke-[2.5]" />
           </button>
         </div>
 
@@ -142,15 +142,14 @@ export default function SubscriptionTiersPopup({
           )}
 
           {/* Tiers Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 py-4">
             {SUBSCRIPTION_TIERS.map((tier) => (
               <div
                 key={tier.id}
-                className={`relative p-6 rounded-xl border-2 transition-all cursor-pointer ${
-                  tier.popular
-                    ? 'border-purple-500 bg-purple-500/10 scale-105'
-                    : 'border-[#2a2a2a] bg-[#1f1f1f] hover:border-[#3a3a3a]'
-                } ${selectedTier === tier.id ? 'ring-2 ring-purple-500' : ''}`}
+                className={`relative p-8 rounded-2xl border transition-all cursor-pointer ${tier.popular
+                  ? 'border-purple-500 bg-purple-50 shadow-xl shadow-purple-500/10 scale-105 z-10'
+                  : 'border-gray-100 bg-white hover:border-gray-200 hover:shadow-lg'
+                  } ${selectedTier === tier.id ? 'ring-2 ring-purple-500' : ''}`}
                 onClick={() => handleSelectTier(tier.id)}
               >
                 {tier.popular && (
@@ -161,25 +160,29 @@ export default function SubscriptionTiersPopup({
                   </div>
                 )}
 
-                <div className={`inline-flex p-3 rounded-lg bg-gradient-to-r ${tier.color} mb-4`}>
+                <div className={`inline-flex p-3 rounded-xl bg-gradient-to-r ${tier.color} mb-4 shadow-lg shadow-current/20`}>
                   <div className="text-white">{tier.icon}</div>
                 </div>
 
-                <h3 className="text-xl font-bold text-white mb-2">{tier.name}</h3>
-                
-                <div className="mb-4">
-                  <span className="text-3xl font-bold text-white">${tier.price}</span>
-                  <span className="text-gray-400 text-sm ml-1">one-time</span>
-                </div>
+                <h3 className="text-xl font-bold text-[#263341] mb-2">{tier.name}</h3>
 
                 <div className="mb-4">
-                  <span className="text-lg font-semibold text-purple-400">{tier.credits.toLocaleString()} credits</span>
+                  <span className="text-3xl font-bold text-[#263341]">${tier.price}</span>
+                  <span className="text-gray-400 text-sm ml-1 font-medium">one-time</span>
                 </div>
 
-                <ul className="space-y-2 mb-6">
+                <div className="mb-6">
+                  <span className={`text-lg font-bold ${tier.popular ? 'text-purple-600' : 'text-blue-600'}`}>
+                    {tier.credits.toLocaleString()} credits
+                  </span>
+                </div>
+
+                <ul className="space-y-3 mb-8">
                   {tier.features.map((feature, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-gray-300">
-                      <Check className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+                    <li key={index} className="flex items-start gap-2 text-[13px] text-gray-500 font-medium">
+                      <div className="p-0.5 rounded-full bg-green-100 mt-0.5">
+                        <Check className="w-3 h-3 text-green-600" />
+                      </div>
                       <span>{feature}</span>
                     </li>
                   ))}
@@ -191,11 +194,10 @@ export default function SubscriptionTiersPopup({
                     handleSelectTier(tier.id);
                   }}
                   disabled={isProcessing && selectedTier === tier.id}
-                  className={`w-full py-3 px-4 rounded-lg font-semibold transition-all ${
-                    tier.popular
-                      ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white'
-                      : 'bg-[#2a2a2a] hover:bg-[#3a3a3a] text-white'
-                  } ${isProcessing && selectedTier === tier.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`w-full py-3 px-4 rounded-xl font-bold transition-all ${tier.popular
+                    ? 'bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white shadow-lg shadow-purple-500/20'
+                    : 'bg-gray-100 hover:bg-gray-200 text-[#263341]'
+                    } ${isProcessing && selectedTier === tier.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isProcessing && selectedTier === tier.id ? 'Processing...' : 'Select Plan'}
                 </button>
@@ -204,9 +206,9 @@ export default function SubscriptionTiersPopup({
           </div>
 
           {/* Credit Conversion Info */}
-          <div className="p-4 bg-[#1f1f1f] border border-[#2a2a2a] rounded-lg">
-            <p className="text-xs text-gray-400 text-center">
-              💡 <span className="font-semibold">Conversion Rate:</span> 1000 credits = $20 (1 credit = $0.02)
+          <div className="p-4 bg-gray-50 border border-gray-100 rounded-xl">
+            <p className="text-xs text-gray-400 text-center font-medium">
+              💡 <span className="font-bold text-gray-500">Conversion Rate:</span> 1000 credits = $20 (1 credit = $0.02)
               <br />
               Credits never expire and can be used for all AI models.
             </p>
