@@ -1,5 +1,7 @@
 const express = require('express');
 const Replicate = require('replicate');
+const replicatePredictions = require('../lib/replicate-predictions');
+const creditService = require('../lib/credit-service');
 
 const router = express.Router();
 
@@ -115,11 +117,54 @@ router.post('/generate-video', async (req, res) => {
     console.log('📤 Calling Replicate API:', modelId);
     console.log('📤 With params:', JSON.stringify(inputParams, null, 2));
 
-    const output = await replicate.run(modelId, {
-      input: inputParams,
-    });
+    // Use Predictions API to get detailed metrics, with fallback to simple API
+    let output;
+    let predictionMetrics = null;
+    let actualCost = null;
+    let predictionResult = null;
 
-    console.log('✅ Video generation completed');
+    try {
+      // Get pricing for video model
+      const pricing = await creditService.getModelPricing(modelId);
+      
+      // For Replicate models, use fixed cost per unit directly
+      const fixedCostPerUnit = pricing.dollar_cost_per_unit !== null && pricing.dollar_cost_per_unit !== undefined 
+        ? parseFloat(pricing.dollar_cost_per_unit) 
+        : null;
+
+      console.log(`💰 Pricing for ${modelId}: fixedCostPerUnit = $${fixedCostPerUnit || 'null'}`);
+
+      // Use Predictions API
+      predictionResult = await replicatePredictions.runWithPredictionsAPI(
+        modelId,
+        inputParams,
+        {
+          fixedCostPerUnit: fixedCostPerUnit, // Use fixed cost (do NOT pass costPerSecond)
+          maxWaitTime: 600000, // 10 minutes for video
+          pollInterval: 2000 // 2 seconds
+        }
+      );
+
+      output = predictionResult.output;
+      predictionMetrics = predictionResult.metrics;
+      actualCost = predictionResult.metrics.actualCost;
+
+      console.log('✅ Video generation completed with metrics');
+      console.log('📊 Prediction ID:', predictionResult.prediction.id);
+      console.log('📊 Predict Time:', `${predictionMetrics.predictTime}s`);
+      console.log('📊 Actual Cost:', actualCost ? `$${actualCost.toFixed(6)}` : 'N/A');
+    } catch (predictionError) {
+      console.warn('⚠️ Predictions API failed, falling back to replicate.run():', predictionError.message);
+      // Fallback to simple API
+      const replicate = new Replicate({
+        auth: process.env.REPLICATE_API_TOKEN
+      });
+      output = await replicate.run(modelId, {
+        input: inputParams,
+      });
+      console.log('✅ Video generation completed (using fallback API)');
+    }
+
     console.log('📦 Raw output from Replicate:', JSON.stringify(output, null, 2));
 
     // Extract video URL from output

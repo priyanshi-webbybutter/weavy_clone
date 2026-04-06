@@ -1,5 +1,5 @@
-import FlowCanvas from '@/components/FlowCanvas';
+import HomePage from '@/components/HomePage';
 
 export default function Home() {
-  return <FlowCanvas />;
+  return <HomePage />;
 }

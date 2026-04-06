@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   Clock,
   Image,
@@ -9,6 +11,7 @@ import {
   Video,
   ChevronDown,
   ChevronRight,
+  LogOut,
 } from 'lucide-react';
 
 interface NavItem {
@@ -26,6 +29,8 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClosePanel }) => {
   const [activeItem, setActiveItem] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const { signOut, user } = useAuth();
+  const router = useRouter();
 
   const topNavItems: NavItem[] = [
     { icon: Clock, label: 'Recent' },
@@ -58,19 +63,26 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
   const handleDropdownItemClick = (item: string) => {
     console.log('Dropdown item clicked:', item);
     setIsDropdownOpen(false);
-    // TODO: Add actual functionality for dropdown items
+
+    // Handle "Back to files" - navigate to home page
+    if (item === 'Back to files') {
+      router.push('/');
+      return;
+    }
+
+    // TODO: Add actual functionality for other dropdown items
   };
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[68px] bg-[#1a1a1a] border-r border-[#2a2a2a] flex flex-col items-center py-4 z-50">
+    <aside className="fixed left-0 top-0 h-screen w-[68px] bg-[#263341] border-r border-[#666666] flex flex-col items-center py-4 z-50">
       {/* Logo/Brand */}
       <div className="mb-8 relative group">
-        <div className="absolute w-7 h-7 left-[-25px] bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-sm hover:opacity-80 transition-opacity">
+        <div className="absolute w-7 h-7 left-[-25px] bg-[#263341] border border-[#666666] rounded-full flex items-center justify-center text-white font-bold text-sm hover:bg-[#666666] transition-colors">
           W
         </div>
         <button
           onClick={handleDropdownToggle}
-          className="absolute -bottom-5 right-[-25px] w-5 h-5 flex items-center justify-center hover:bg-[#2a2a2a] rounded transition-colors cursor-pointer"
+          className="absolute -bottom-5 right-[-25px] w-5 h-5 flex items-center justify-center hover:bg-[#666666] rounded transition-colors cursor-pointer"
         >
           <ChevronDown className="w-3 h-3 text-gray-500" />
         </button>
@@ -85,47 +97,60 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
             />
 
             {/* Dropdown Content */}
-            <div className="absolute left-[-20px] top-9 w-[200px] bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-2xl z-[70] py-1">
+            <div className="absolute left-[-20px] top-9 w-[200px] bg-white border border-gray-100 rounded-lg shadow-2xl z-[70] py-1">
               <button
                 onClick={() => handleDropdownItemClick('Back to files')}
-                className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
               >
                 Back to files
               </button>
 
-              <div className="w-full h-px bg-[#2a2a2a] my-1" />
+              <div className="w-full h-px bg-gray-100 my-1" />
 
               <button
                 onClick={() => handleDropdownItemClick('Create new file')}
-                className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
               >
                 Create new file
               </button>
 
               <button
                 onClick={() => handleDropdownItemClick('Duplicate file')}
-                className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
               >
                 Duplicate file
               </button>
 
-              <div className="w-full h-px bg-[#2a2a2a] my-1" />
+              <div className="w-full h-px bg-gray-100 my-1" />
 
               <button
                 onClick={() => handleDropdownItemClick('Share file')}
-                className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors"
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors"
               >
                 Share file
               </button>
 
-              <div className="w-full h-px bg-[#2a2a2a] my-1" />
+              <div className="w-full h-px bg-gray-100 my-1" />
 
               <button
                 onClick={() => handleDropdownItemClick('Preferences')}
-                className="w-full px-4 py-3 text-left text-sm text-gray-300 hover:bg-[#2a2a2a] transition-colors flex items-center justify-between group"
+                className="w-full px-4 py-3 text-left text-sm text-gray-700 hover:bg-[#656565] hover:text-white transition-colors flex items-center justify-between group"
               >
                 <span>Preferences</span>
-                <ChevronRight className="w-3 h-3 text-gray-500 group-hover:text-white transition-colors" />
+                <ChevronRight className="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" />
+              </button>
+
+              <div className="w-full h-px bg-gray-100 my-1" />
+
+              <button
+                onClick={async () => {
+                  await signOut();
+                  router.push('/login');
+                }}
+                className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-[#656565] hover:text-white transition-colors flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
               </button>
             </div>
           </>
@@ -144,10 +169,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
               className={`
                 w-10 h-10 flex items-center justify-center rounded-lg
                 transition-all duration-200 group relative
-                ${
-                  isActive
-                    ? 'bg-[#2a2a2a] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-[#242424]'
+                ${isActive
+                  ? 'bg-[#666666] text-white'
+                  : 'text-gray-300 hover:text-white hover:bg-[#666666]'
                 }
               `}
               title={item.label}
@@ -173,10 +197,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenPanel, activePanelType, onClose
               className={`
                 w-10 h-10 flex items-center justify-center rounded-lg
                 transition-all duration-200 group relative
-                ${
-                  isActive
-                    ? 'bg-[#2a2a2a] text-white'
-                    : 'text-gray-400 hover:text-white hover:bg-[#242424]'
+                ${isActive
+                  ? 'bg-[#666666] text-white'
+                  : 'text-gray-300 hover:text-white hover:bg-[#666666]'
                 }
               `}
               title={item.label}

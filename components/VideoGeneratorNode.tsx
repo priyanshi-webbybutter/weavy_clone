@@ -493,7 +493,7 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
         style={{
           position: 'absolute',
           right: '-60px',
-          top: '46%',
+          top: '110px',
           transform: 'translateY(-50%)',
           zIndex: 10
         }}
@@ -734,7 +734,7 @@ export const VideoGeneratorNode = memo(({ data, id, selected }: NodeProps<VideoG
           height: '12px',
           border: '2px solid #1a1a1a',
           right: '-7px',
-          top: '46%',
+          top: '130px',
         }}
       />
     </div>
